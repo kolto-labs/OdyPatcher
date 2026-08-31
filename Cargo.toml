@@ -1,0 +1,56 @@
+[package]
+name = "odypatcher"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.77"
+authors = ["Boden Crouch"]
+description = "Game data patcher and mod installer for Star Wars: Knights of the Old Republic I and II"
+homepage = "https://github.com/bodencrouch/OdyPatcher"
+repository = "https://github.com/bodencrouch/OdyPatcher"
+license = "AGPL-3.0-or-later"
+readme = "README.md"
+keywords = ["kotor", "modding", "patcher", "gff", "2da"]
+categories = ["game-development", "command-line-utilities"]
+
+[lib]
+name = "odypatcher"
+path = "src/lib.rs"
+
+[[bin]]
+name = "odypatcher"
+path = "src/main.rs"
+
+[features]
+default = ["gui"]
+gui = ["dep:eframe", "dep:egui", "dep:egui_extras", "dep:rfd"]
+
+[dependencies]
+eframe = { version = "0.32", optional = true, default-features = false, features = [
+    "glow",
+    "default_fonts",
+    "wayland",
+    "x11",
+] }
+egui = { version = "0.32", optional = true }
+egui_extras = { version = "0.32", optional = true }
+rfd = { version = "0.15", optional = true, default-features = false, features = ["xdg-portal", "tokio"] }
+
+kotor-formats = { git = "https://github.com/arrenkaetris/kotor-formats", tag = "v0.3.0" }
+
+# Pinned by commit rather than tag: BioNSSComp has no release yet. Swap this
+# for a tag once one is cut.
+# bionsscomp = { git = "https://github.com/arrenkaetris/BioNSSComp", tag = "v1.0.0" }
+bionsscomp = { git = "https://github.com/arrenkaetris/BioNSSComp", rev = "fc88c4f" }
+
+# To work against a local kotor-formats checkout instead of the pinned tag,
+# uncomment:
+# [patch."https://github.com/arrenkaetris/kotor-formats"]
+# kotor-formats = { path = "../kotor-formats/crates/kotor-formats" }
+
+[dev-dependencies]
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true
+panic = "unwind"

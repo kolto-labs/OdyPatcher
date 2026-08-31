@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install window dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxkbcommon-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test the terminal build
+        run: cargo test --no-default-features --all-targets
+
+      - name: Build with the window
+        run: cargo build --features gui
+
+      - name: Check lints
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+  older-toolchain:
+    name: Terminal build on the oldest supported Rust
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The terminal build has no third-party dependencies, so it stays
+      # buildable with the last toolchain that targeted Windows 7.
+      - uses: dtolnay/rust-toolchain@1.77.2
+
+      - name: Test the terminal build
+        run: cargo test --no-default-features --all-targets
+
+  windows-7:
+    name: Windows 7 terminal build
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.77.2
+        with:
+          targets: i686-pc-windows-msvc
+
+      - name: Build for 32-bit Windows
+        run: cargo build --release --no-default-features --target i686-pc-windows-msvc
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odypatcher-windows7-x86
+          path: target/i686-pc-windows-msvc/release/odypatcher.exe
+
+  formatting:
+    name: Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - run: cargo fmt --check
