@@ -168,7 +168,7 @@ source = "git+https://github.com/arrenkaetris/BioNSSComp?rev=fc88c4f#fc88c4f2a53
 
 [[package]]
 name = "odypatcher"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "bionsscomp",
  "eframe",
