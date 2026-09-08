@@ -111,6 +111,38 @@ impl Fixture {
     }
 }
 
+impl Fixture {
+    /// Run in a chosen path mode, reporting what the lookups cost.
+    fn run_in_mode(
+        &self,
+        instructions: &str,
+        mode: odypatcher::paths::Mode,
+    ) -> (odypatcher::PatchSummary, Vec<String>, usize, usize) {
+        self.mod_file("changes.ini", instructions.as_bytes());
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::clone(&captured);
+        let mut log = Log::new(
+            4,
+            Box::new(move |line| sink.lock().unwrap().push(line.text.clone())),
+        );
+
+        let mut host = SilentHost::with_game_folder(self.game.clone());
+        let mut patcher = Patcher::new(&self.base, &self.data, "changes.ini");
+        patcher.set_path_mode(mode);
+        patcher.files.set_install_path(&self.game);
+
+        let summary = patcher
+            .run(&mut log, &mut host)
+            .unwrap_or_else(|err| panic!("run failed: {err}"));
+
+        let fallbacks = patcher.files.resolver().lookup_fallbacks();
+        let confinements = patcher.files.resolver().confinement_resolutions();
+        let lines = captured.lock().unwrap().clone();
+        (summary, lines, fallbacks, confinements)
+    }
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
@@ -4152,4 +4184,116 @@ mod unattended {
 
         assert_eq!(cli::direct::run(checking), ExitCode::Success.code());
     }
+}
+
+/// A mod written the way mods actually are: Windows separators and casing
+/// throughout, because the instruction file was authored on Windows.
+const MIXED_CASE_MOD: &str = "[Settings]\n\
+     InstallerMode=1\n\
+     FileExists=1\n\
+     \n\
+     [InstallList]\n\
+     install_loose=Override\n\
+     \n\
+     [install_loose]\n\
+     File0=NewIcon.TGA\n\
+     \n\
+     [2DAList]\n\
+     Table0=Spells.2DA\n\
+     \n\
+     [Spells.2DA]\n\
+     AddRow0=spell_row\n\
+     \n\
+     [spell_row]\n\
+     label=added\n";
+
+fn seed_mixed_case_mod(f: &Fixture) {
+    f.mod_file("NewIcon.TGA", b"icon bytes");
+    f.mod_file("Spells.2DA", &spell_table());
+    f.game_file("override/spells.2da", &spell_table());
+}
+
+#[test]
+fn the_lowercase_mode_installs_a_windows_cased_mod_without_falling_back() {
+    let f = Fixture::new("lowercase-mode");
+    seed_mixed_case_mod(&f);
+
+    let (summary, _, fallbacks, _confinements) =
+        f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::Lowercase);
+
+    assert_eq!(summary.errors, 0, "the mod should install cleanly");
+    assert_eq!(f.override_file("newicon.tga"), b"icon bytes");
+    assert!(
+        f.override_exists("spells.2da"),
+        "the patched table should be in the override folder"
+    );
+
+    // The point of the mode: every lookup hit on its first try, so none of
+    // them paid for a directory scan.
+    assert_eq!(
+        fallbacks, 0,
+        "a folded tree should answer every lookup without falling back"
+    );
+}
+
+#[test]
+fn the_default_mode_installs_the_same_mod_and_renames_nothing_in_the_game() {
+    let f = Fixture::new("case-aware-mode");
+    seed_mixed_case_mod(&f);
+    let (summary, _, fallbacks, confinements) =
+        f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::CaseAware);
+
+    assert_eq!(summary.errors, 0);
+    assert_eq!(f.override_file("newicon.tga"), b"icon bytes");
+
+    // The counters belong to the lowercase mode; the default path never
+    // touches them.
+    assert_eq!(fallbacks, 0);
+    assert_eq!(confinements, 0);
+}
+
+#[test]
+fn a_folder_the_mod_never_names_is_left_alone_by_the_lowercase_mode() {
+    // The game folder sits outside the mod folder here, the way it does in a
+    // real install. The shared fixture nests them, which would let the
+    // mod-folder walk fold the game tree and hide what this is testing.
+    let f = Fixture::new("lowercase-untouched");
+    seed_mixed_case_mod(&f);
+
+    let game = std::env::temp_dir().join(format!(
+        "odypatcher-separate-game-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&game);
+    std::fs::create_dir_all(game.join("override")).unwrap();
+    std::fs::create_dir_all(game.join("StreamVoice")).unwrap();
+    std::fs::write(game.join("StreamVoice").join("Clip.wav"), b"voice").unwrap();
+    std::fs::write(game.join("override").join("spells.2da"), spell_table()).unwrap();
+
+    let game_path = format!("{}/", game.to_string_lossy());
+    f.mod_file("changes.ini", MIXED_CASE_MOD.as_bytes());
+
+    let mut log = Log::new(4, Box::new(|_| {}));
+    let mut host = SilentHost::with_game_folder(game_path.clone());
+    let mut patcher = Patcher::new(&f.base, &f.data, "changes.ini");
+    patcher.set_path_mode(odypatcher::paths::Mode::Lowercase);
+    patcher.files.set_install_path(&game_path);
+    let summary = patcher.run(&mut log, &mut host).expect("run failed");
+
+    assert_eq!(summary.errors, 0);
+    assert!(game.join("override").join("newicon.tga").is_file());
+
+    // Scoped folding is the whole point: StreamVoice holds tens of thousands
+    // of entries in a real install and this mod never writes to it, so it is
+    // not walked and not renamed.
+    let mut names: Vec<String> = std::fs::read_dir(game.join("StreamVoice"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["Clip.wav"]);
+
+    let _ = std::fs::remove_dir_all(&game);
 }

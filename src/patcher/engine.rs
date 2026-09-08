@@ -104,21 +104,26 @@ impl Patcher {
             log.notice(format!("Patch operation started {started}..."));
         }
 
-        // Normalize case up front: mod archives are packaged with wildly
-        // inconsistent casing, and the game folder can already carry
-        // case-only duplicates from an earlier install. Every lookup below
-        // goes through `fsutil::native_path`, whose fast path is a direct
-        // `path.exists()` check — pre-normalizing means that check matches
-        // on the first try instead of falling back to its per-component
-        // directory scan, so this also removes the main cost that scan adds.
-        Self::normalize_case(log, &self.data_path.clone(), "mod data");
-        Self::normalize_case(log, &self.base_path.clone(), "game folder");
+        // Fold the mod's own tree first. Mod archives are packaged with
+        // wildly inconsistent casing, and every lookup below goes through a
+        // resolver whose fast path is a direct `path.exists()` check, so
+        // folding first means that check matches on the first try instead of
+        // scanning the directory to find the name.
+        //
+        // `base_path` holds `tslpatchdata` and `backup`, so one walk covers
+        // both. It is the mod folder, not the game folder: the game folder is
+        // settled later, by `settle_install_path`, and is folded there.
+        if Self::normalize_case(log, &self.base_path.clone(), "mod folder") {
+            // Folded with nothing left unresolved, so a folded lookup that
+            // misses below here is a real miss and needs no second attempt.
+            self.files.resolver().trust_folded(&self.base_path.clone());
+        }
 
         let result = self.run_steps(log, host);
 
-        // Re-normalize afterward: this run may have written new files under
-        // whatever case a `changes.ini` directive or extracted archive used.
-        Self::normalize_case(log, &self.base_path.clone(), "game folder");
+        // Again afterward: this run wrote files under whatever case a
+        // changes.ini directive or an extracted archive used.
+        let _ = Self::normalize_case(log, &self.base_path.clone(), "mod folder");
 
         // Record why a run stopped before summarizing it.
         if let Err(err) = &result {
@@ -155,7 +160,9 @@ impl Patcher {
     /// content conflicts are surfaced as warnings rather than resolved by
     /// guessing which copy is right, since deleting either could lose real
     /// content; both stay on disk for a human to sort out.
-    fn normalize_case(log: &mut Log, root: &str, label: &str) {
+    ///
+    /// Reports whether the fold left nothing unresolved.
+    fn normalize_case(log: &mut Log, root: &str, label: &str) -> bool {
         let report = crate::tools::force_lowercase(root);
         if report.renamed > 0 || report.merged > 0 {
             log.verbose(format!(
@@ -170,6 +177,13 @@ impl Patcher {
                 b.display()
             ));
         }
+        for (path, reason) in &report.failed {
+            log.warn(format!(
+                "Could not fold \"{}\" to lowercase ({reason})",
+                path.display()
+            ));
+        }
+        report.is_clean()
     }
 
     fn run_steps(&mut self, log: &mut Log, host: &mut dyn Host) -> Result<()> {
@@ -2547,7 +2561,7 @@ mod tests {
         std::fs::write(dir.join("file.txt"), b"same").unwrap();
 
         let mut log = Log::silent(4);
-        Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
+        let _ = Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
 
         assert_eq!(log.warnings(), 0);
         assert_eq!(log.errors(), 0);
@@ -2569,7 +2583,7 @@ mod tests {
         std::fs::write(dir.join("file.txt"), b"version two").unwrap();
 
         let mut log = Log::silent(4);
-        Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
+        let _ = Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
 
         assert_eq!(log.warnings(), 1, "the conflict should be reported");
         assert_eq!(log.errors(), 0, "a case-only conflict is not fatal");

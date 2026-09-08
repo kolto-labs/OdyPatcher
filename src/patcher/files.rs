@@ -140,6 +140,56 @@ pub fn resolve_source_folder(
     Ok(resolved)
 }
 
+/// The folders under the game install this mod writes to.
+///
+/// `override` always, plus every `!Destination` and `!DefaultDestination`
+/// value, plus every `[InstallList]` folder. That last one is easy to miss:
+/// install folders are the *values* of arbitrary keys in that section
+/// (`install_folder0=StreamMusic`), not `!Destination` keys, so a mod that
+/// bulk-copies into `StreamMusic` names it nowhere else.
+///
+/// A capsule destination names an archive file rather than a folder, so the
+/// folder holding it is what gets folded.
+fn target_folders(ini: &IniFile) -> Vec<String> {
+    let mut folders: Vec<String> = vec!["override".to_string()];
+
+    for section in ini.section_names() {
+        for key in ["!Destination", "!DefaultDestination"] {
+            push_folder(&mut folders, &ini.read_string(&section, key, ""));
+        }
+    }
+
+    for key in ini.read_section("InstallList") {
+        push_folder(&mut folders, &ini.read_string("InstallList", &key, ""));
+    }
+
+    folders
+}
+
+fn push_folder(folders: &mut Vec<String>, value: &str) {
+    let value = value.trim();
+    if value.is_empty() || !is_safe_relative_path(value) {
+        return;
+    }
+
+    let folder = if is_capsule_destination(value) {
+        text::extract_file_path(value)
+    } else {
+        value.to_string()
+    };
+    let folder = folder.trim_end_matches(['/', '\\']).to_string();
+
+    if folder.is_empty() || folder == "." {
+        return;
+    }
+    if !folders
+        .iter()
+        .any(|known| known.eq_ignore_ascii_case(&folder))
+    {
+        folders.push(folder);
+    }
+}
+
 pub struct Context<'a> {
     pub ini: &'a IniFile,
     pub settings: &'a Settings,
@@ -165,6 +215,8 @@ pub struct FileHandler {
     /// what those lookups cost. Per run, so two runs in one process do not
     /// share a mode or a count.
     resolver: crate::paths::Resolver,
+    /// Whether the folders this mod writes to have been folded yet.
+    normalized_game_folders: bool,
 }
 
 impl FileHandler {
@@ -182,6 +234,7 @@ impl FileHandler {
             backup_current: true,
             last_skip_was_unsafe: false,
             resolver: crate::paths::Resolver::default(),
+            normalized_game_folders: false,
         }
     }
 
@@ -275,6 +328,10 @@ impl FileHandler {
         missing_message: &str,
     ) -> Result<String> {
         if !self.install_path.is_empty() && self.resolver.dir_exists(&self.install_path) {
+            // The common case: the window, --game-dir, and the tests all set
+            // the path before the run reaches here. Folding has to happen on
+            // this exit too, or it would never happen at all for them.
+            self.normalize_target_folders(ctx);
             return Ok(self.install_path.clone());
         }
 
@@ -302,8 +359,74 @@ impl FileHandler {
         self.install_path = chosen.clone();
         ctx.log.verbose(format!("Install path set to {chosen}."));
         ctx.host.install_path_changed(&chosen);
+        self.normalize_target_folders(ctx);
 
         Ok(chosen)
+    }
+
+    /// Fold the folders this mod writes to, once per run.
+    ///
+    /// Scoped rather than whole-install on purpose: a KOTOR II `StreamVoice`
+    /// folder alone holds tens of thousands of entries, and a mod only ever
+    /// writes to the handful of folders its instruction file names. Folding
+    /// the rest would cost a walk of the entire game install for nothing.
+    ///
+    /// Only a clean fold is trusted. Where a rename could not be performed,
+    /// the folded name a lookup expects is not the name on disk, so the
+    /// case-aware fallback still has work to do below that root.
+    fn normalize_target_folders(&mut self, ctx: &mut Context<'_>) {
+        if !self.resolver.is_lowercase() || self.normalized_game_folders {
+            return;
+        }
+        self.normalized_game_folders = true;
+
+        if self.install_path.is_empty() {
+            return;
+        }
+
+        // A filesystem that does not tell `Data` and `data` apart has nothing
+        // to fold, and folding there destroys files rather than renaming them.
+        if !crate::tools::filesystem_distinguishes_case(&fsutil::native_path(&self.install_path)) {
+            return;
+        }
+
+        let mut clean = true;
+        for folder in target_folders(ctx.ini) {
+            let root = format!(
+                "{}{folder}",
+                text::include_trailing_delimiter(&self.install_path)
+            );
+            if !self.resolver.dir_exists(&root) || !path_is_confined(&self.install_path, &root) {
+                continue;
+            }
+
+            let report = crate::tools::force_lowercase(&root);
+            if report.renamed > 0 || report.merged > 0 {
+                ctx.log.verbose(format!(
+                    "Folded names under \"{folder}\" ({} renamed, {} case-only duplicates merged)",
+                    report.renamed, report.merged
+                ));
+            }
+            for (a, b) in &report.conflicts {
+                clean = false;
+                ctx.log.warn(format!(
+                    "Case-only duplicate with different content, left in place — please resolve manually: \"{}\" vs \"{}\"",
+                    a.display(),
+                    b.display()
+                ));
+            }
+            for (path, reason) in &report.failed {
+                clean = false;
+                ctx.log.warn(format!(
+                    "Could not fold \"{}\" to lowercase ({reason}); lookups below it stay case-aware",
+                    path.display()
+                ));
+            }
+        }
+
+        if clean {
+            self.resolver.trust_folded(&self.install_path);
+        }
     }
 
     pub fn source_folder(&self) -> &str {
