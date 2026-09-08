@@ -1,9 +1,4 @@
-//! End-to-end runs against a synthetic game and mod.
-//!
-//! Each test builds a throwaway game folder and a mod that patches it, runs the
-//! engine, then reads the results back through the format readers. This is what
-//! proves the steps work together — that a line appended to the string table is
-//! findable by the table edit that references it, and so on.
+//! Integration tests: synthetic game + mod, run engine, verify via format readers.
 
 use odypatcher::compat::fsutil;
 use odypatcher::formats::erf::{self, ArchiveKind, ErfFile};
@@ -15,7 +10,6 @@ use odypatcher::host::SilentHost;
 use odypatcher::patcher::log::Log;
 use odypatcher::patcher::Patcher;
 
-/// A disposable game install with a mod beside it.
 struct Fixture {
     root: std::path::PathBuf,
     base: String,
@@ -48,17 +42,14 @@ impl Fixture {
         }
     }
 
-    /// Write a file into the mod's data folder.
     fn mod_file(&self, name: &str, bytes: &[u8]) {
         fsutil::write_file(&format!("{}{name}", self.data), bytes).unwrap();
     }
 
-    /// Write a file into the game folder.
     fn game_file(&self, relative: &str, bytes: &[u8]) {
         fsutil::write_file(&format!("{}{relative}", self.game), bytes).unwrap();
     }
 
-    /// Read a file from the game's override folder.
     fn override_file(&self, name: &str) -> Vec<u8> {
         fsutil::read_file(&format!("{}override/{name}", self.game)).unwrap()
     }
@@ -67,7 +58,6 @@ impl Fixture {
         fsutil::file_exists(&format!("{}override/{name}", self.game))
     }
 
-    /// Run the patcher and return its summary plus the lines it logged.
     fn run(&self, instructions: &str) -> (odypatcher::PatchSummary, Vec<String>) {
         self.mod_file("changes.ini", instructions.as_bytes());
 

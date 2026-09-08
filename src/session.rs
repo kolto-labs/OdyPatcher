@@ -1,8 +1,4 @@
-//! Setting up a run.
-//!
-//! Locating the mod's data folder, picking an install variant, and writing the
-//! install log are the same whether the run is driven from a window or a
-//! terminal. Both front ends share this.
+//! Session setup shared by GUI and CLI.
 
 use crate::compat::{fsutil, text};
 use crate::ini::IniFile;
@@ -11,27 +7,18 @@ use crate::patcher::config::{
 };
 use crate::patcher::log::LogLine;
 
-/// Everything needed to start a run.
 #[derive(Debug, Clone)]
 pub struct Session {
-    /// Folder the patcher runs from.
     pub base_path: String,
-    /// Folder holding the mod's data files, after any variant is applied.
     pub data_path: String,
-    /// Instruction file to read.
     pub ini_name: String,
-    /// Information file to display.
     pub info_name: String,
-    /// Install variants the mod offers.
     pub namespaces: NamespaceList,
-    /// Parsed instruction file.
     pub ini: IniFile,
-    /// Settings read from the instruction file.
     pub settings: Settings,
 }
 
 impl Session {
-    /// Find the mod's data folder next to the program and read its instructions.
     pub fn discover(base_path: &str, ini_name: &str, info_name: &str) -> Self {
         let base_path = text::include_trailing_delimiter(base_path);
         let data_root = text::include_trailing_delimiter(&format!("{base_path}{DATA_FOLDER}"));
@@ -59,7 +46,6 @@ impl Session {
         session
     }
 
-    /// Apply one of the mod's install variants.
     pub fn select_namespace(&mut self, index: usize) {
         let resolved = self.namespaces.resolve(index);
         self.data_path = resolved.data_path;
@@ -68,7 +54,6 @@ impl Session {
         self.reload();
     }
 
-    /// Re-read the instruction file.
     pub fn reload(&mut self) {
         let path = format!("{}{}", self.data_path, self.ini_name);
         self.ini = if crate::patcher::files::path_is_confined(&self.data_path, &path) {
@@ -80,31 +65,26 @@ impl Session {
         self.info_name = config::fallback_info_name(&self.data_path, &self.info_name);
     }
 
-    /// Full path of the instruction file.
     pub fn ini_path(&self) -> String {
         format!("{}{}", self.data_path, self.ini_name)
     }
 
-    /// Full path of the information file.
     pub fn info_path(&self) -> String {
         format!("{}{}", self.data_path, self.info_name)
     }
 
-    /// True when the instruction file is where it should be.
     pub fn has_instructions(&self) -> bool {
         let path = self.ini_path();
         crate::patcher::files::path_is_confined(&self.data_path, &path)
             && fsutil::file_exists(&path)
     }
 
-    /// True when the mod's description file is where it should be.
     pub fn has_info(&self) -> bool {
         let path = self.info_path();
         crate::patcher::files::path_is_confined(&self.data_path, &path)
             && fsutil::file_exists(&path)
     }
 
-    /// The mod's description, as readable text.
     pub fn info_text(&self) -> String {
         if !self.has_info() {
             return "No description was provided for this mod.".to_string();
@@ -115,16 +95,13 @@ impl Session {
         }
     }
 
-    /// The report of what a run would change.
     pub fn summary_text(&self) -> String {
         crate::summary::to_text(&self.ini, &self.settings, &self.ini_name, &self.info_name)
     }
 
     /// Why a run may not start, or `None` when it may.
     ///
-    /// The instruction file itself is the only global configuration
-    /// prerequisite. Legacy `FileExists` sentinels are not needed: checking the
-    /// filesystem directly is both clearer and more reliable.
+    /// Only the instruction file gates the whole run. `FileExists` in the INI
     pub fn blocked_reason(&self) -> Option<String> {
         if self.has_instructions() {
             return None;
@@ -136,7 +113,6 @@ impl Session {
         ))
     }
 
-    /// Wording for the button that starts the run.
     pub fn start_label(&self) -> &'static str {
         if self.settings.installer_mode {
             "Install Mod"
@@ -145,7 +121,6 @@ impl Session {
         }
     }
 
-    /// Game folder found in the registry, when the mod asks for one.
     pub fn looked_up_game_folder(&self) -> Option<String> {
         if !self.settings.lookup_game_folder {
             return None;
@@ -157,7 +132,6 @@ impl Session {
     ///
     /// Nothing is written when logging is switched off. A mod that asked for a
     /// plain log gets `installlog.txt`; otherwise the log is written as styled
-    /// text to `installlog.rtf`, keeping the colours the run reported with.
     pub fn write_install_log(&self, lines: &[LogLine]) -> Option<String> {
         if self.settings.log_level == 0 {
             return None;
@@ -254,11 +228,6 @@ fn escape_rtf(text: &str) -> String {
     out
 }
 
-/// Resolve a folder the operator picked into the mod root beside `tslpatchdata`.
-///
-/// Accepts either the mod's own folder or the `tslpatchdata` folder inside it,
-/// since both are reasonable things to point at. Reports `None` when neither
-/// holds instructions.
 pub fn locate_mod(chosen: &str) -> Option<String> {
     let inner = fsutil::join(chosen, DATA_FOLDER);
 
@@ -288,12 +257,10 @@ pub fn locate_mod(chosen: &str) -> Option<String> {
     })
 }
 
-/// True when a mod sits beside the program, which is how it is usually shipped.
 pub fn mod_is_beside_program(base_path: &str) -> bool {
     fsutil::dir_exists(&fsutil::join(base_path, DATA_FOLDER))
 }
 
-/// Folder the running program lives in.
 pub fn program_folder() -> String {
     std::env::current_exe()
         .ok()

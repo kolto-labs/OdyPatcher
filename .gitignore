@@ -6,3 +6,11 @@ debug
 **/*.rs.bk
 
 Cargo.lock.orig
+
+.claude/
+.cursor/
+.mission/
+.remember/
+/logs/
+odypatcher_build_into_executable_and_test_GUI.txt
+agentdecompile_projects/

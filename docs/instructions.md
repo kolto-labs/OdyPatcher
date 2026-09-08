@@ -22,33 +22,25 @@ patching, where the operator points at each file. Unattended `--install` refuses
 an explicitly interactive configuration, while `--validate` accepts either
 mode and does not need a game folder.
 
-### Configuration policy
+### What a mod actually needs
 
-OdyPatcher follows **convention over configuration**: omitted settings inherit
-safe, useful defaults, and blank optional settings behave like omitted ones.
-It uses **graceful degradation** for optional presentation and unavailable
-individual operations, and **capability-based validation** reports a problem
-against only the feature that needs that input. A run is blocked globally only
-when it lacks an instruction file, a selected write action lacks a game folder,
-or an explicitly configured prerequisite is not met.
+A minimal mod is `tslpatchdata/changes.ini` plus the sections for the work it
+does. Settings, `namespaces.ini`, description files, and compiler inputs are
+optional. Leave them out and the defaults hold. A blank optional key is the
+same as omitting it.
 
-This is also a **progressive-disclosure** model: a minimal mod needs only
-`tslpatchdata/changes.ini` and the sections for the work it performs. Add
-settings, `namespaces.ini`, description files, compiler inputs, or prerequisite
-checks only when the mod uses those capabilities.
+`--validate` reports a missing input against the operation that needs it, not
+the whole run. A write action still needs a game folder. A run without an
+instruction file does not start. `AddField` still needs a `FieldType`; a row
+change still needs a way to pick the row; compilation still needs source plus a
+compiler. `Required` files are checked only when the mod names them. One bad
+operation is reported and skipped when continuing is safe.
 
-The remaining requirements are **conditional prerequisites**, not boilerplate:
-a write action needs a game folder; each declared patch needs its source and
-target format; `AddField` needs a `FieldType`; row changes need a way to select
-a row; compilation needs source plus an available compiler; and `Required`
-files are enforced only when the mod author explicitly declares them. A problem
-in one declared operation is reported and skipped where continuing is safe.
-
-Sections are applied in a fixed order: string table, loose files, tables,
-structured game files, byte patches, scripts, soundsets. Later steps can use
-values that earlier ones produced. This matches TSLPatcher. HoloPatcher compiles
-scripts before byte patches and copies loose files before the string table;
-those differences are left as they are. See [Where this differs from
+Sections run in a fixed order: string table, loose files, tables, structured
+game files, byte patches, scripts, soundsets. Later steps can use values the
+earlier ones produced. That is TSLPatcher's order. HoloPatcher compiles scripts
+before byte patches and copies loose files before the string table; those
+differences stay. See [Where this differs from
 HoloPatcher](#where-this-differs-from-holopatcher).
 
 ## Settings
@@ -138,13 +130,13 @@ section:
 
 | Captured | Where it works |
 | --- | --- |
-| `RowIndex` | Row modifiers — the position of the row |
-| `RowLabel` | Row modifiers — the row's label |
-| *a column name* | Row modifiers — that cell's value |
-| `ColumnLabel` | Column modifiers — the new column's label |
-| `i<row>` or `l<label>` | Column modifiers — that cell's value |
-| `ListIndex` | Field additions — the position within a list |
-| `!FieldPath` | Field additions — the path of the new field, usable later as a GFF key |
+| `RowIndex` | Row modifiers: the position of the row |
+| `RowLabel` | Row modifiers: the row's label |
+| *a column name* | Row modifiers: that cell's value |
+| `ColumnLabel` | Column modifiers: the new column's label |
+| `i<row>` or `l<label>` | Column modifiers: that cell's value |
+| `ListIndex` | Field additions: the position within a list |
+| `!FieldPath` | Field additions: the path of the new field, usable later as a GFF key |
 
 **`high()`** becomes one more than the largest whole number already in that
 column, which is how a mod claims an unused identifier. **`high(column)`** does
@@ -207,7 +199,7 @@ StrRef0=0
 ## Installing files
 
 Each key in `InstallList` names a section, and its value is where those files
-go — a folder below the game, or an archive to insert into. An omitted or blank
+go: a folder below the game, or an archive to insert into. An omitted or blank
 destination defaults to `override`.
 
 ```ini
@@ -364,7 +356,7 @@ replaced, are compiled, and the result is installed. A source with no `main` or
 `StartingConditional` is treated as an include: it is processed but not compiled,
 and must be listed before the scripts that use it.
 
-Compilation uses odynsscomp in-process when `nwscript.nss` can be loaded from
+Compilation uses bionsscomp in-process when `nwscript.nss` can be loaded from
 `tslpatchdata` or from beside the patcher. Otherwise a shipped `nwnnsscomp` is
 run as a subprocess.
 

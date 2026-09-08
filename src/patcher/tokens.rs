@@ -4,13 +4,6 @@
 //! later one. Two kinds of token exist:
 //!
 //! - `2DAMEMORY<n>` slots hold text captured while editing a table or adding a
-//!   field — a row index, a row label, a cell value, a list position, or a
-//!   field path.
-//! - `StrRef<n>` tokens name lines the run appended to the string table, and
-//!   resolve to whatever position those lines ended up at.
-//!
-//! Both are substituted wherever a value is read, so a mod can add a line to
-//! the string table and point a table cell at it without knowing the number.
 
 use crate::compat::text;
 use crate::error::Result;
@@ -20,34 +13,24 @@ use crate::patcher::log::Log;
 /// Which step is capturing a value, which decides how the value is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Capture {
-    /// A row being appended to a table.
     AddRow,
-    /// A row being edited in place.
     ModifyRow,
-    /// A row being copied.
     CopyRow,
-    /// A column being appended to a table.
     AddColumn,
-    /// A field being added to a structured game file.
     AddField,
 }
 
 /// Where a captured value comes from.
 #[derive(Debug, Clone, Copy)]
 pub struct Source<'a> {
-    /// Which step is capturing.
     pub capture: Capture,
     /// Row for row captures, column for column captures, list position when
-    /// adding a field.
     pub position: i32,
-    /// Path of the field just added, for `!FieldPath` captures.
     pub field_path: &'a str,
-    /// Table being edited, when there is one.
     pub table: Option<&'a TwoDaFile>,
 }
 
 impl<'a> Source<'a> {
-    /// A capture from a table row or column.
     pub fn from_table(capture: Capture, position: i32, table: Option<&'a TwoDaFile>) -> Self {
         Self {
             capture,
@@ -57,7 +40,6 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// A capture from a field just added to a structured game file.
     pub fn from_field(position: i32, field_path: &'a str) -> Self {
         Self {
             capture: Capture::AddField,
@@ -76,27 +58,22 @@ pub struct TokenStore {
 }
 
 impl TokenStore {
-    /// An empty store.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Values currently held in the numbered slots.
     pub fn slots(&self) -> &[String] {
         &self.slots
     }
 
-    /// Token-to-position pairs for string table entries.
     pub fn strrefs(&self) -> &[(i32, i32)] {
         &self.strrefs
     }
 
-    /// True when no string table tokens were declared.
     pub fn has_no_strrefs(&self) -> bool {
         self.strrefs.is_empty()
     }
 
-    /// Declare a `StrRef<n>` token pointing at a line in the append file.
     pub fn declare_strref(&mut self, token: i32, append_position: i32) {
         self.store_strref(token, append_position);
     }
@@ -116,7 +93,6 @@ impl TokenStore {
     /// Repoint every token that resolved to `from` so it resolves to `to`.
     ///
     /// Used once an appended line lands at its final position in the game's
-    /// string table, or when an identical line already existed and is reused.
     pub fn repoint_strref(&mut self, from: i32, to: i32) {
         for entry in &mut self.strrefs {
             if entry.1 == from {
@@ -125,7 +101,6 @@ impl TokenStore {
         }
     }
 
-    /// True when the text names a string-table token.
     pub fn is_strref_token(token: &str) -> bool {
         let Some(head) = token.get(..6) else {
             return false;
@@ -136,7 +111,6 @@ impl TokenStore {
     /// Resolve a string-table token to a position.
     ///
     /// An unknown token resolves to position 0 and is reported, because a bad
-    /// reference should show up in the log rather than abort the install.
     pub fn resolve_strref(&self, token: &str, log: &mut Log) -> i32 {
         if let Some(head) = token.get(..6) {
             if head.eq_ignore_ascii_case("strref") {
@@ -163,7 +137,6 @@ impl TokenStore {
     ///
     /// Anything that is not such a reference is returned unchanged. A reference
     /// to a slot that was never filled falls back to the first slot; with no
-    /// slots at all the reference is left in place and reported as an error.
     pub fn substitute(&self, value: &str, log: &mut Log) -> String {
         let Some(index_text) = value.strip_prefix("2DAMEMORY") else {
             return value.to_string();
@@ -240,7 +213,6 @@ impl TokenStore {
     ///
     /// Returns whether `key` was a slot reference, so callers can tell a capture
     /// apart from an ordinary column name. `StrRef<n>` keys store into string
-    /// table memory the same way HoloPatcher `store_tlk` does.
     pub fn capture(
         &mut self,
         key: &str,
@@ -321,7 +293,6 @@ impl TokenStore {
         Ok(())
     }
 
-    /// Copy one memory slot onto another (`2DAMEMORY1=2DAMEMORY2` in a GFF section).
     pub fn copy_slot(&mut self, dest_key: &str, src_key: &str, log: &mut Log) {
         let held = self.substitute(src_key, log);
         let Some(slot) = self.slot_for_key(dest_key, log) else {
@@ -336,7 +307,6 @@ impl TokenStore {
         self.slots[slot] = held;
     }
 
-    /// True when the text names a `2DAMEMORY<n>` slot.
     pub fn is_memory_token(token: &str) -> bool {
         let Some(head) = token.get(..9) else {
             return false;

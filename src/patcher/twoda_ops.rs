@@ -3,11 +3,6 @@
 //! Four kinds of change apply to a table: appending a row, editing an existing
 //! row, appending a column, and copying a row. Each is described by its own INI
 //! section whose keys are column names and whose values are what to put there.
-//!
-//! Two value forms are computed rather than literal. `high()` becomes one more
-//! than the largest number already in that column, which is how mods claim a
-//! free identifier. `high(column)` does the same using a named column. `inc(n)`
-//! adds `n` to the value the copied row already had.
 
 use crate::compat::text;
 use crate::error::{PatchError, Result};
@@ -23,11 +18,8 @@ const HIGH_MARKER: &str = "high()";
 /// Marker asking for the existing value plus an amount.
 const INCREMENT_MARKER: &str = "inc(";
 
-/// Which column a `high()` / `high(column)` value should read.
 enum HighKind {
-    /// `high()` — the cell's own column, or the row-label max for a row label.
     Current,
-    /// `high(column)` — a named column. Wiki additive; Delphi INIs use `high()`.
     Named(String),
 }
 

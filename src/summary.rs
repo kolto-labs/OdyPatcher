@@ -1,12 +1,8 @@
-//! What a run will do, before it does it.
-//!
-//! Reads the instruction file and describes every change it declares, so the
-//! operator can see what is about to happen to their game without starting it.
+//! Pre-run report: what the instruction file declares without applying it.
 
 use crate::ini::IniFile;
 use crate::patcher::config::Settings;
 
-/// Build the report as lines of text.
 pub fn build(ini: &IniFile, settings: &Settings, ini_name: &str, info_name: &str) -> Vec<String> {
     let mut out = Vec::new();
 
@@ -216,7 +212,6 @@ fn effective_destination(ini: &IniFile, list: &str, name: &str) -> String {
     }
 }
 
-/// Start a titled section.
 fn section(out: &mut Vec<String>, title: &str, rule: &str) {
     out.push(String::new());
     out.push(String::new());
@@ -224,7 +219,6 @@ fn section(out: &mut Vec<String>, title: &str, rule: &str) {
     out.push(rule.to_string());
 }
 
-/// Where the run will install to.
 fn install_location(settings: &Settings) -> String {
     if !settings.lookup_game_folder {
         return "User selected.".to_string();
@@ -234,7 +228,6 @@ fn install_location(settings: &Settings) -> String {
     crate::patcher::config::registry_game_path(settings.lookup_game).unwrap_or_default()
 }
 
-/// Wording for a log level.
 fn log_level_text(level: i32) -> &'static str {
     match level {
         0 => "0 - No progress log",
@@ -245,7 +238,6 @@ fn log_level_text(level: i32) -> &'static str {
     }
 }
 
-/// Name to show for a file, including its source when one is named.
 fn described_name(ini: &IniFile, name: &str) -> String {
     let saved = ini.read_string(name, "!SaveAs", name);
     let mut shown = if saved.is_empty() {
@@ -262,7 +254,6 @@ fn described_name(ini: &IniFile, name: &str) -> String {
     shown
 }
 
-/// Count the additions, edits, and new columns declared for one table.
 fn count_table_changes(ini: &IniFile, table: &str) -> (usize, usize, usize) {
     let mut added = 0usize;
     let mut modified = 0usize;
@@ -282,14 +273,12 @@ fn count_table_changes(ini: &IniFile, table: &str) -> (usize, usize, usize) {
     (added, modified, columns)
 }
 
-/// Render the report as one block of text.
 pub fn to_text(ini: &IniFile, settings: &Settings, ini_name: &str, info_name: &str) -> String {
     let mut text = build(ini, settings, ini_name, info_name).join("\n");
     text.push('\n');
     text
 }
 
-/// True when the instruction file declares no changes at all.
 pub fn declares_no_changes(ini: &IniFile) -> bool {
     [
         "TLKList",

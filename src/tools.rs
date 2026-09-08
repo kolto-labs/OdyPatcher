@@ -1,18 +1,12 @@
-//! Extras offered alongside installing.
-//!
-//! Checking a mod's instructions before running them, putting backed-up files
-//! back, and lowercasing filenames for platforms that care about case.
+//! Extras: validate instructions, restore backups, force lowercase filenames.
 
 use crate::compat::{fsutil, text};
 use crate::ini::IniFile;
 use crate::session::Session;
 
-/// One thing worth telling the operator about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
-    /// True when this would stop the run rather than just be worth knowing.
     pub blocking: bool,
-    /// What was found.
     pub message: String,
 }
 
@@ -55,10 +49,6 @@ fn source_dir(ini: &IniFile, data: &str, list: &str, file_or_folder: &str) -> St
         .unwrap_or_else(|_| data.to_string())
 }
 
-/// Check a mod's instructions without changing anything.
-///
-/// Uses capability-based validation: unavailable inputs are reported against
-/// the operation that needs them, but unrelated work remains valid.
 pub fn validate(session: &Session) -> Vec<Finding> {
     let ini = &session.ini;
     let data = &session.data_path;
@@ -534,13 +524,10 @@ fn restore_destination(game_folder: &str, name: &str) -> String {
 /// What a restore did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RestoreReport {
-    /// Files put back, as `name -> destination`.
     pub restored: Vec<(String, String)>,
-    /// Files that could not be put back, with the reason.
     pub failed: Vec<(String, String)>,
 }
 
-/// Put backed-up files back into the game.
 pub fn restore_backup(session: &Session, game_folder: &str) -> RestoreReport {
     let mut report = RestoreReport::default();
     let folder = fsutil::join(&session.base_path, "backup");
@@ -570,7 +557,6 @@ pub fn restore_backup(session: &Session, game_folder: &str) -> RestoreReport {
 /// Rename files and folders below a path to lowercase.
 ///
 /// Useful where the filesystem tells `Appearance.2da` and `appearance.2da`
-/// apart but the game does not. Reports how many names changed.
 pub fn force_lowercase(root: &str) -> usize {
     let target = fsutil::native_path(root);
     let mut renamed = 0usize;

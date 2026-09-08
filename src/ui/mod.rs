@@ -1,16 +1,4 @@
-//! The window.
-//!
-//! Two layouts, chosen once at startup by where the mod is:
-//!
-//! - A mod shipped with the patcher — its `tslpatchdata` folder sitting beside
-//!   the program — opens the [`classic`] layout, which shows the mod's own
-//!   description and installs it directly.
-//! - Anything else opens the [`browse`] layout, which asks for the mod folder
-//!   and the game folder first.
-//!
-//! The patch itself runs on its own thread in both. When the engine needs a
-//! folder or a file it sends the question back here, because file dialogs
-//! belong to the thread that owns the window.
+//! GUI: classic layout (mod beside exe) or browse layout (pick folders).
 
 mod browse;
 mod classic;
@@ -29,41 +17,28 @@ use crate::session::{self, Session};
 /// Which layout the window is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// A mod shipped beside the program.
     Classic,
-    /// A mod the operator points at.
     Browse,
 }
 
-/// Something the engine needs an answer to.
 enum Question {
-    /// Where the game is installed.
     GameFolder(String),
-    /// A file the engine could not find.
     File(FileRequest),
 }
 
-/// A question and where to send the answer.
 struct Ask {
     question: Question,
     reply: Sender<Option<String>>,
 }
 
-/// What the worker thread sends back to the window.
 enum Message {
-    /// A line for the progress log.
     Line(Box<LogLine>),
-    /// How far along the run is.
     Progress(usize, usize),
-    /// The game folder has been settled.
     InstallPath(String),
-    /// The engine needs an answer before it can continue.
     Ask(Ask),
-    /// The run finished.
     Finished(Box<Result<PatchSummary, crate::PatchError>>),
 }
 
-/// Sends the engine's questions to the window and waits for answers.
 struct WindowHost {
     sender: Sender<Message>,
 }
@@ -106,37 +81,26 @@ impl Host for WindowHost {
 /// Which panel fills the middle of the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum View {
-    /// The mod's own description.
     Description,
-    /// What the run will change.
     Summary,
-    /// Progress from a run.
     Log,
-    /// Output from one of the extras in the Tools menu.
     Tool,
 }
 
 /// What a message box is asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Answer {
-    /// Nothing; the box only reports.
     None,
-    /// Start the run.
     StartRun,
-    /// Close the window.
     Quit,
-    /// Put backed-up files back into the game.
     RestoreBackup,
-    /// Rename files under the game folder to lowercase.
     Lowercase,
 }
 
 /// How a message box is presented.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Severity {
-    /// Ordinary information.
     Info,
-    /// Something went wrong.
     Warning,
 }
 
@@ -182,7 +146,6 @@ impl Dialog {
     }
 }
 
-/// The window's state.
 pub struct App {
     mode: Mode,
     base_path: String,
@@ -218,7 +181,6 @@ pub struct App {
 }
 
 impl App {
-    /// Build the window's state for a mod shipped beside the program.
     pub fn classic(session: Session) -> Self {
         let info_text = session.info_text();
         let summary_text = session.summary_text();
@@ -256,7 +218,6 @@ impl App {
         }
     }
 
-    /// Build the window's state for choosing a mod to install.
     pub fn browse(base_path: String) -> Self {
         let game_paths: Vec<String> = crate::gamepaths::detect()
             .into_iter()
@@ -293,7 +254,6 @@ impl App {
 
     /// Load a mod from a folder the operator pointed at.
     ///
-    /// Accepts the mod's folder or the `tslpatchdata` inside it.
     fn load_mod(&mut self, chosen: &str) {
         let Some(root) = session::locate_mod(chosen) else {
             self.dialogs.push_back(Dialog::warning(
@@ -317,7 +277,6 @@ impl App {
         self.session = Some(session);
     }
 
-    /// Apply one of the mod's install variants.
     fn take_variant(&mut self, index: usize) {
         let Some(session) = self.session.as_mut() else {
             return;
@@ -330,7 +289,6 @@ impl App {
         self.mod_label = mod_label(session, index);
     }
 
-    /// Description of the variant currently chosen.
     fn variant_description(&self) -> String {
         self.session
             .as_ref()
@@ -339,7 +297,6 @@ impl App {
             .unwrap_or_else(|| "This mod offers a single installation.".to_string())
     }
 
-    /// Ask before starting, unless the mod said not to.
     fn request_start(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
@@ -359,7 +316,6 @@ impl App {
         }
     }
 
-    /// Start the run on a worker thread.
     fn start(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
@@ -410,7 +366,6 @@ impl App {
         });
     }
 
-    /// Take everything the worker has sent since the last frame.
     fn drain_messages(&mut self) {
         let Some(receiver) = &self.incoming else {
             return;
@@ -444,7 +399,6 @@ impl App {
         }
     }
 
-    /// Wrap up a finished run.
     fn complete(&mut self, result: Result<PatchSummary, crate::PatchError>) {
         self.running = false;
         self.finished = true;
@@ -476,7 +430,6 @@ impl App {
         });
     }
 
-    /// Answer a question the engine is waiting on.
     fn answer_pending(&mut self) {
         let Some(ask) = self.pending.take() else {
             return;
@@ -498,7 +451,6 @@ impl App {
         let _ = ask.reply.send(answer);
     }
 
-    /// Draw the front message box, if one is waiting.
     fn show_dialog(&mut self, ctx: &egui::Context) {
         let Some(dialog) = self.dialogs.front().cloned() else {
             return;
@@ -558,7 +510,6 @@ impl App {
         }
     }
 
-    /// Close the window, asking first when a run has not happened yet.
     fn request_quit(&mut self, ctx: &egui::Context) {
         if self.installed {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -572,7 +523,6 @@ impl App {
         ));
     }
 
-    /// Draw the middle of the window: description, report, or progress log.
     fn show_body(&self, ui: &mut egui::Ui) {
         let plain = self
             .session
@@ -607,10 +557,6 @@ impl App {
             });
     }
 
-    /// Report a missing instruction file as the window opens.
-    ///
-    /// Description files are optional presentation, so their absence degrades
-    /// to placeholder text instead of interrupting startup.
     fn report_startup_problems(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
@@ -627,7 +573,6 @@ impl App {
         }
     }
 
-    /// True when a run can be started right now.
     fn can_start(&self) -> bool {
         !self.running
             && self
@@ -638,7 +583,6 @@ impl App {
     }
 }
 
-/// Name to show for the chosen mod and variant.
 fn mod_label(session: &Session, index: usize) -> String {
     match session.namespaces.entries.get(index) {
         Some(entry) => entry.name.clone(),
@@ -646,7 +590,6 @@ fn mod_label(session: &Session, index: usize) -> String {
     }
 }
 
-/// Closing message for a finished run.
 fn finish_message(summary: &PatchSummary, installing: bool) -> String {
     let subject = if installing { "Installer" } else { "Patcher" };
 
@@ -693,10 +636,6 @@ impl eframe::App for App {
     }
 }
 
-/// Open the window and run until it closes.
-///
-/// A mod sitting beside the program opens straight into its description; with
-/// nothing beside the program the window asks for a mod folder first.
 pub fn run(base_path: &str, ini_name: &str, info_name: &str) -> Result<(), eframe::Error> {
     let beside = session::mod_is_beside_program(base_path);
 

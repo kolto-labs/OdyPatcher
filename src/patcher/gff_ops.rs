@@ -3,9 +3,6 @@
 //! A file's section lists changes as `field path = new value`. Keys beginning
 //! with `AddField` instead name another section describing a field to create,
 //! which may itself contain `AddField` keys for the fields beneath it.
-//!
-//! Files can be edited in the game's `override` folder or inside an archive.
-//! `!Destination` chooses which.
 
 use crate::compat::{fsutil, text};
 use crate::error::{PatchError, Result};

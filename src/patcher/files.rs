@@ -1,13 +1,4 @@
-//! Deciding which file each step works on.
-//!
-//! Two modes exist. Installing a mod resolves files automatically: an existing
-//! file in the game's `override` folder is edited in place, and one that is not
-//! there yet is copied out of the mod's data folder first. Patching instead asks
-//! the operator to point at each file.
-//!
-//! Two instruction keys shift the names around. `!SourceFile` names a different
-//! file in the mod to use as the starting point, and `!SaveAs` names what the
-//! result is called once installed.
+//! Resolve which game/mod file each patch step targets.
 
 use crate::compat::{fsutil, text};
 use crate::error::{PatchError, Result};
@@ -20,19 +11,12 @@ use crate::patcher::log::Log;
 /// Which kind of file a step is about to work on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatchKind {
-    /// The game's string table.
     Tlk,
-    /// A two-dimensional table.
     TwoDa,
-    /// A structured game file in the override folder.
     Gff,
-    /// Raw bytes at fixed offsets.
     Hack,
-    /// A script to compile.
     Compile,
-    /// A structured game file inside an archive.
     GffArchive,
-    /// A soundset.
     Ssf,
 }
 
@@ -131,7 +115,6 @@ pub(crate) fn path_is_confined(root: &str, target: &str) -> bool {
 
 /// Resolve a `!SourceFolder` / `!DefaultSourceFolder` value under `data_path`.
 ///
-/// `.` and empty mean the data folder itself. `..` is refused.
 pub fn resolve_source_folder(
     data_path: &str,
     requested: &str,
@@ -157,30 +140,20 @@ pub fn resolve_source_folder(
     Ok(resolved)
 }
 
-/// Everything the file handler needs from the rest of the run.
 pub struct Context<'a> {
-    /// Parsed instruction file.
     pub ini: &'a IniFile,
-    /// Settings from the instruction file.
     pub settings: &'a Settings,
-    /// Progress log.
     pub log: &'a mut Log,
-    /// Whoever is running the patch.
     pub host: &'a mut dyn Host,
 }
 
 /// Resolves the file each step works on and handles backups.
 #[derive(Debug, Clone, Default)]
 pub struct FileHandler {
-    /// Install a mod rather than patch operator-chosen files.
     pub installer_mode: bool,
-    /// Copy files before changing them.
     pub do_backups: bool,
-    /// Folder the patcher itself runs from; backups are written below it.
     pub base_path: String,
-    /// Folder holding the mod's data files.
     pub data_path: String,
-    /// Folder inside the mod to read this step's blueprints from.
     source_folder: String,
     install_path: String,
     current_file: String,
@@ -191,7 +164,6 @@ pub struct FileHandler {
 }
 
 impl FileHandler {
-    /// A handler for a mod's data folder.
     pub fn new(base_path: &str, data_path: &str) -> Self {
         Self {
             installer_mode: false,
@@ -208,12 +180,10 @@ impl FileHandler {
         }
     }
 
-    /// Name of the file the last call settled on.
     pub fn file_name(&self) -> &str {
         &self.current_file
     }
 
-    /// Archive the current file is destined for, when it is not the override folder.
     pub fn destination(&self) -> &str {
         &self.destination
     }
@@ -222,22 +192,18 @@ impl FileHandler {
         self.last_skip_was_unsafe
     }
 
-    /// Set the archive the current file is destined for.
     pub fn set_destination(&mut self, destination: &str) {
         self.destination = destination.to_string();
     }
 
-    /// Game folder, once it has been settled.
     pub fn install_path_if_known(&self) -> &str {
         &self.install_path
     }
 
-    /// Use a game folder that is already known, skipping the prompt.
     pub fn set_install_path(&mut self, path: &str) {
         self.install_path = text::include_trailing_delimiter(path);
     }
 
-    /// Full path of the file the last call settled on.
     pub fn file_path(&self) -> Result<String> {
         if self.current_path.is_empty() {
             return Err(PatchError::general(
@@ -263,17 +229,14 @@ impl FileHandler {
         Ok(full)
     }
 
-    /// The game's `override` folder, with a trailing separator.
     pub fn override_folder(&self) -> String {
         text::include_trailing_delimiter(&format!("{}override", self.install_path))
     }
 
-    /// Folder backups are written to.
     pub fn backup_folder(&self) -> String {
         text::include_trailing_delimiter(&format!("{}backup", self.base_path))
     }
 
-    /// Settle the game folder for a step that patches a specific file.
     pub fn resolve_install_path(&mut self, ctx: &mut Context<'_>) -> Result<String> {
         self.settle_install_path(
             ctx,
@@ -285,7 +248,6 @@ impl FileHandler {
     /// Settle the game folder for the file-installing step.
     ///
     /// Reports differently from [`FileHandler::resolve_install_path`], because
-    /// this step asks for the folder up front rather than while patching.
     pub fn resolve_install_path_for_install(&mut self, ctx: &mut Context<'_>) -> Result<String> {
         self.settle_install_path(ctx, 10, "Invalid game directory specified!")
     }
@@ -328,7 +290,6 @@ impl FileHandler {
         Ok(chosen)
     }
 
-    /// Folder inside the mod to read this step's blueprints from.
     pub fn source_folder(&self) -> &str {
         &self.source_folder
     }
@@ -337,7 +298,6 @@ impl FileHandler {
     ///
     /// Both are relative to `tslpatchdata`. `.` (the default) leaves files
     /// where Delphi TSLPatcher looks. `..` is refused so a mod cannot read
-    /// outside its own folder.
     pub fn apply_source_folders(
         &mut self,
         ini: &IniFile,
@@ -367,7 +327,6 @@ impl FileHandler {
         }
     }
 
-    /// Path of a file in the current source folder.
     pub fn blueprint_path(&self, name: &str) -> String {
         format!(
             "{}{name}",
@@ -377,7 +336,6 @@ impl FileHandler {
 
     /// Path of a file in the current source folder, or `data_path` if it is only
     /// there. `[TLKList] !DefaultSourceFolder` often holds Replace sources while
-    /// Delphi `append.tlk` stays at the `tslpatchdata` root.
     pub fn blueprint_or_data(&self, name: &str) -> String {
         if !is_safe_relative_path(name) {
             return String::new();
@@ -398,7 +356,6 @@ impl FileHandler {
         }
     }
 
-    /// Name of the file in the mod to start from, honouring `!SourceFile`.
     pub fn source_name(&self, ini: &IniFile, file: &str) -> Result<String> {
         let (renamed, explicitly_renamed) = if ini.section_exists(file) {
             let configured = ini.read_string(file, "!SourceFile", "");
@@ -435,7 +392,6 @@ impl FileHandler {
     /// the INI section name is only a unique identifier. K1CP relies on this so
     /// several patches can target the same member (e.g. `bastila.dlg`) in
     /// different modules under distinct section names. `!Filename` takes
-    /// precedence, matching TSLPatcher/HoloPatcher.
     pub fn save_name(&self, ini: &IniFile, file: &str) -> String {
         let name = if !ini.section_exists(file) {
             file.to_string()
@@ -463,7 +419,6 @@ impl FileHandler {
     /// Copy the current file into the backup folder, once per run.
     ///
     /// Reports whether a copy was made, so the caller can log it. Files freshly
-    /// copied out of the mod are skipped: there is no original to preserve.
     pub fn backup_current(&mut self, ini: &IniFile) -> bool {
         if !self.do_backups || !self.backup_current {
             return false;
@@ -483,7 +438,6 @@ impl FileHandler {
         fsutil::copy_file(&source, &target).is_ok()
     }
 
-    /// Copy the destination archive into the backup folder, once per run.
     pub fn backup_destination(&mut self) -> bool {
         if !self.do_backups {
             return false;
@@ -512,7 +466,6 @@ impl FileHandler {
     /// Settle which file the next step works on.
     ///
     /// Reports `false` when the step should be skipped — for example when a
-    /// file already exists and the instructions said not to replace it.
     pub fn execute(
         &mut self,
         ctx: &mut Context<'_>,

@@ -1,20 +1,10 @@
-//! The layout for a mod shipped beside the patcher.
-//!
-//! Laid out to the measurements mod authors have been shipping against: a
-//! bevelled panel filling the window with the mod's description inside it, a
-//! thin progress bar across the bottom of that panel, Exit at the lower left,
-//! the summary toggle and start button at the lower right, the version centred
-//! between them, and a status bar along the very bottom.
-//!
-//! When the mod offers several installations, a chooser comes first.
+//! Classic layout for a mod shipped beside the patcher (fixed panel measurements).
 
 use eframe::egui;
 
 use super::{App, View};
 
-/// Client size the window opens at, and the smallest it may become.
 pub(super) const DEFAULT_SIZE: [f32; 2] = [550.0, 461.0];
-/// Smallest client size the window accepts.
 pub(super) const MIN_SIZE: [f32; 2] = [480.0, 400.0];
 
 /// Height of the status bar along the bottom.
@@ -31,7 +21,6 @@ const PROGRESS_HEIGHT: f32 = 6.0;
 const PANEL_MARGIN: f32 = 8.0;
 
 impl App {
-    /// Draw the classic layout.
     pub(super) fn show_classic(&mut self, ctx: &egui::Context) {
         if self.choosing_variant {
             self.show_variant_chooser(ctx);
@@ -46,7 +35,6 @@ impl App {
     /// The chooser shown when a mod offers several installations.
     ///
     /// A heading, the list of installations, the chosen one's description, then
-    /// Select and Exit at the lower right.
     fn show_variant_chooser(&mut self, ctx: &egui::Context) {
         let entries: Vec<(String, String)> = self
             .session
@@ -142,7 +130,6 @@ impl App {
         }
     }
 
-    /// The status bar along the very bottom, naming the game folder.
     fn show_status_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("status")
             .exact_height(STATUS_HEIGHT)
@@ -154,7 +141,6 @@ impl App {
             });
     }
 
-    /// The progress bar and the row of buttons beneath the description.
     fn show_controls(&mut self, ctx: &egui::Context) {
         let start_label = self
             .session
@@ -270,7 +256,6 @@ impl App {
         }
     }
 
-    /// The bevelled panel holding the description, report, or progress log.
     fn show_main_panel(&mut self, ctx: &egui::Context) {
         let mut toggle_tag = false;
 
@@ -319,7 +304,6 @@ impl App {
     }
 }
 
-/// The sunken panel the window's content sits in.
 fn panel_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::new()
         .fill(ctx.style().visuals.panel_fill)

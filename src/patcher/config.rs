@@ -1,33 +1,18 @@
-//! Run configuration.
-//!
-//! Two files shape a run. `changes.ini` holds the settings and the instruction
-//! lists. An optional `namespaces.ini` offers several install variants — for
-//! example a full install and an update — each naming its own instruction file,
-//! information text, and data folder.
+//! Run configuration (`changes.ini`, optional `namespaces.ini`).
 
 use crate::compat::{fsutil, text};
 use crate::ini::IniFile;
 
-/// Default instruction filename.
 pub const DEFAULT_INI: &str = "changes.ini";
-/// Default information filename.
 pub const DEFAULT_INFO: &str = "info.rtf";
-/// Folder inside the mod holding its data files and instructions.
 pub const DATA_FOLDER: &str = "tslpatchdata";
-/// Filename that, when present, offers a choice of install variants.
 pub const NAMESPACES_FILE: &str = "namespaces.ini";
-/// HoloPatcher information filename used when `info.rtf` is absent.
 pub const FALLBACK_INFO: &str = "info.rte";
 
 fn has_parent_component(path: &str) -> bool {
     path.split(['/', '\\']).any(|part| part == "..")
 }
 
-/// Pick the information file to show.
-///
-/// An existing requested file always wins. When that file is missing, `info.rtf`
-/// is tried next, then HoloPatcher's `info.rte`. An existing RTF is never
-/// replaced by an RTE.
 pub fn fallback_info_name(data_path: &str, requested: &str) -> String {
     let base = text::include_trailing_delimiter(data_path);
     let requested = requested.trim();
@@ -61,14 +46,11 @@ pub fn fallback_info_name(data_path: &str, requested: &str) -> String {
 /// Which game a lookup should target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Game {
-    /// Knights of the Old Republic.
     Kotor1,
-    /// Knights of the Old Republic II: The Sith Lords.
     Kotor2,
 }
 
 impl Game {
-    /// Read the numeric setting, defaulting to the second game.
     pub fn from_setting(value: i32) -> Self {
         if value == 1 {
             Game::Kotor1
@@ -81,7 +63,6 @@ impl Game {
     ///
     /// Both games are 32-bit, so on 64-bit Windows their keys sit under the
     /// compatibility branch. A 64-bit build sees the plain branch by default and
-    /// would miss them, so both are tried.
     pub fn registry_keys(self) -> [&'static str; 2] {
         match self {
             Game::Kotor1 => [
@@ -99,35 +80,22 @@ impl Game {
 /// Values read from the `[Settings]` section.
 #[derive(Debug, Clone)]
 pub struct Settings {
-    /// Install a mod rather than patch files the operator picks by hand.
     pub installer_mode: bool,
-    /// Copy files before changing them.
     pub backup_files: bool,
-    /// How much detail reaches the log, 0 through 4.
     pub log_level: i32,
-    /// Write the install log as plain text instead of styled text.
     pub plaintext_log: bool,
-    /// Prompt shown before starting. `N/A` starts without asking.
     pub confirm_message: String,
-    /// Window title.
     pub window_caption: String,
-    /// Legacy TSLPatcher sentinel. Accepted for compatibility but never required.
     pub file_exists: bool,
-    /// Find the game folder from the registry instead of asking.
     pub lookup_game_folder: bool,
-    /// Which game to look up.
     pub lookup_game: Game,
     /// Files that must already be in `override`, with a message per group.
     ///
     /// Delphi has a single `Required` / `RequiredMsg` pair. HoloPatcher also
     /// accepts `RequiredN` and comma-separated names; a group fails if any
-    /// named file is missing.
     pub required: Vec<RequiredCheck>,
-    /// Extra arguments passed to the script compiler.
     pub script_compiler_flags: String,
-    /// Keep processed script sources for inspection.
     pub save_processed_scripts: bool,
-    /// Compare installed filenames without their extensions.
     pub ignore_extensions: bool,
 }
 
@@ -152,7 +120,6 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Read settings from an instruction file.
     pub fn from_ini(ini: &IniFile) -> Self {
         let defaults = Settings::default();
         let caption = ini.read_string("Settings", "WindowCaption", "");
@@ -179,7 +146,6 @@ impl Settings {
         }
     }
 
-    /// Prompt to show before starting, falling back to a generic one.
     pub fn confirm_prompt(&self) -> String {
         if self.confirm_message.is_empty() {
             "This will start patching the necessary game files. Do you want to do this?".to_string()
@@ -188,7 +154,6 @@ impl Settings {
         }
     }
 
-    /// True when the operator should not be asked before starting.
     pub fn starts_without_asking(&self) -> bool {
         self.confirm_message == "N/A"
     }
@@ -197,9 +162,7 @@ impl Settings {
 /// One `Required` / `RequiredN` group and the message shown if it is missing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RequiredCheck {
-    /// Files that must all be present in `override`.
     pub files: Vec<String>,
-    /// What to say when any of those files is missing. Empty uses a default.
     pub message: String,
 }
 
@@ -269,24 +232,17 @@ fn parse_required_checks(ini: &IniFile) -> Vec<RequiredCheck> {
 /// One install variant offered by `namespaces.ini`.
 #[derive(Debug, Clone)]
 pub struct Namespace {
-    /// Section name holding this variant's settings.
     pub section: String,
-    /// Name shown in the chooser.
     pub name: String,
-    /// Longer explanation shown alongside the name.
     pub description: String,
-    /// Instruction file to use.
     pub ini_name: String,
-    /// Information file to display.
     pub info_name: String,
-    /// Folder holding this variant's data, relative to `tslpatchdata`.
     pub data_path: String,
 }
 
 /// The set of install variants a mod offers.
 #[derive(Debug, Clone, Default)]
 pub struct NamespaceList {
-    /// Available variants, in the order the file lists them.
     pub entries: Vec<Namespace>,
     base_path: String,
 }
@@ -295,7 +251,6 @@ impl NamespaceList {
     /// Read the variants offered under `base_path`.
     ///
     /// Returns an empty list when the mod offers no choice, in which case the
-    /// caller uses the default instruction and information filenames.
     pub fn load(base_path: &str) -> Self {
         let path = fsutil::join(base_path, NAMESPACES_FILE);
         if !fsutil::file_exists(&path) {
@@ -352,7 +307,6 @@ impl NamespaceList {
         }
     }
 
-    /// True when the mod offers no choice of variant.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -362,7 +316,6 @@ impl NamespaceList {
     /// A variant naming a folder outside `tslpatchdata`, or one that does not
     /// exist, falls back to the base folder. An instruction or information file
     /// that is missing falls back to the default name, so a partly written
-    /// variant still starts rather than failing outright.
     pub fn resolve(&self, index: usize) -> ResolvedNamespace {
         let Some(entry) = self.entries.get(index) else {
             return ResolvedNamespace {
@@ -415,11 +368,8 @@ impl NamespaceList {
 /// Paths a chosen install variant resolves to.
 #[derive(Debug, Clone)]
 pub struct ResolvedNamespace {
-    /// Instruction file to read.
     pub ini_name: String,
-    /// Information file to display.
     pub info_name: String,
-    /// Folder holding the variant's data files, with a trailing separator.
     pub data_path: String,
 }
 
@@ -503,10 +453,6 @@ const GAME_FOLDERS: [&str; 8] = [
     "lips",
 ];
 
-/// True when a folder looks like a game install.
-///
-/// Recognising any one of the game's own subfolders is enough, which keeps
-/// partial or repackaged installs usable.
 pub fn looks_like_game_folder(path: &str) -> bool {
     let base = text::include_trailing_delimiter(path);
     GAME_FOLDERS

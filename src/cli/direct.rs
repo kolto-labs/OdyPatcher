@@ -1,10 +1,4 @@
-//! Naming the mod, the game, and one action on the command line.
-//!
-//! The other way of driving a run works on the mod sitting beside the program
-//! and talks the operator through it. This one takes everything up front —
-//! `--tslpatchdata`, `--game-dir`, and exactly one of `--install`,
-//! `--uninstall`, or `--validate` — and reports through tagged lines and a
-//! numbered exit code, which suits a script or an installer front end.
+//! Unattended CLI: `--tslpatchdata`, `--game-dir`, and one action flag.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -22,28 +16,18 @@ use super::Options;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ExitCode {
-    /// Everything asked for was done.
     Success = 0,
-    /// Something went wrong before the work started.
     UnknownStartupError = 1,
-    /// The arguments do not describe a run that can be made.
     NumberOfArgs = 2,
-    /// No mod was found at the given path.
     NamespacesIniNotFound = 3,
-    /// The chosen installation does not exist.
     NamespaceIndexOutOfRange = 4,
-    /// The mod names an instruction file that is not there.
     ChangesIniNotFound = 5,
-    /// The run was stopped because it was not safe to continue.
     AbortInstallUnsafe = 6,
-    /// The run stopped partway through.
     ExceptionDuringInstall = 7,
-    /// The run finished, but reported errors.
     InstallCompletedWithErrors = 8,
 }
 
 impl ExitCode {
-    /// The number the process exits with.
     pub fn code(self) -> i32 {
         self as i32
     }
@@ -55,11 +39,6 @@ fn fail(message: &str, code: ExitCode) -> i32 {
     code.code()
 }
 
-/// True when the arguments describe this way of running.
-///
-/// Naming a mod, an installation, or an action is what asks for it. A game
-/// folder on its own does not, so `--game-dir` stays usable as another way of
-/// saying `--game`.
 pub fn is_requested(options: &Options) -> bool {
     options.install
         || options.uninstall
@@ -68,7 +47,6 @@ pub fn is_requested(options: &Options) -> bool {
         || options.namespace_option_index.is_some()
 }
 
-/// Carry out the action the arguments asked for.
 pub fn run(options: Options) -> i32 {
     let Some(mod_argument) = options.tslpatchdata.clone() else {
         return fail(
@@ -173,7 +151,6 @@ pub fn run(options: Options) -> i32 {
     }
 }
 
-/// Answers nothing and asks nothing; a run driven this way is unattended.
 struct UnattendedHost {
     game_folder: String,
     highest_total: Arc<AtomicUsize>,
@@ -304,10 +281,6 @@ fn validate(session: &Session) -> i32 {
     ExitCode::Success.code()
 }
 
-/// Say how long a run took, leaving out the parts that were zero.
-///
-/// Minutes are kept when nothing larger was shown, so a short run still reads
-/// as "0 minutes, 12 seconds" rather than bare seconds.
 pub fn format_install_time(elapsed: Duration) -> String {
     let total = elapsed.as_secs();
 

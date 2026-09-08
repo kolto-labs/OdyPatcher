@@ -1,23 +1,14 @@
-//! Finding installed copies of the games.
-//!
-//! The chooser offers whatever it can find so the operator rarely has to browse.
-//! Steam libraries are read from the library list Steam maintains, so games on a
-//! second drive are found too, and the usual GOG and retail locations are
-//! checked alongside them.
+//! Locate installed KotOR/TSL copies (registry, Steam libraries, common paths).
 
 use crate::compat::{fsutil, text};
 use crate::patcher::config::{self, Game};
 
-/// An install the chooser can offer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Install {
-    /// Folder the game is installed in.
     pub path: String,
-    /// Which game it is, when the folder name says so.
     pub game: Option<Game>,
 }
 
-/// Folder names the games install into, and which game each belongs to.
 const GAME_FOLDERS: [(&str, Game); 8] = [
     ("swkotor", Game::Kotor1),
     ("Star Wars - KotOR", Game::Kotor1),
@@ -32,7 +23,6 @@ const GAME_FOLDERS: [(&str, Game); 8] = [
     ),
 ];
 
-/// Every install that can be found, in a stable order and without duplicates.
 pub fn detect() -> Vec<Install> {
     let mut found: Vec<Install> = Vec::new();
 
@@ -78,7 +68,6 @@ pub fn detect() -> Vec<Install> {
     found
 }
 
-/// Add an install unless the same folder is already listed.
 fn push_unique(found: &mut Vec<Install>, install: Install) {
     let normalized = normalize(&install.path);
     if found.iter().any(|e| normalize(&e.path) == normalized) {
@@ -87,12 +76,10 @@ fn push_unique(found: &mut Vec<Install>, install: Install) {
     found.push(install);
 }
 
-/// Compare folders without being thrown by case or a trailing separator.
 fn normalize(path: &str) -> String {
     path.trim_end_matches(['\\', '/']).to_lowercase()
 }
 
-/// Folders that hold game directories, such as a Steam library's `common`.
 fn library_roots() -> Vec<String> {
     let mut roots: Vec<String> = Vec::new();
 
@@ -123,7 +110,6 @@ fn library_roots() -> Vec<String> {
     roots
 }
 
-/// Places Steam itself may be installed.
 fn steam_roots() -> Vec<String> {
     let mut roots: Vec<String> = Vec::new();
 
@@ -149,10 +135,7 @@ fn steam_roots() -> Vec<String> {
     roots
 }
 
-/// Read the extra library folders Steam records.
-///
-/// The file is a nested key/value list; only the `path` entries matter here, so
-/// they are picked out rather than the whole structure being parsed.
+/// Steam `libraryfolders.vdf`: scrape `"path"` entries only, not full VDF parse.
 fn steam_library_paths(steam_root: &str) -> Vec<String> {
     let list = fsutil::join(steam_root, "steamapps/libraryfolders.vdf");
     let Ok(bytes) = fsutil::read_file(&list) else {
@@ -168,7 +151,6 @@ fn steam_library_paths(steam_root: &str) -> Vec<String> {
             continue;
         };
 
-        // The value is the quoted text that follows the key.
         let Some(start) = rest.find('"') else {
             continue;
         };
@@ -185,7 +167,6 @@ fn steam_library_paths(steam_root: &str) -> Vec<String> {
     paths
 }
 
-/// Folders that may be a game install themselves rather than hold several.
 fn direct_locations() -> Vec<String> {
     let mut locations: Vec<String> = Vec::new();
 
@@ -210,7 +191,6 @@ fn direct_locations() -> Vec<String> {
     locations
 }
 
-/// The current user's home folder.
 fn home_dir() -> Option<String> {
     for name in ["HOME", "USERPROFILE"] {
         if let Some(value) = std::env::var_os(name) {
@@ -224,10 +204,6 @@ fn home_dir() -> Option<String> {
     None
 }
 
-/// Guess which game a folder holds from the files it contains.
-///
-/// The second game ships a launcher and streamed voice folder the first does
-/// not, which is enough to tell them apart without reading any file.
 pub fn identify(path: &str) -> Option<Game> {
     let base = text::include_trailing_delimiter(path);
 

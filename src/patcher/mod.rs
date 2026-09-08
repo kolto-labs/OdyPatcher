@@ -1,8 +1,4 @@
-//! The patch engine and everything it needs.
-//!
-//! [`engine::Patcher`] reads a mod's instructions and applies them. It reports
-//! through [`log::Log`] and asks [`crate::host::Host`] whenever it needs a
-//! decision from whoever is running it.
+//! Patch engine: reads mod instructions and applies them via [`engine::Patcher`].
 
 pub mod config;
 pub mod engine;

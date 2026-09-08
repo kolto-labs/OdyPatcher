@@ -1,8 +1,4 @@
-//! OdyPatcher — game data patcher and mod installer for Star Wars: Knights of
-//! the Old Republic I and II.
-//!
-//! Opens a window by default. Passing `--cli`, or any option that only prints
-//! something, runs in the terminal instead.
+//! Terminal entry when `--cli` or print-only flags are used; otherwise opens the GUI.
 
 use odypatcher::cli;
 
@@ -39,7 +35,6 @@ fn main() {
     }
 }
 
-/// True when this build can open a window and the system offers one.
 fn window_available() -> bool {
     #[cfg(not(feature = "gui"))]
     {
@@ -48,7 +43,7 @@ fn window_available() -> bool {
 
     #[cfg(feature = "gui")]
     {
-        // A headless session has no display to open a window on.
+        // Headless Unix: no DISPLAY/WAYLAND means no window.
         if cfg!(unix) && !cfg!(target_os = "macos") {
             return std::env::var_os("DISPLAY").is_some()
                 || std::env::var_os("WAYLAND_DISPLAY").is_some();

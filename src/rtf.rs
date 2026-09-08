@@ -1,16 +1,7 @@
-//! Reading the information text a mod ships.
-//!
-//! Mods describe themselves in a rich text file. Only the words matter here, so
-//! the markup is stripped and the text is kept: control words are dropped,
-//! escaped characters are restored, and paragraph breaks become line breaks.
-//! A file that turns out to be plain text is passed through untouched.
+//! Strip RTF markup from mod readme files; plain text passes through.
 
 use crate::compat::latin1;
 
-/// Extract readable text from a rich text document.
-///
-/// Input that is not rich text is returned as-is, so a mod shipping a plain
-/// `.txt` description still displays.
 pub fn to_plain_text(bytes: &[u8]) -> String {
     let content = latin1::decode(bytes);
 

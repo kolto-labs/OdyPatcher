@@ -1,10 +1,4 @@
-//! Running a patch from a terminal.
-//!
-//! Two ways in. By default the mod beside the program is used and the operator
-//! is talked through it: pick an installation, review what will change, confirm,
-//! watch it run. Naming a mod and an action instead — `--tslpatchdata` with one
-//! of `--install`, `--uninstall`, or `--validate` — runs unattended and reports
-//! through [`direct`], which suits a script or an installer front end.
+//! CLI: interactive run beside the program, or unattended via [`direct`].
 
 pub mod direct;
 
@@ -20,50 +14,31 @@ use crate::session::{self, Session};
 /// What the operator asked for on the command line.
 #[derive(Debug, Clone, Default)]
 pub struct Options {
-    /// Instruction file to read.
     pub ini_name: Option<String>,
-    /// Information file to display.
     pub info_name: Option<String>,
-    /// Game folder, when given up front.
     pub game_folder: Option<String>,
-    /// Install variant, by position or by name.
     pub namespace: Option<String>,
-    /// List the install variants and stop.
     pub list_namespaces: bool,
-    /// Print what the run would change and stop.
     pub show_summary: bool,
-    /// Print the mod's description and stop.
     pub show_info: bool,
-    /// Start without asking.
     pub assume_yes: bool,
-    /// Log level to use instead of the mod's setting.
     pub log_level: Option<i32>,
-    /// Run in the terminal even when a window is available.
     pub force_terminal: bool,
-    /// Show usage and stop.
     pub show_help: bool,
-    /// Show the version and stop.
     pub show_version: bool,
 
-    /// Game folder, named the way an unattended run names it.
     pub game_dir: Option<String>,
-    /// Folder holding the mod, or the mod's own data folder.
     pub tslpatchdata: Option<String>,
-    /// Installation to use, by position.
     pub namespace_option_index: Option<usize>,
-    /// Keep a console open. Accepted for compatibility; one is always attached.
     pub console: bool,
-    /// Apply the mod and stop.
     pub install: bool,
-    /// Put the mod's backed-up files back and stop.
     pub uninstall: bool,
-    /// Check the mod's instructions and stop.
     pub validate: bool,
 }
 
 /// Usage text.
 pub const USAGE: &str = "\
-OdyPatcher — game data patcher and mod installer for KotOR and TSL
+OdyPatcher, game data patcher and mod installer for KotOR and TSL
 
 Usage:
   odypatcher [options] [changes.ini] [info.rtf]
@@ -101,10 +76,6 @@ The mod's tslpatchdata folder is expected beside this program.
 More about the games and their tools: https://swkotor.org
 ";
 
-/// Read the command line.
-///
-/// Bare arguments ending in `.ini` and `.rtf` name the instruction and
-/// information files, which is how a mod's shortcut passes them.
 pub fn parse(args: &[String]) -> Result<Options, String> {
     let mut options = Options::default();
     let mut positional: Vec<String> = Vec::new();
@@ -205,7 +176,6 @@ fn apply_positional(options: &mut Options, positional: &[String]) -> Result<(), 
     }
 }
 
-/// Answers the engine's questions from arguments or standard input.
 struct TerminalHost {
     game_folder: Option<String>,
     unattended: bool,
@@ -263,11 +233,6 @@ fn read_line() -> Option<String> {
     Some(buffer.trim().trim_matches('"').to_string())
 }
 
-/// True when this command line should stay in the terminal.
-///
-/// Print-only flags, `--cli`, and any unattended action must not open a window
-/// even when a display is attached. `--tslpatchdata … --install` with DISPLAY
-/// set is the scripted entry point documented in the help text.
 pub fn stays_in_terminal(options: &Options) -> bool {
     options.force_terminal
         || options.show_help
@@ -280,7 +245,6 @@ pub fn stays_in_terminal(options: &Options) -> bool {
         || options.validate
 }
 
-/// Run from the terminal, reporting the process exit code.
 pub fn run(options: Options) -> i32 {
     if options.show_help {
         print!("{USAGE}");

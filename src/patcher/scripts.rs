@@ -3,10 +3,6 @@
 //! Script sources can carry `#2DAMEMORY<n>#` and `#StrRef<n>#` markers that
 //! stand in for values the run produced. Before compiling, the source is
 //! rewritten with those markers replaced, and the untouched original is kept
-//! aside so the mod's folder is restored afterwards.
-//!
-//! Compilation prefers in-process [`bionsscomp`] when a `nwscript.nss` header
-//! can be loaded. A shipped `nwnnsscomp` binary is the fallback.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,20 +26,10 @@ const COMPILER_NAMES: [&str; 3] = ["nwnnsscomp", "nwnnsscomp.bin", "nwnnsscomp.e
 /// What happened while preparing one script source.
 #[derive(Debug, Clone)]
 pub struct ProcessedScript {
-    /// Where the untouched original was set aside.
     pub backup_path: String,
-    /// True when the source has no entry point and so is only an include.
     pub is_include: bool,
 }
 
-/// Find the script compiler for a mod.
-///
-/// The mod's own folder is asked first, so a mod that ships a particular build
-/// of the compiler gets that one. A mod that ships none is not an error: some
-/// are packaged for a patcher that carries its own compiler, so the folder this
-/// program runs from is asked next, and then whatever is on PATH. Without that
-/// fallback such a mod installs everything except its scripts and reports only
-/// that the compiler is missing.
 pub fn find_compiler(base_path: &str) -> Option<String> {
     let mod_folder = text::include_trailing_delimiter(&text::join_path(base_path, "tslpatchdata"));
 
@@ -129,10 +115,6 @@ fn declares_entry_point(line: &str) -> bool {
         || lowered.contains("int startingconditional ()")
 }
 
-/// Replace the markers in a script source, keeping the original aside.
-///
-/// The rewritten source replaces the file in place, because the compiler is
-/// pointed at the mod's own folder and resolves includes relative to it.
 pub fn substitute_tokens(
     source_path: &str,
     working_dir: &str,
@@ -181,17 +163,6 @@ pub fn substitute_tokens(
     })
 }
 
-/// Run the compiler and return whatever it printed.
-///
-/// Compiler output is returned rather than interpreted: different builds report
-/// differently, so it is shown to the operator instead of being judged here.
-///
-/// A file sitting in the working folder is named by its bare file name rather
-/// than its full path. The compiler works out where to look for an `#include`
-/// by cutting the source path at its last dot, so a full path through a folder
-/// carrying a dot in its name — "Some Mod v1.2" — sends it looking in
-/// "Some Mod v1" and every include fails to open. Naming the file alone leaves
-/// the folder out of it, which is how the compiler is called on Windows anyway.
 pub fn compile(
     compiler: &str,
     source: &str,
@@ -230,10 +201,6 @@ pub fn compile(
     }
 }
 
-/// Compile substituted source in-process with bionsscomp.
-///
-/// Writes the compiled `.ncs` to `output` on success. Warnings and errors are
-/// returned as text for the install log, matching the subprocess path.
 pub fn compile_in_process(
     source: &str,
     output: &str,
@@ -291,10 +258,6 @@ fn compiler_argument(path: &str, work: &Path, runs_in_working_folder: bool) -> P
     fsutil::native_path(path)
 }
 
-/// Put the untouched sources back where they came from.
-///
-/// With `keep_processed` set, a copy of the rewritten source is left in a
-/// `debug` folder first, so the substitutions can be inspected.
 pub fn restore_sources(data_path: &str, originals: &[(String, String)], keep_processed: bool) {
     let data_path = text::include_trailing_delimiter(data_path);
 

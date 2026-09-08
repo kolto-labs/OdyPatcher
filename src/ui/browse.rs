@@ -1,9 +1,4 @@
-//! The layout for choosing a mod to install.
-//!
-//! Two rows at the top pick what to install and where: the mod, then the game
-//! folder, each with a Browse button beside it. The middle shows the mod's
-//! description and then the progress log. Exit and Install sit at the bottom
-//! with a progress bar under them.
+//! Browse layout: pick mod folder, game folder, then install.
 
 use eframe::egui;
 
@@ -17,7 +12,6 @@ const PCGAMINGWIKI_KOTOR2: &str =
 const PROJECT_SOURCE: &str = "https://github.com/bodencrouch/OdyPatcher";
 
 impl App {
-    /// Draw the browse layout.
     pub(super) fn show_browse(&mut self, ctx: &egui::Context) {
         self.show_menu_bar(ctx);
         self.show_choosers(ctx);
@@ -28,7 +22,6 @@ impl App {
         });
     }
 
-    /// The menu bar along the very top.
     fn show_menu_bar(&mut self, ctx: &egui::Context) {
         let mut action: Option<MenuAction> = None;
 
@@ -101,7 +94,6 @@ impl App {
         }
     }
 
-    /// Carry out whatever the menu asked for.
     fn run_menu_action(&mut self, ctx: &egui::Context, action: MenuAction) {
         match action {
             MenuAction::Open(url) => ctx.open_url(egui::OpenUrl::new_tab(url)),
@@ -152,7 +144,6 @@ impl App {
         }
     }
 
-    /// Put the backup folder's contents back into the game.
     pub(super) fn restore_backup(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
@@ -183,14 +174,12 @@ impl App {
         self.view = View::Tool;
     }
 
-    /// Rename everything under the game folder to lowercase.
     pub(super) fn force_lowercase(&mut self) {
         let renamed = crate::tools::force_lowercase(&self.game_path);
         self.tool_text = format!("Renamed {renamed} files and folders to lowercase.\n");
         self.view = View::Tool;
     }
 
-    /// The two rows that choose the mod and the game folder.
     fn show_choosers(&mut self, ctx: &egui::Context) {
         let mut browse_mod = false;
         let mut browse_game = false;
@@ -330,7 +319,6 @@ impl App {
         }
     }
 
-    /// Exit and Install, with the progress bar beneath them.
     fn show_actions(&mut self, ctx: &egui::Context) {
         let mut exit = false;
         let mut install = false;
@@ -395,15 +383,10 @@ impl App {
 /// Something the menu asked for.
 #[derive(Debug, Clone, Copy)]
 enum MenuAction {
-    /// Open a link.
     Open(&'static str),
-    /// Show the about box.
     About,
-    /// Check the mod's instructions.
     Validate,
-    /// Put backed-up files back.
     Restore,
-    /// Lowercase filenames under the game folder.
     Lowercase,
 }
 

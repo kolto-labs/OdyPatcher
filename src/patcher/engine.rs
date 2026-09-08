@@ -1,10 +1,4 @@
-//! The patch engine.
-//!
-//! A run works through a fixed sequence, and the order matters. String table
-//! lines are appended first so later steps can point at them. Loose files are
-//! installed next, which puts any archives the mod ships where later steps
-//! expect to find them. Then tables, structured game files, byte edits,
-//! scripts, and soundsets, each of which may depend on values captured earlier.
+//! Patch engine: fixed step order (TLK → install → 2DA/GFF/HACK/scripts/SSF).
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,32 +20,22 @@ use crate::patcher::tokens::TokenStore;
 /// How a finished run turned out.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PatchSummary {
-    /// Number of warnings recorded.
     pub warnings: usize,
-    /// Number of errors recorded.
     pub errors: usize,
 }
 
 impl PatchSummary {
-    /// True when nothing went wrong.
     pub fn is_clean(&self) -> bool {
         self.warnings == 0 && self.errors == 0
     }
 }
 
-/// Applies a mod's instructions to an installed game.
 pub struct Patcher {
-    /// Parsed instruction file.
     pub ini: IniFile,
-    /// Settings read from the instruction file.
     pub settings: Settings,
-    /// Resolves which file each step works on.
     pub files: FileHandler,
-    /// Values captured for reuse by later steps.
     pub tokens: TokenStore,
-    /// Folder holding the mod's data files.
     pub data_path: String,
-    /// Folder the patcher runs from.
     pub base_path: String,
     instruction_path: String,
 
@@ -66,7 +50,6 @@ impl Patcher {
     /// Prepare a run from a mod's data folder.
     ///
     /// `base_path` is where the patcher itself lives; backups and the install
-    /// log are written beside it.
     pub fn new(base_path: &str, data_path: &str, ini_name: &str) -> Self {
         let base_path = text::include_trailing_delimiter(base_path);
         let data_path = text::include_trailing_delimiter(data_path);
@@ -104,7 +87,6 @@ impl Patcher {
     /// Returns the counts of warnings and errors. Individual steps report their
     /// problems and carry on; only conditions that make the rest of the run
     /// meaningless — no game folder, no string table, a missing required file —
-    /// stop it early.
     pub fn run(&mut self, log: &mut Log, host: &mut dyn Host) -> Result<PatchSummary> {
         let started = timestamp();
         if self.settings.installer_mode {
