@@ -235,7 +235,7 @@ impl FileHandler {
         }
 
         let full = format!("{}{}", self.current_path, self.current_file);
-        if !fsutil::file_exists(&full) {
+        if !self.resolver.exists(&full) {
             return Err(PatchError::general(
                 5,
                 format!("Error! File \"{full}\" set to be patched does not exist!"),
@@ -274,7 +274,7 @@ impl FileHandler {
         missing_code: i32,
         missing_message: &str,
     ) -> Result<String> {
-        if !self.install_path.is_empty() && fsutil::dir_exists(&self.install_path) {
+        if !self.install_path.is_empty() && self.resolver.dir_exists(&self.install_path) {
             return Ok(self.install_path.clone());
         }
 
@@ -284,7 +284,7 @@ impl FileHandler {
             String::new()
         };
 
-        if chosen.is_empty() || !fsutil::dir_exists(&chosen) {
+        if chosen.is_empty() || !self.resolver.dir_exists(&chosen) {
             chosen = ctx
                 .host
                 .choose_game_folder(
@@ -293,7 +293,7 @@ impl FileHandler {
                 .unwrap_or_default();
         }
 
-        if chosen.is_empty() || !fsutil::dir_exists(&chosen) {
+        if chosen.is_empty() || !self.resolver.dir_exists(&chosen) {
             return Err(PatchError::general(missing_code, missing_message));
         }
 
@@ -344,10 +344,7 @@ impl FileHandler {
     }
 
     pub fn blueprint_path(&self, name: &str) -> String {
-        format!(
-            "{}{name}",
-            text::include_trailing_delimiter(&self.source_folder)
-        )
+        self.resolver.under(&self.source_folder, name)
     }
 
     /// Path of a file in the current source folder, or `data_path` if it is only
@@ -357,7 +354,7 @@ impl FileHandler {
             return String::new();
         }
         let nested = self.blueprint_path(name);
-        if fsutil::file_exists(&nested) && path_is_confined(&self.data_path, &nested) {
+        if self.resolver.exists(&nested) && path_is_confined(&self.data_path, &nested) {
             nested
         } else {
             let root = format!(
@@ -392,7 +389,7 @@ impl FileHandler {
             ));
         }
 
-        if !explicitly_renamed || fsutil::file_exists(&path) {
+        if !explicitly_renamed || self.resolver.exists(&path) {
             Ok(renamed)
         } else {
             Err(PatchError::general(
@@ -409,6 +406,19 @@ impl FileHandler {
     /// several patches can target the same member (e.g. `bastila.dlg`) in
     /// different modules under distinct section names. `!Filename` takes
     pub fn save_name(&self, ini: &IniFile, file: &str) -> String {
+        let name = self.save_name_as_written(ini, file);
+        if name.is_empty() {
+            name
+        } else {
+            self.resolver.fold(&name)
+        }
+    }
+
+    /// The name the mod asked for, spelled the way its author wrote it.
+    ///
+    /// Log lines quote this rather than the folded name: a player reading the
+    /// log should see the name that is in their mod's instruction file.
+    pub fn save_name_as_written(&self, ini: &IniFile, file: &str) -> String {
         let name = if !ini.section_exists(file) {
             file.to_string()
         } else {
@@ -441,17 +451,17 @@ impl FileHandler {
         }
 
         let folder = self.backup_folder();
-        let _ = fsutil::force_directories(&folder);
+        let _ = self.resolver.create_dir_all(&folder);
 
         let name = self.save_name(ini, &self.current_file);
         let target = format!("{folder}{name}");
         let source = format!("{}{name}", self.current_path);
 
-        if fsutil::file_exists(&target) || !fsutil::file_exists(&source) {
+        if self.resolver.exists(&target) || !self.resolver.exists(&source) {
             return false;
         }
 
-        fsutil::copy_file(&source, &target).is_ok()
+        self.resolver.copy(&source, &target).is_ok()
     }
 
     pub fn backup_destination(&mut self) -> bool {
@@ -461,22 +471,22 @@ impl FileHandler {
         if self.destination.eq_ignore_ascii_case("override") || self.destination.is_empty() {
             return false;
         }
-        if !fsutil::file_exists(&self.destination) {
+        if !self.resolver.exists(&self.destination) {
             return false;
         }
 
         let folder = self.backup_folder();
-        let _ = fsutil::force_directories(&folder);
-        let _ = fsutil::force_directories(&format!("{folder}modules"));
+        let _ = self.resolver.create_dir_all(&folder);
+        let _ = self.resolver.create_dir_all(&format!("{folder}modules"));
 
         let name = text::extract_file_name(&self.destination);
         let target = format!("{folder}{name}");
 
-        if fsutil::file_exists(&target) {
+        if self.resolver.exists(&target) {
             return false;
         }
 
-        fsutil::copy_file(&self.destination, &target).is_ok()
+        self.resolver.copy(&self.destination, &target).is_ok()
     }
 
     /// Settle which file the next step works on.
@@ -604,7 +614,7 @@ impl FileHandler {
                         format!("Required file \"{name}\" points outside the game folder."),
                     ));
                 }
-                if fsutil::file_exists(&target) {
+                if self.resolver.exists(&target) {
                     continue;
                 }
 
@@ -624,7 +634,7 @@ impl FileHandler {
     /// The string table lives in the game folder, not the override folder.
     fn locate_string_table(&mut self, filename: &str) -> Result<bool> {
         let candidate = format!("{}{filename}", self.install_path);
-        if fsutil::file_exists(&candidate) {
+        if self.resolver.exists(&candidate) {
             self.current_file = filename.to_string();
             self.current_path = self.install_path.clone();
             return Ok(true);
@@ -641,16 +651,13 @@ impl FileHandler {
         if dest.is_empty() || dest.eq_ignore_ascii_case("override") {
             self.override_folder()
         } else {
-            text::include_trailing_delimiter(&format!(
-                "{}{dest}",
-                text::include_trailing_delimiter(&self.install_path)
-            ))
+            text::include_trailing_delimiter(&self.resolver.under(&self.install_path, dest))
         }
     }
     fn ensure_override_folder(&self, ctx: &mut Context<'_>) {
         let folder = self.override_folder();
-        if !fsutil::dir_exists(&folder) {
-            let _ = fsutil::force_directories(&folder);
+        if !self.resolver.dir_exists(&folder) {
+            let _ = self.resolver.create_dir_all(&folder);
             ctx.log.info(format!(
                 "No Override folder found, creating it at {folder}."
             ));
@@ -674,7 +681,7 @@ impl FileHandler {
             text::include_trailing_delimiter(&self.install_path)
         );
 
-        if !fsutil::file_exists(&self.destination) {
+        if !self.resolver.exists(&self.destination) {
             ctx.log.error(format!(
                 "Unable to locate archive \"{}\" to modify or insert file \"{}\" into, skipping...",
                 self.destination, self.current_file
@@ -699,13 +706,13 @@ impl FileHandler {
             "{}erfpatch_temp",
             text::include_trailing_delimiter(&self.data_path)
         ));
-        let _ = fsutil::force_directories(&self.current_path);
+        let _ = self.resolver.create_dir_all(&self.current_path);
 
         let save_as = self.save_name(ctx.ini, &self.current_file);
         let working = format!("{}{save_as}", self.current_path);
 
-        if fsutil::file_exists(&working) {
-            fsutil::delete_file(&working);
+        if self.resolver.exists(&working) {
+            self.resolver.delete(&working);
         }
 
         let already_present = archive.resource_exists(&save_as, false).unwrap_or(false);
@@ -734,10 +741,10 @@ impl FileHandler {
                 "Adding file \"{save_as}\" to archive \"{}\"...",
                 text::extract_file_name(&self.destination)
             ));
-            let _ = fsutil::copy_file(&self.blueprint_path(&source), &working);
+            let _ = self.resolver.copy(&self.blueprint_path(&source), &working);
         }
 
-        if !fsutil::file_exists(&working) {
+        if !self.resolver.exists(&working) {
             ctx.log.error(format!(
                 "Unable to make work copy of file \"{save_as}\". File not saved to ERF/RIM archive!"
             ));
@@ -766,7 +773,7 @@ impl FileHandler {
                 text::include_trailing_delimiter(&self.install_path)
             );
 
-            if !fsutil::file_exists(&self.destination) {
+            if !self.resolver.exists(&self.destination) {
                 ctx.log.error(format!(
                     "Unable to locate archive \"{}\" to insert script \"{}\" into, skipping...",
                     self.destination, self.current_file
@@ -803,12 +810,12 @@ impl FileHandler {
         let in_dest = format!("{dest_folder}{compiled}");
 
         if overwrite {
-            if !capsule && fsutil::file_exists(&in_dest) && self.do_backups {
+            if !capsule && self.resolver.exists(&in_dest) && self.do_backups {
                 let folder = self.backup_folder();
-                let _ = fsutil::force_directories(&folder);
+                let _ = self.resolver.create_dir_all(&folder);
                 let target = format!("{folder}{compiled}");
 
-                if !fsutil::file_exists(&target) && fsutil::copy_file(&in_dest, &target).is_ok() {
+                if !self.resolver.exists(&target) && self.resolver.copy(&in_dest, &target).is_ok() {
                     ctx.log.info(format!(
                         "Making backup copy of script file \"{filename}\" found in override..."
                     ));
@@ -818,7 +825,7 @@ impl FileHandler {
             // The source name is checked here rather than the compiled name,
             // which is what decides whether an existing script blocks the step.
             let source_in_dest = format!("{dest_folder}{filename}");
-            if fsutil::file_exists(&source_in_dest) {
+            if self.resolver.exists(&source_in_dest) {
                 ctx.log.warn(format!(
                     "Script file \"{filename}\" already exists in override! Skipping..."
                 ));
@@ -847,7 +854,7 @@ impl FileHandler {
         let save_as = self.save_name(ctx.ini, filename);
         let blueprint = self.blueprint_path(&source);
 
-        if !fsutil::file_exists(&blueprint) {
+        if !self.resolver.exists(&blueprint) {
             ctx.log.error(format!(
                 "Unable to locate file \"{filename}\" to install, skipping..."
             ));
@@ -856,7 +863,7 @@ impl FileHandler {
 
         self.current_file = filename.to_string();
         self.current_path = self.output_folder(dest);
-        let _ = fsutil::force_directories(&self.current_path);
+        let _ = self.resolver.create_dir_all(&self.current_path);
         let installed = format!("{}{save_as}", self.current_path);
         if !path_is_confined(&self.install_path, &installed) {
             ctx.log.error(format!(
@@ -865,10 +872,10 @@ impl FileHandler {
             return Ok(false);
         }
 
-        if fsutil::file_exists(&installed) {
+        if self.resolver.exists(&installed) {
             self.backup_current = true;
             self.backup_current(ctx.ini);
-            fsutil::delete_file(&installed);
+            self.resolver.delete(&installed);
             ctx.log.info(format!(
                 "Updating and replacing file {save_as} in Override folder..."
             ));
@@ -878,7 +885,7 @@ impl FileHandler {
             ));
         }
 
-        let _ = fsutil::copy_file(&blueprint, &installed);
+        let _ = self.resolver.copy(&blueprint, &installed);
         self.current_file = save_as;
         self.backup_current = false;
 
@@ -897,7 +904,7 @@ impl FileHandler {
     ) -> Result<bool> {
         self.current_file = filename.to_string();
         self.current_path = self.output_folder(dest);
-        let _ = fsutil::force_directories(&self.current_path);
+        let _ = self.resolver.create_dir_all(&self.current_path);
 
         let source = match self.source_name(ctx.ini, &self.current_file) {
             Ok(name) => name,
@@ -915,7 +922,7 @@ impl FileHandler {
             return Ok(false);
         }
 
-        if fsutil::file_exists(&installed) {
+        if self.resolver.exists(&installed) {
             ctx.log.warn(format!(
                 "A file named \"{save_as}\" already exists in the Override folder. Skipping..."
             ));
@@ -923,7 +930,7 @@ impl FileHandler {
         }
 
         let blueprint = self.blueprint_path(&source);
-        if !fsutil::file_exists(&blueprint) {
+        if !self.resolver.exists(&blueprint) {
             ctx.log.error(format!(
                 "Unable to locate file \"{source}\" to install as \"{}\", skipping...",
                 self.current_file
@@ -931,7 +938,7 @@ impl FileHandler {
             return Ok(false);
         }
 
-        let _ = fsutil::copy_file(&blueprint, &installed);
+        let _ = self.resolver.copy(&blueprint, &installed);
         self.backup_current = false;
         self.current_file = save_as.clone();
         ctx.log
@@ -958,7 +965,7 @@ impl FileHandler {
         let save_as = self.save_name(ctx.ini, filename);
 
         let folder = self.output_folder(dest);
-        let _ = fsutil::force_directories(&folder);
+        let _ = self.resolver.create_dir_all(&folder);
         let installed = format!("{folder}{save_as}");
         if !path_is_confined(&self.install_path, &installed) {
             ctx.log.error(format!(
@@ -967,7 +974,7 @@ impl FileHandler {
             return Ok(false);
         }
 
-        if fsutil::file_exists(&installed) {
+        if self.resolver.exists(&installed) {
             ctx.log.info(format!(
                 "Modifying file \"{save_as}\" found in Override folder..."
             ));
@@ -981,7 +988,7 @@ impl FileHandler {
 
         let blueprint = self.blueprint_path(&source);
 
-        if !fsutil::file_exists(&blueprint) {
+        if !self.resolver.exists(&blueprint) {
             ctx.log.verbose(
                 "No file blueprint found in tslpatchdata folder, fallback to manual source...",
             );
@@ -1003,7 +1010,7 @@ impl FileHandler {
                 ));
             };
 
-            let _ = fsutil::copy_file(&chosen, &installed);
+            let _ = self.resolver.copy(&chosen, &installed);
             self.current_file = save_as.clone();
             ctx.log.info(format!(
                 "Copying file \"{}\" as \"{save_as}\" to Override folder...",
@@ -1012,7 +1019,7 @@ impl FileHandler {
             return Ok(true);
         }
 
-        let _ = fsutil::copy_file(&blueprint, &installed);
+        let _ = self.resolver.copy(&blueprint, &installed);
         self.backup_current = false;
         self.current_file = save_as.clone();
 

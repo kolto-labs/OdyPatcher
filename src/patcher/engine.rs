@@ -1096,11 +1096,14 @@ impl Patcher {
                 }
             };
             let save_as = self.files.save_name(&self.ini, &named);
+            // The log quotes the name the mod's author wrote, not the folded
+            // one the file is installed under.
+            let named_as_written = self.files.save_name_as_written(&self.ini, &named);
 
             let blueprint = self.files.blueprint_path(&source);
-            if save_as.is_empty() || !fsutil::file_exists(&blueprint) {
+            if save_as.is_empty() || !self.files.resolver().exists(&blueprint) {
                 log.warn(format!(
-                    "Unable to copy file \"{save_as}\", file does not exist!"
+                    "Unable to copy file \"{named_as_written}\", file does not exist!"
                 ));
                 continue;
             }
@@ -1338,11 +1341,14 @@ impl Patcher {
                 }
             };
             let save_as = self.files.save_name(&self.ini, &named);
+            // The log quotes the name the mod's author wrote, not the folded
+            // one the file is installed under.
+            let named_as_written = self.files.save_name_as_written(&self.ini, &named);
 
             let blueprint = self.files.blueprint_path(&source);
-            if save_as.is_empty() || !fsutil::file_exists(&blueprint) {
+            if save_as.is_empty() || !self.files.resolver().exists(&blueprint) {
                 log.warn(format!(
-                    "Unable to copy file \"{save_as}\", file does not exist!"
+                    "Unable to copy file \"{named_as_written}\", file does not exist!"
                 ));
                 continue;
             }
