@@ -554,15 +554,85 @@ pub fn restore_backup(session: &Session, game_folder: &str) -> RestoreReport {
     report
 }
 
+/// Outcome of a [`force_lowercase`] walk.
+#[derive(Debug, Default)]
+pub struct LowercaseReport {
+    /// Entries renamed to their canonical lowercase form; no collision.
+    pub renamed: usize,
+    /// Case-only duplicate pairs found byte-identical. The duplicate was
+    /// removed and the canonical lowercase entry kept.
+    pub merged: usize,
+    /// Case-only duplicate pairs left untouched because deleting either
+    /// side could lose real content: their contents differ, or one is a
+    /// file where the other is a directory. Both paths remain on disk;
+    /// each pair is reported here so a human or caller can resolve it
+    /// deliberately instead of it being silently dropped or silently left
+    /// duplicated.
+    pub conflicts: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+    /// Entries the walk meant to fold but could not, with the reason. A
+    /// write-protected parent is the usual cause. These matter because a
+    /// caller that folds its lookups expects the lowercase name to be the
+    /// one on disk; where the rename did not happen, it is not.
+    pub failed: Vec<(std::path::PathBuf, String)>,
+}
+
+impl LowercaseReport {
+    /// True when nothing was left for a human to resolve.
+    pub fn is_clean(&self) -> bool {
+        self.conflicts.is_empty() && self.failed.is_empty()
+    }
+}
+
+/// True when the filesystem holding `dir` tells `A` and `a` apart.
+///
+/// Linux ext4 and btrfs do. macOS APFS, Windows NTFS, and an exFAT game
+/// drive do not. Where it does not, folding a name is not a rename at all:
+/// `Spells.2da` and `spells.2da` are the same file, so the merge path below
+/// would compare that file with itself, find it identical, and delete it.
+/// Probing first is what stops that.
+///
+/// A directory that cannot be written to answers `false`, which skips the
+/// walk. That is the right answer for a read-only game folder: nothing to
+/// gain, and no way to rename anyway.
+pub fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
+    let probe = dir.join("OdyPatcherCaseProbe.tmp");
+    if std::fs::write(&probe, b"x").is_err() {
+        return false;
+    }
+    let collided = dir.join("odypatchercaseprobe.tmp").exists();
+    let _ = std::fs::remove_file(&probe);
+    !collided
+}
+
+fn note_failure(report: &mut LowercaseReport, path: &std::path::Path, err: &std::io::Error) {
+    report.failed.push((path.to_path_buf(), err.to_string()));
+}
+
 /// Rename files and folders below a path to lowercase.
 ///
 /// Useful where the filesystem tells `Appearance.2da` and `appearance.2da`
-pub fn force_lowercase(root: &str) -> usize {
+/// apart. When the lowercase name already exists, this merges instead of
+/// skipping: byte-identical duplicates collapse into the canonical entry,
+/// and genuinely differing content is left in place and reported via
+/// [`LowercaseReport::conflicts`] rather than being silently dropped or
+/// silently left duplicated on disk.
+/// On a filesystem that does not distinguish case this does nothing at all
+/// and reports nothing: there is no rename to make, and attempting one would
+/// destroy data rather than fold it.
+pub fn force_lowercase(root: &str) -> LowercaseReport {
+    let mut report = LowercaseReport::default();
+    if !filesystem_distinguishes_case(&fsutil::native_path(root)) {
+        return report;
+    }
+    force_lowercase_into(root, &mut report);
+    report
+}
+
+fn force_lowercase_into(root: &str, report: &mut LowercaseReport) {
     let target = fsutil::native_path(root);
-    let mut renamed = 0usize;
 
     let Ok(entries) = std::fs::read_dir(&target) else {
-        return 0;
+        return;
     };
 
     // Collect first: renaming while reading the directory is not dependable.
@@ -573,23 +643,151 @@ pub fn force_lowercase(root: &str) -> usize {
             continue;
         };
 
-        let lowered = name.to_lowercase();
+        // ASCII, not Unicode: every matcher that looks a folded name back up
+        // compares with `eq_ignore_ascii_case`, so folding wider than ASCII
+        // produces names those matchers cannot find.
+        let lowered = name.to_ascii_lowercase();
         let mut current = path.clone();
 
         if lowered != name {
             let destination = path.with_file_name(&lowered);
-            if !destination.exists() && std::fs::rename(&path, &destination).is_ok() {
-                current = destination;
-                renamed += 1;
+
+            if !destination.exists() {
+                match std::fs::rename(&path, &destination) {
+                    Ok(()) => {
+                        current = destination;
+                        report.renamed += 1;
+                    }
+                    Err(err) => note_failure(report, &path, &err),
+                }
+            } else if path.is_dir() && destination.is_dir() {
+                merge_directory(&path, &destination, report);
+                // Only succeeds once every entry underneath has been moved
+                // or merged; a non-empty remainder means unresolved
+                // conflicts are still inside it, so leave it in place.
+                if std::fs::remove_dir(&path).is_ok() {
+                    current = destination;
+                }
+            } else if path.is_file() && destination.is_file() {
+                if files_are_identical(&path, &destination) {
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => {
+                            report.merged += 1;
+                            current = destination;
+                        }
+                        Err(err) => note_failure(report, &path, &err),
+                    }
+                } else {
+                    report.conflicts.push((path.clone(), destination));
+                }
+            } else {
+                report.conflicts.push((path.clone(), destination));
             }
         }
 
         if current.is_dir() {
-            renamed += force_lowercase(&current.to_string_lossy());
+            force_lowercase_into(&current.to_string_lossy(), report);
         }
     }
+}
 
-    renamed
+/// Move every entry of `source` into `destination`, matching existing
+/// entries by name without regard to case rather than assuming
+/// `destination` is already fully normalized. Recurses into matching
+/// subdirectories; resolves file collisions the same way
+/// [`force_lowercase_into`] does (identical content merges, differing
+/// content is reported as a conflict and left alone).
+fn merge_directory(source: &std::path::Path, destination: &std::path::Path, report: &mut LowercaseReport) {
+    let Ok(entries) = std::fs::read_dir(source) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let src_path = entry.path();
+        let Some(name) = src_path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+
+        match find_case_insensitive(destination, &name) {
+            None => {
+                // Nothing in `destination` collides even ignoring case; move
+                // it over under its own name. The outer walk lowercases it
+                // on its next pass over `destination`.
+                let dst_path = destination.join(&name);
+                match std::fs::rename(&src_path, &dst_path) {
+                    Ok(()) => report.renamed += 1,
+                    Err(err) => note_failure(report, &src_path, &err),
+                }
+            }
+            Some(existing_name) => {
+                let dst_path = destination.join(&existing_name);
+                if src_path.is_dir() && dst_path.is_dir() {
+                    merge_directory(&src_path, &dst_path, report);
+                    let _ = std::fs::remove_dir(&src_path);
+                } else if src_path.is_file() && dst_path.is_file() {
+                    if files_are_identical(&src_path, &dst_path) {
+                        match std::fs::remove_file(&src_path) {
+                            Ok(()) => report.merged += 1,
+                            Err(err) => note_failure(report, &src_path, &err),
+                        }
+                    } else {
+                        report.conflicts.push((src_path, dst_path));
+                    }
+                } else {
+                    report.conflicts.push((src_path, dst_path));
+                }
+            }
+        }
+    }
+}
+
+/// Find an entry in `dir` whose name matches `wanted` ignoring case.
+fn find_case_insensitive(dir: &std::path::Path, wanted: &str) -> Option<String> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.eq_ignore_ascii_case(wanted) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// True when two files have identical content, compared in chunks rather
+/// than loading either fully into memory (game textures/audio can be large).
+fn files_are_identical(a: &std::path::Path, b: &std::path::Path) -> bool {
+    use std::io::Read;
+
+    let (Ok(meta_a), Ok(meta_b)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    if meta_a.len() != meta_b.len() {
+        return false;
+    }
+
+    let (Ok(file_a), Ok(file_b)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
+        return false;
+    };
+
+    let mut reader_a = std::io::BufReader::new(file_a);
+    let mut reader_b = std::io::BufReader::new(file_b);
+    let mut buf_a = [0u8; 8192];
+    let mut buf_b = [0u8; 8192];
+
+    loop {
+        let Ok(read_a) = reader_a.read(&mut buf_a) else {
+            return false;
+        };
+        let Ok(read_b) = reader_b.read(&mut buf_b) else {
+            return false;
+        };
+        if read_a != read_b || buf_a[..read_a] != buf_b[..read_b] {
+            return false;
+        }
+        if read_a == 0 {
+            return true;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -876,21 +1074,6 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// True when the filesystem holding `dir` tells `A` and `a` apart.
-    ///
-    /// Linux does; macOS and Windows do not by default. Where it does not,
-    /// renaming `Override` to `override` is not a rename at all, so nothing
-    /// is counted even though the walk succeeded.
-    fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
-        let probe = dir.join("CaseProbe.tmp");
-        if fs::write(&probe, b"x").is_err() {
-            return false;
-        }
-        let collided = dir.join("caseprobe.tmp").exists();
-        let _ = fs::remove_file(&probe);
-        !collided
-    }
-
     #[test]
     fn names_are_lowercased_through_the_tree() {
         let dir = temp_dir("lowercase");
@@ -900,14 +1083,20 @@ mod tests {
         fs::write(root.join("Sub").join("Item.UTI"), b"x").unwrap();
 
         let case_sensitive = filesystem_distinguishes_case(&dir);
-        let changed = force_lowercase(&dir.to_string_lossy());
+        let report = force_lowercase(&dir.to_string_lossy());
 
         // The renames are only observable where case is significant. What
         // holds everywhere is that the lowercase names resolve afterwards,
         // which is the point of the walk.
         if case_sensitive {
-            assert!(changed >= 3, "expected several renames, got {changed}");
+            assert!(
+                report.renamed >= 3,
+                "expected several renames, got {}",
+                report.renamed
+            );
         }
+        assert_eq!(report.merged, 0);
+        assert!(report.conflicts.is_empty());
         assert!(dir.join("override").join("appearance.2da").is_file());
         assert!(dir.join("override").join("sub").join("item.uti").is_file());
 
@@ -916,6 +1105,193 @@ mod tests {
 
     #[test]
     fn lowercasing_a_missing_folder_is_harmless() {
-        assert_eq!(force_lowercase("/nonexistent/folder"), 0);
+        let report = force_lowercase("/nonexistent/folder");
+        assert_eq!(report.renamed, 0);
+        assert_eq!(report.merged, 0);
+        assert!(report.conflicts.is_empty());
+    }
+
+    #[test]
+    fn identical_case_only_duplicate_files_are_merged() {
+        let dir = temp_dir("lowercase-merge-identical");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        fs::write(dir.join("File.txt"), b"same content").unwrap();
+        fs::write(dir.join("file.txt"), b"same content").unwrap();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        assert_eq!(report.merged, 1, "expected the duplicate to be merged");
+        assert!(report.conflicts.is_empty());
+        assert!(dir.join("file.txt").is_file());
+        assert!(!dir.join("File.txt").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn differing_case_only_duplicate_files_are_reported_not_deleted() {
+        let dir = temp_dir("lowercase-conflict");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        fs::write(dir.join("File.txt"), b"version one").unwrap();
+        fs::write(dir.join("file.txt"), b"version two, different").unwrap();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        assert_eq!(report.merged, 0);
+        assert_eq!(report.conflicts.len(), 1);
+        // Neither copy was deleted: losing either would lose real content.
+        assert!(dir.join("File.txt").exists());
+        assert!(dir.join("file.txt").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn case_only_duplicate_directories_merge_their_contents() {
+        // This is the exact shape of a real, repeatedly-hit bug: a stray
+        // differently-cased directory containing only some of the files that
+        // also exist, byte-identical, under the canonical-cased directory.
+        let dir = temp_dir("lowercase-merge-dirs");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        fs::create_dir_all(dir.join("gotocut1")).unwrap();
+        fs::write(dir.join("gotocut1").join("001.wav"), b"clip one").unwrap();
+        fs::write(dir.join("gotocut1").join("002.wav"), b"clip two").unwrap();
+
+        fs::create_dir_all(dir.join("GOTOCUT1")).unwrap();
+        // Byte-identical to gotocut1/002.wav under a differently-cased name.
+        fs::write(dir.join("GOTOCUT1").join("002.WAV"), b"clip two").unwrap();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        assert!(report.conflicts.is_empty());
+        assert!(!dir.join("GOTOCUT1").exists(), "stray directory should be gone");
+        assert!(dir.join("gotocut1").join("001.wav").is_file());
+        assert!(dir.join("gotocut1").join("002.wav").is_file());
+        // Only one copy of the duplicate remains.
+        assert_eq!(fs::read_dir(dir.join("gotocut1")).unwrap().count(), 2);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn case_only_duplicate_directories_with_real_conflicts_keep_both_copies() {
+        let dir = temp_dir("lowercase-merge-dirs-conflict");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        fs::create_dir_all(dir.join("gotocut1")).unwrap();
+        fs::write(dir.join("gotocut1").join("002.wav"), b"clip two").unwrap();
+
+        fs::create_dir_all(dir.join("GOTOCUT1")).unwrap();
+        fs::write(dir.join("GOTOCUT1").join("002.WAV"), b"a genuinely different clip").unwrap();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        assert_eq!(report.conflicts.len(), 1);
+        // The stray directory is not removed while it still holds the
+        // unresolved conflicting file.
+        assert!(dir.join("GOTOCUT1").exists());
+        assert!(dir.join("gotocut1").join("002.wav").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folding_is_ascii_only_so_the_matchers_can_still_find_the_name() {
+        let dir = temp_dir("lowercase-ascii-only");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        fs::write(dir.join("ÄPPLE.UTC"), b"x").unwrap();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        // Only the ASCII characters fold. Leaving the non-ASCII one alone is
+        // the point: `eq_ignore_ascii_case` looks these names back up, and it
+        // would never match a Unicode-folded `äpple.utc`.
+        assert!(dir.join("Äpple.utc").is_file());
+        assert!(!dir.join("äpple.utc").exists());
+        assert_eq!(report.renamed, 1);
+        assert!(report.is_clean());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rename_that_cannot_be_performed_is_reported_not_swallowed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir("lowercase-failed-rename");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let locked = dir.join("locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("Appearance.2DA"), b"x").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Running as root ignores the write bit, so there is nothing to assert.
+        if report.renamed > 0 {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        assert_eq!(report.failed.len(), 1, "the failed rename should be reported");
+        assert!(!report.is_clean());
+        assert!(locked.join("Appearance.2DA").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nothing_is_deleted_where_the_filesystem_does_not_distinguish_case() {
+        let dir = temp_dir("lowercase-case-insensitive");
+        // The inverse guard of the tests above: this only has something to
+        // say on macOS or Windows, where `Spells.2da` and `spells.2da` name
+        // one file and the merge path would delete it.
+        if filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        fs::write(dir.join("Spells.2da"), b"content").unwrap();
+        let before = fs::read_dir(&dir).unwrap().count();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        assert_eq!(
+            fs::read_dir(&dir).unwrap().count(),
+            before,
+            "no entry may be removed"
+        );
+        assert!(dir.join("Spells.2da").is_file());
+        assert_eq!(report.renamed, 0);
+        assert_eq!(report.merged, 0);
+        assert!(report.is_clean());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
