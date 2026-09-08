@@ -4,8 +4,15 @@
 //! lookup to `fsutil`, which matches names on disk without regard to case by
 //! scanning a directory when a name does not resolve exactly.
 //! [`Mode::Lowercase`] is experimental: it folds the part of a path below a
-//! known root to ASCII lowercase and expects that folded name on disk, so the
-//! lookup hits on its first try and the scan never runs.
+//! known root to ASCII lowercase and expects that folded name on disk, so
+//! reads, writes, copies and deletes hit on their first try.
+//!
+//! It does not remove every scan. `path_is_confined` still resolves case on
+//! every write, deliberately — its guarantee comes from canonicalising the
+//! nearest existing ancestor, and a folded spelling that did not resolve
+//! would let a symlinked folder escape the check. What the mode removes is
+//! the per-file cost: the scans it eliminates scaled with the number of files
+//! a mod installs, and the ones left over do not.
 //!
 //! The root itself is never folded. A player's game folder can be
 //! `/home/me/Games/Star Wars KotOR II`, and rewriting that would point the
@@ -41,17 +48,11 @@ pub enum Mode {
 #[derive(Debug, Clone, Default)]
 pub struct Counters {
     lookup_fallbacks: Cell<usize>,
-    confinement_resolutions: Cell<usize>,
 }
 
 impl Counters {
     fn note_lookup_fallback(&self) {
         self.lookup_fallbacks.set(self.lookup_fallbacks.get() + 1);
-    }
-
-    fn note_confinement_resolution(&self) {
-        self.confinement_resolutions
-            .set(self.confinement_resolutions.get() + 1);
     }
 }
 
@@ -146,17 +147,9 @@ impl Resolver {
         self.counters.lookup_fallbacks.get()
     }
 
-    /// How many times the confinement check resolved a path. This is a cost
-    /// the lowercase mode does not remove, counted apart from the lookups it
-    /// does remove so neither number flatters the other.
-    pub fn confinement_resolutions(&self) -> usize {
-        self.counters.confinement_resolutions.get()
-    }
-
     /// Zero the counts at the start of a run.
     pub fn reset_counts(&self) {
         self.counters.lookup_fallbacks.set(0);
-        self.counters.confinement_resolutions.set(0);
         self.folded_roots.borrow_mut().clear();
     }
 
@@ -267,7 +260,10 @@ impl Resolver {
         match self.mode {
             Mode::CaseAware => fsutil::write_file(path, data),
             Mode::Lowercase => {
-                let target = self.direct(path);
+                // `readable`, not `direct`: a read-modify-write must land on
+                // the file the matching read found. Below a folded root that
+                // costs nothing, because the folded name is the name on disk.
+                let target = self.readable(path);
                 create_parent(&target)?;
                 clear_read_only(&target);
                 replace_with(&target, |scratch| std::fs::write(scratch, data))
@@ -297,7 +293,7 @@ impl Resolver {
                 // The source is a lookup and may still need the fallback; the
                 // destination is a write and never does.
                 let src = self.readable(source);
-                let dst = self.direct(destination);
+                let dst = self.readable(destination);
                 create_parent(&dst)?;
                 clear_read_only(&dst);
                 replace_with(&dst, |scratch| std::fs::copy(&src, scratch).map(|_| ()))
@@ -342,21 +338,6 @@ impl Resolver {
         let direct = self.direct(path);
         if direct.exists() || !self.should_fall_back(path) {
             return direct;
-        }
-        fsutil::native_path(path)
-    }
-
-    /// Resolve a path for the confinement check.
-    ///
-    /// This keeps case-aware resolution in both modes. The check's guarantee
-    /// comes from canonicalizing the nearest ancestor that exists, so a
-    /// folded spelling that does not resolve would make it canonicalize a
-    /// higher ancestor and miss a symlinked folder pointing out of the game
-    /// directory. The resolution is counted rather than removed: it is a cost
-    /// the lowercase mode does not eliminate.
-    pub fn resolve_for_confinement(&self, path: &str) -> PathBuf {
-        if self.is_lowercase() {
-            self.counters.note_confinement_resolution();
         }
         fsutil::native_path(path)
     }
@@ -620,25 +601,17 @@ mod tests {
     }
 
     #[test]
-    fn confinement_resolution_is_counted_apart_from_lookups() {
-        let resolver = Resolver::new(Mode::Lowercase);
-        let _ = resolver.resolve_for_confinement("/nowhere/override/file.2da");
-
-        assert_eq!(resolver.confinement_resolutions(), 1);
-        assert_eq!(resolver.lookup_fallbacks(), 0);
-    }
-
-    #[test]
     fn counts_are_per_resolver_and_reset() {
         let one = Resolver::new(Mode::Lowercase);
         let two = Resolver::new(Mode::Lowercase);
 
-        let _ = one.resolve_for_confinement("/nowhere/a");
-        assert_eq!(one.confinement_resolutions(), 1);
-        assert_eq!(two.confinement_resolutions(), 0);
+        // A miss outside any folded root is what a fallback is.
+        let _ = one.exists("/nowhere/at/all/file.2da");
+        assert_eq!(one.lookup_fallbacks(), 1);
+        assert_eq!(two.lookup_fallbacks(), 0, "counts belong to one run only");
 
         one.reset_counts();
-        assert_eq!(one.confinement_resolutions(), 0);
+        assert_eq!(one.lookup_fallbacks(), 0);
     }
 
     #[test]
@@ -659,10 +632,8 @@ mod tests {
     #[test]
     fn case_aware_mode_counts_nothing() {
         let resolver = Resolver::new(Mode::CaseAware);
-        let _ = resolver.resolve_for_confinement("/nowhere/a");
         let _ = resolver.exists("/nowhere/b");
 
-        assert_eq!(resolver.confinement_resolutions(), 0);
         assert_eq!(resolver.lookup_fallbacks(), 0);
     }
 }

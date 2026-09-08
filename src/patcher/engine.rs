@@ -121,7 +121,9 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         // `base_path` holds `tslpatchdata` and `backup`, so one walk covers
         // both. It is the mod folder, not the game folder: the game folder is
         // settled later, by `settle_install_path`, and is folded there.
-        if Self::normalize_case(log, &self.base_path.clone(), "mod folder") {
+        if self.files.resolver().is_lowercase()
+            && Self::normalize_case(log, &self.base_path.clone(), "mod folder")
+        {
             // Folded with nothing left unresolved, so a folded lookup that
             // misses below here is a real miss and needs no second attempt.
             self.files.resolver().trust_folded(&self.base_path.clone());
@@ -131,7 +133,9 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
 
         // Again afterward: this run wrote files under whatever case a
         // changes.ini directive or an extracted archive used.
-        let _ = Self::normalize_case(log, &self.base_path.clone(), "mod folder");
+        if self.files.resolver().is_lowercase() {
+            let _ = Self::normalize_case(log, &self.base_path.clone(), "mod folder");
+        }
 
         self.report_lookup_cost(log);
 
@@ -170,16 +174,16 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
     /// content conflicts are surfaced as warnings rather than resolved by
     /// guessing which copy is right, since deleting either could lose real
     /// content; both stay on disk for a human to sort out.
-    /// Say what the run's lookups cost, when there is anything to say.
+    /// Say how many lookups fell back to a case-aware scan.
     ///
-    /// The two numbers are kept apart on purpose. Lookup fallbacks are the
-    /// scans folding was meant to remove, so zero is the number worth
-    /// reaching. Confinement resolutions are scans it does not remove: the
-    /// check that keeps a mod from writing outside the game folder resolves
-    /// case itself, and stripping that would weaken it. Reporting one number
-    /// would let the cost that was removed flatter the cost that was not.
+    /// This counts the lookups folding was meant to make cheap, and nothing
+    /// else. The confinement check in `path_is_confined` still resolves case
+    /// on every write and is deliberately not counted here, because it is not
+    /// routed through the resolver — see the note there. Do not read this
+    /// number as "scans this run performed"; read it as "folded lookups that
+    /// did not find what they expected".
     ///
-    /// Neither counts as a warning. This is information, not a fault.
+    /// It is not a warning. A fallback is information, not a fault.
     fn report_lookup_cost(&self, log: &mut Log) {
         let resolver = self.files.resolver();
         if !resolver.is_lowercase() {
@@ -187,13 +191,12 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         }
 
         let fallbacks = resolver.lookup_fallbacks();
-        let confinements = resolver.confinement_resolutions();
-        if fallbacks == 0 && confinements == 0 {
+        if fallbacks == 0 {
             return;
         }
 
         log.verbose(format!(
-            "Lookups: {fallbacks} fell back to a case-aware scan, {confinements} resolved for the confinement check."
+            "{fallbacks} folded lookups fell back to a case-aware scan."
         ));
     }
 

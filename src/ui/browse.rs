@@ -46,7 +46,7 @@ impl App {
                     }
                     if ui
                         .add_enabled(
-                            !self.game_path.is_empty(),
+                            !self.game_path.is_empty() && !self.running,
                             egui::Button::new("Force Lowercase Filenames"),
                         )
                         .clicked()

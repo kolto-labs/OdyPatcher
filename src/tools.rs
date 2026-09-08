@@ -574,6 +574,10 @@ pub struct LowercaseReport {
     /// caller that folds its lookups expects the lowercase name to be the
     /// one on disk; where the rename did not happen, it is not.
     pub failed: Vec<(std::path::PathBuf, String)>,
+    /// True when the walk did not run at all, because the filesystem does not
+    /// distinguish case or could not be probed. Distinct from a clean fold:
+    /// nothing was folded, so a caller must not treat the tree as folded.
+    pub skipped: bool,
 }
 
 impl LowercaseReport {
@@ -595,11 +599,18 @@ impl LowercaseReport {
 /// walk. That is the right answer for a read-only game folder: nothing to
 /// gain, and no way to rename anyway.
 pub fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
-    let probe = dir.join("OdyPatcherCaseProbe.tmp");
+    // Unique per probe: two runs against one folder must not remove each
+    // other's file and read the answer off a stale result.
+    let name = format!(
+        "OdyPatcherCaseProbe-{}-{:?}.tmp",
+        std::process::id(),
+        std::thread::current().id()
+    );
+    let probe = dir.join(&name);
     if std::fs::write(&probe, b"x").is_err() {
         return false;
     }
-    let collided = dir.join("odypatchercaseprobe.tmp").exists();
+    let collided = dir.join(name.to_ascii_lowercase()).exists();
     let _ = std::fs::remove_file(&probe);
     !collided
 }
@@ -622,6 +633,7 @@ fn note_failure(report: &mut LowercaseReport, path: &std::path::Path, err: &std:
 pub fn force_lowercase(root: &str) -> LowercaseReport {
     let mut report = LowercaseReport::default();
     if !filesystem_distinguishes_case(&fsutil::native_path(root)) {
+        report.skipped = true;
         return report;
     }
     force_lowercase_into(root, &mut report);
@@ -702,8 +714,14 @@ fn merge_directory(
     destination: &std::path::Path,
     report: &mut LowercaseReport,
 ) {
-    let Ok(entries) = std::fs::read_dir(source) else {
-        return;
+    let entries = match std::fs::read_dir(source) {
+        Ok(entries) => entries,
+        Err(err) => {
+            // Not silent: a caller that trusts a folded tree needs to know
+            // this subtree was never read.
+            note_failure(report, source, &err);
+            return;
+        }
     };
 
     for entry in entries.flatten() {

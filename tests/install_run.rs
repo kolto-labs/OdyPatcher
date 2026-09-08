@@ -117,7 +117,7 @@ impl Fixture {
         &self,
         instructions: &str,
         mode: odypatcher::paths::Mode,
-    ) -> (odypatcher::PatchSummary, Vec<String>, usize, usize) {
+    ) -> (odypatcher::PatchSummary, Vec<String>, usize) {
         self.mod_file("changes.ini", instructions.as_bytes());
 
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -137,9 +137,8 @@ impl Fixture {
             .unwrap_or_else(|err| panic!("run failed: {err}"));
 
         let fallbacks = patcher.files.resolver().lookup_fallbacks();
-        let confinements = patcher.files.resolver().confinement_resolutions();
         let lines = captured.lock().unwrap().clone();
-        (summary, lines, fallbacks, confinements)
+        (summary, lines, fallbacks)
     }
 }
 
@@ -4213,43 +4212,131 @@ fn seed_mixed_case_mod(f: &Fixture) {
     f.game_file("override/spells.2da", &spell_table());
 }
 
-#[test]
-fn the_lowercase_mode_installs_a_windows_cased_mod_without_falling_back() {
-    let f = Fixture::new("lowercase-mode");
-    seed_mixed_case_mod(&f);
+/// Install a Windows-cased mod into a fresh game folder, reporting what the
+/// lookups cost. The game folder is separate from the mod folder, the way it
+/// is in a real install: the shared fixture nests them, and there the
+/// mod-folder walk folds the game tree as a side effect, which would hide
+/// whether scoped folding did its job.
+fn install_mixed_case_mod(tag: &str, extra_files: usize) -> (usize, std::path::PathBuf) {
+    let f = Fixture::new(tag);
+    f.mod_file("NewIcon.TGA", b"icon bytes");
+    f.mod_file("Spells.2DA", &spell_table());
 
-    let (summary, _, fallbacks, _confinements) =
-        f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::Lowercase);
+    let mut ini = String::from(
+        "[Settings]\n\
+         InstallerMode=1\n\
+         FileExists=1\n\
+         \n\
+         [InstallList]\n\
+         install_loose=Override\n\
+         \n\
+         [install_loose]\n\
+         File0=NewIcon.TGA\n",
+    );
+    for index in 0..extra_files {
+        let name = format!("Extra{index}.TGA");
+        f.mod_file(&name, b"extra bytes");
+        ini.push_str(&format!("File{}={name}\n", index + 1));
+    }
+    ini.push_str(
+        "\n\
+         [2DAList]\n\
+         Table0=Spells.2DA\n\
+         \n\
+         [Spells.2DA]\n\
+         AddRow0=spell_row\n\
+         \n\
+         [spell_row]\n\
+         label=added\n",
+    );
 
+    let game = std::env::temp_dir().join(format!(
+        "odypatcher-game-{tag}-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&game);
+    // Capitalised, the way a real install ships it.
+    std::fs::create_dir_all(game.join("Override")).unwrap();
+    std::fs::write(game.join("Override").join("spells.2da"), spell_table()).unwrap();
+    let game_path = format!("{}/", game.to_string_lossy());
+
+    f.mod_file("changes.ini", ini.as_bytes());
+    let mut log = Log::new(4, Box::new(|_| {}));
+    let mut host = SilentHost::with_game_folder(game_path.clone());
+    let mut patcher = Patcher::new(&f.base, &f.data, "changes.ini");
+    patcher.set_path_mode(odypatcher::paths::Mode::Lowercase);
+    patcher.files.set_install_path(&game_path);
+    let summary = patcher.run(&mut log, &mut host).expect("run failed");
     assert_eq!(summary.errors, 0, "the mod should install cleanly");
-    assert_eq!(f.override_file("newicon.tga"), b"icon bytes");
-    assert!(
-        f.override_exists("spells.2da"),
-        "the patched table should be in the override folder"
-    );
 
-    // The point of the mode: every lookup hit on its first try, so none of
-    // them paid for a directory scan.
-    assert_eq!(
-        fallbacks, 0,
-        "a folded tree should answer every lookup without falling back"
-    );
+    (patcher.files.resolver().lookup_fallbacks(), game)
 }
 
 #[test]
-fn the_default_mode_installs_the_same_mod_and_renames_nothing_in_the_game() {
-    let f = Fixture::new("case-aware-mode");
+fn the_lowercase_mode_folds_a_capitalised_override_instead_of_shadowing_it() {
+    let (_, game) = install_mixed_case_mod("fold-override", 0);
+
+    assert!(game.join("override").join("newicon.tga").is_file());
+    assert!(game.join("override").join("spells.2da").is_file());
+
+    // A real install ships `Override` capitalised. The mode must rename it,
+    // not create a second folder beside it: files in a lowercase sibling are
+    // files the game never reads.
+    let mut roots: Vec<String> = std::fs::read_dir(&game)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.eq_ignore_ascii_case("override"))
+        .collect();
+    roots.sort();
+    assert_eq!(
+        roots,
+        vec!["override"],
+        "exactly one override folder, folded"
+    );
+
+    let _ = std::fs::remove_dir_all(&game);
+}
+
+#[test]
+fn folded_lookups_do_not_scale_with_the_number_of_files_installed() {
+    // The honest form of the performance claim. A couple of lookups still
+    // fall back while the game folder is being folded -- the walk has to look
+    // before it can rename. What must not happen is that cost growing with
+    // the mod: that is what made a large install slow.
+    let (small, small_game) = install_mixed_case_mod("scale-small", 1);
+    let (large, large_game) = install_mixed_case_mod("scale-large", 12);
+
+    assert_eq!(
+        small, large,
+        "fallbacks must not grow with the file count: {small} for 1 extra file, {large} for 12"
+    );
+
+    let _ = std::fs::remove_dir_all(&small_game);
+    let _ = std::fs::remove_dir_all(&large_game);
+}
+
+#[test]
+fn the_default_mode_leaves_the_mod_folder_casing_alone() {
+    // Folding is opt-in. With the mode off the patcher must not rename a
+    // single file the user shipped, in the mod folder or anywhere else.
+    let f = Fixture::new("case-aware-no-renames");
     seed_mixed_case_mod(&f);
-    let (summary, _, fallbacks, confinements) =
-        f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::CaseAware);
 
+    let (summary, _, _) = f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::CaseAware);
     assert_eq!(summary.errors, 0);
-    assert_eq!(f.override_file("newicon.tga"), b"icon bytes");
 
-    // The counters belong to the lowercase mode; the default path never
-    // touches them.
-    assert_eq!(fallbacks, 0);
-    assert_eq!(confinements, 0);
+    let names: Vec<String> = std::fs::read_dir(&f.data)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names.iter().any(|name| name == "NewIcon.TGA"),
+        "the mod's own file names must survive a default run: {names:?}"
+    );
+    assert!(names.iter().any(|name| name == "Spells.2DA"), "{names:?}");
 }
 
 #[test]
@@ -4257,7 +4344,7 @@ fn the_run_says_when_the_experimental_mode_is_on_and_stays_quiet_when_it_is_not(
     let f = Fixture::new("lowercase-notice");
     seed_mixed_case_mod(&f);
 
-    let (_, lines, _, _) = f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::Lowercase);
+    let (_, lines, _) = f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::Lowercase);
     assert!(
         lines.iter().any(|line| line.contains("Experimental")),
         "an opt-in run should say so once: {lines:?}"
@@ -4266,7 +4353,7 @@ fn the_run_says_when_the_experimental_mode_is_on_and_stays_quiet_when_it_is_not(
     let g = Fixture::new("case-aware-quiet");
     seed_mixed_case_mod(&g);
 
-    let (_, lines, _, _) = g.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::CaseAware);
+    let (_, lines, _) = g.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::CaseAware);
     assert!(
         !lines.iter().any(|line| line.contains("Experimental")),
         "the default run should say nothing about a mode it is not in: {lines:?}"

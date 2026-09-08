@@ -400,7 +400,22 @@ impl FileHandler {
                 continue;
             }
 
+            // Fold the folder's own name first. `force_lowercase` folds the
+            // entries below a root, never the root itself, and a real install
+            // ships `Override` capitalised. Left alone, the write side would
+            // create a second `override` beside it and the mod would land
+            // somewhere the game never reads.
+            if !self.fold_folder_name(&root, ctx) {
+                clean = false;
+                continue;
+            }
+
             let report = crate::tools::force_lowercase(&root);
+            if report.skipped {
+                // Nothing was folded, so nothing below here may be trusted.
+                clean = false;
+                continue;
+            }
             if report.renamed > 0 || report.merged > 0 {
                 ctx.log.verbose(format!(
                     "Folded names under \"{folder}\" ({} renamed, {} case-only duplicates merged)",
@@ -429,6 +444,45 @@ impl FileHandler {
         }
     }
 
+    /// Rename a target folder to its folded spelling.
+    ///
+    /// Reports whether the folder now sits at the name a folded lookup will
+    /// ask for. A folder that already matches, or that cannot be renamed
+    /// because something else holds the folded name, reports accordingly:
+    /// the caller then leaves the root untrusted so lookups below it keep
+    /// reaching the case-aware fallback.
+    fn fold_folder_name(&self, root: &str, ctx: &mut Context<'_>) -> bool {
+        let actual = fsutil::native_path(root);
+        let Some(name) = actual.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            return true;
+        };
+        let folded = crate::paths::fold_ascii(&name);
+        if folded == name {
+            return true;
+        }
+
+        let destination = actual.with_file_name(&folded);
+        if destination.exists() {
+            ctx.log.warn(format!(
+                "Both \"{name}\" and \"{folded}\" exist in the game folder; leaving them alone"
+            ));
+            return false;
+        }
+
+        match std::fs::rename(&actual, &destination) {
+            Ok(()) => {
+                ctx.log
+                    .verbose(format!("Renamed \"{name}\" to \"{folded}\""));
+                true
+            }
+            Err(err) => {
+                ctx.log
+                    .warn(format!("Could not rename \"{name}\" to lowercase ({err})"));
+                false
+            }
+        }
+    }
+
     pub fn source_folder(&self) -> &str {
         &self.source_folder
     }
@@ -453,7 +507,7 @@ impl FileHandler {
             }
         }
 
-        match resolve_source_folder(&self.data_path, &requested) {
+        match resolve_source_folder(&self.data_path, &self.resolver.fold(&requested)) {
             Ok(folder) => {
                 self.source_folder = folder;
                 true
@@ -730,7 +784,7 @@ impl FileHandler {
                         format!("Unsafe Required file name \"{name}\" encountered."),
                     ));
                 }
-                let target = format!("{}{}", self.override_folder(), name);
+                let target = self.resolver.under(&self.override_folder(), name);
                 if !path_is_confined(&self.install_path, &target) {
                     return Err(PatchError::general(
                         99,
