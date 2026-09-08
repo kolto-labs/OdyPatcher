@@ -172,8 +172,8 @@ folders the mod writes to — `override`, every `!Destination` and
 capsule destination. Nothing else in the game is touched. On a filesystem that
 does not tell `Data` and `data` apart, it does nothing.
 
-The patcher records every rename in the mod's `backup` folder, so putting the
-backup back also puts the original casing back.
+The renaming is one way. Nothing records what was renamed and nothing puts the
+original names back, so back up the game folder before turning this on.
 
 Values a mod writes into game data are not folded. A ResRef in a 2DA cell or a
 GFF field keeps the casing its author gave it, in either mode, because that is

@@ -7,8 +7,9 @@
 * Experimental `--experimental-lowercase-paths` mode. Names are folded to
   lowercase and looked up by that name instead of searching a folder for a
   case-insensitive match. Off by default; set by whoever runs the patcher, not
-  by a mod. Renames are recorded, so restoring the backup restores the
-  original casing.
+  by a mod. The renaming is one way: back up the game folder first. Measured
+  on a mod installing into `override`, the destination directory is read once
+  per file instead of three times.
 
 ### Fixes
 

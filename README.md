@@ -144,6 +144,14 @@ leaves the rest of the game alone, and does nothing at all on a filesystem that
 does not tell case apart. Values a mod writes into game data keep the casing its
 author gave them. It is off unless you ask for it.
 
+The renaming is one way. Nothing puts the original names back, so back up your
+game folder before you turn this on.
+
+It is faster, not free. Every file the patcher writes is still checked against
+the game folder, and that check reads the destination directory. Measured on a
+mod installing into `override`, the directory is read once per file instead of
+three times.
+
 Scripts compile in-process when a `nwscript.nss` header is available (in the
 mod's `tslpatchdata` folder, or named `nwscript.k1.nss` / `nwscript.k2.nss` /
 `nwscript.nss` beside this program). A shipped `nwnnsscomp` binary is used

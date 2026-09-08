@@ -191,10 +191,26 @@ Renames files in the mod folder and in the folders the mod writes to.",
 
     pub(super) fn force_lowercase(&mut self) {
         let report = crate::tools::force_lowercase(&self.game_path);
+        if report.skipped {
+            self.tool_text = "This filesystem does not tell Data and data apart, \
+so nothing was renamed."
+                .to_string();
+            self.view = View::Tool;
+            return;
+        }
         let mut text = format!(
             "Renamed {} files and folders to lowercase ({} case-only duplicates merged).\n",
             report.renamed, report.merged
         );
+        if !report.failed.is_empty() {
+            text.push_str(&format!(
+                "\n{} could not be renamed:\n",
+                report.failed.len()
+            ));
+            for (path, reason) in &report.failed {
+                text.push_str(&format!("  {}: {reason}\n", path.display()));
+            }
+        }
         if !report.conflicts.is_empty() {
             text.push_str(&format!(
                 "\n{} case-only duplicate pair(s) have different content and were left as-is:\n",

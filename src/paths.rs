@@ -7,12 +7,18 @@
 //! known root to ASCII lowercase and expects that folded name on disk, so
 //! reads, writes, copies and deletes hit on their first try.
 //!
-//! It does not remove every scan. `path_is_confined` still resolves case on
-//! every write, deliberately — its guarantee comes from canonicalising the
-//! nearest existing ancestor, and a folded spelling that did not resolve
-//! would let a symlinked folder escape the check. What the mode removes is
-//! the per-file cost: the scans it eliminates scaled with the number of files
-//! a mod installs, and the ones left over do not.
+//! It does not remove every scan, and the ones it leaves still grow with the
+//! number of files installed. Measured against a mod installing into
+//! `override`: the case-aware path reads that whole directory three times per
+//! file — the confinement check, the already-installed check, and the copy's
+//! own resolution. Folding removes the last two. The confinement check keeps
+//! resolving case on purpose, because its guarantee comes from canonicalising
+//! the nearest existing ancestor and a folded spelling that did not resolve
+//! would let a symlinked folder escape it.
+//!
+//! So the honest figure is about a threefold cut in directory reads per file,
+//! not a scan-free install. The total is still proportional to files
+//! installed times entries in the destination.
 //!
 //! The root itself is never folded. A player's game folder can be
 //! `/home/me/Games/Star Wars KotOR II`, and rewriting that would point the
