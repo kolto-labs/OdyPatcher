@@ -769,7 +769,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         if let Ok(opened) = self.files.file_path() {
             let dir = text::extract_file_path(&opened);
             if !dir.is_empty()
-                && fsutil::file_exists(&format!(
+                && self.files.resolver().exists(&format!(
                     "{}dialogf.tlk",
                     text::include_trailing_delimiter(&dir)
                 ))
@@ -782,7 +782,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         if root.is_empty() {
             return false;
         }
-        fsutil::file_exists(&format!(
+        self.files.resolver().exists(&format!(
             "{}dialogf.tlk",
             text::include_trailing_delimiter(root)
         ))
@@ -896,7 +896,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         let Some(append_path) = self.tlk_blueprint(&append_name, log) else {
             return Ok(());
         };
-        if !fsutil::file_exists(&append_path) {
+        if !self.files.resolver().exists(&append_path) {
             return Ok(());
         }
 
@@ -1214,7 +1214,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                     file_dest,
                 )
             };
-            let _ = fsutil::force_directories(&installed_target);
+            let _ = self.files.resolver().create_dir_all(&installed_target);
             let installed = text::join_path(&installed_target, &save_as);
             if !crate::patcher::files::path_is_confined(
                 self.files.install_path_if_known(),
@@ -1252,12 +1252,14 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
 
                 if self.files.do_backups {
                     let folder = self.files.backup_folder();
-                    fsutil::force_directories(&folder)?;
-                    fsutil::copy_file(&existing_path, &format!("{folder}{save_as}"))?;
+                    self.files.resolver().create_dir_all(&folder)?;
+                    self.files
+                        .resolver()
+                        .copy(&existing_path, &format!("{folder}{save_as}"))?;
                 }
 
-                fsutil::delete_file(&existing_path);
-                fsutil::copy_file(&blueprint, &installed)?;
+                self.files.resolver().delete(&existing_path);
+                self.files.resolver().copy(&blueprint, &installed)?;
                 self.advance(host);
 
                 if save_as != source {
@@ -1270,7 +1272,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                     ));
                 }
             } else {
-                fsutil::copy_file(&blueprint, &installed)?;
+                self.files.resolver().copy(&blueprint, &installed)?;
                 self.advance(host);
 
                 if save_as != source {
@@ -1302,7 +1304,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         archive_path: &str,
         display: &str,
     ) -> Result<()> {
-        if !fsutil::file_exists(archive_path) {
+        if !self.files.resolver().exists(archive_path) {
             log.error(format!(
                 "Destination file \"{display}\" does not exist at the specified location! Skipping..."
             ));
@@ -1449,7 +1451,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                             "{}{dest}",
                             text::include_trailing_delimiter(self.files.install_path_if_known())
                         );
-                        let _ = fsutil::force_directories(&folder);
+                        let _ = self.files.resolver().create_dir_all(&folder);
                         let installed = text::join_path(&folder, &save_as);
                         if !crate::patcher::files::path_is_confined(
                             self.files.install_path_if_known(),
@@ -1484,12 +1486,14 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                             }
                             if self.files.do_backups {
                                 let backup = self.files.backup_folder();
-                                fsutil::force_directories(&backup)?;
-                                fsutil::copy_file(&existing_path, &format!("{backup}{save_as}"))?;
+                                self.files.resolver().create_dir_all(&backup)?;
+                                self.files
+                                    .resolver()
+                                    .copy(&existing_path, &format!("{backup}{save_as}"))?;
                             }
-                            fsutil::delete_file(&existing_path);
+                            self.files.resolver().delete(&existing_path);
                         }
-                        fsutil::copy_file(&blueprint, &installed)?;
+                        self.files.resolver().copy(&blueprint, &installed)?;
                         self.advance(host);
                         log.info(format!("Copying file {save_as} to the {dest} folder..."));
                         continue;
@@ -1710,7 +1714,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             ));
         }
 
-        let mut data = fsutil::read_file(&path)?;
+        let mut data = self.files.resolver().read(&path)?;
         let is_script = self.files.file_name().to_lowercase().ends_with("ncs");
 
         for offset_key in offsets {
@@ -1758,7 +1762,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             ));
         }
 
-        fsutil::write_file(&path, &data)?;
+        self.files.resolver().write(&path, &data)?;
         self.advance(host);
 
         if into_archive {
@@ -1820,7 +1824,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             }
 
             let path = self.files.file_path()?;
-            if !fsutil::file_exists(&path) {
+            if !self.files.resolver().exists(&path) {
                 log.warn(format!(
                     "File {filename} could not be found! Skipping it..."
                 ));
@@ -1952,7 +1956,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         };
 
         let working = text::include_trailing_delimiter(&format!("{}nsspatch_temp", self.data_path));
-        let _ = fsutil::force_directories(&working);
+        let _ = self.files.resolver().create_dir_all(&working);
 
         let configured_default =
             self.ini
@@ -1984,7 +1988,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         fsutil::remove_dir(&working);
 
         if let Some(borrowed) = borrowed_header {
-            fsutil::delete_file(&borrowed);
+            self.files.resolver().delete(&borrowed);
         }
 
         outcome
@@ -2018,7 +2022,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         }
 
         for path in candidates {
-            if !fsutil::file_exists(&path) {
+            if !self.files.resolver().exists(&path) {
                 continue;
             }
             match bionsscomp::NwScript::load(game, fsutil::native_path(&path)) {
@@ -2054,7 +2058,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         let compiler_folder = text::include_trailing_delimiter(&text::extract_file_path(compiler));
 
         let header = format!("{compiler_folder}nwscript.nss");
-        if fsutil::file_exists(&header) {
+        if self.files.resolver().exists(&header) {
             return None;
         }
 
@@ -2066,7 +2070,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
 
         let source = preferred
             .map(|name| format!("{compiler_folder}{name}"))
-            .filter(|path| fsutil::file_exists(path))
+            .filter(|path| self.files.resolver().exists(path))
             .or_else(|| {
                 let beside_program = std::env::current_exe()
                     .ok()
@@ -2076,10 +2080,10 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                     .into_iter()
                     .flatten()
                     .map(|name| format!("{beside_program}{name}"))
-                    .find(|path| fsutil::file_exists(path))
+                    .find(|path| self.files.resolver().exists(path))
             })?;
 
-        if fsutil::copy_file(&source, &header).is_err() {
+        if self.files.resolver().copy(&source, &header).is_err() {
             return None;
         }
 
@@ -2107,7 +2111,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             ("swkotor.exe", Game::Kotor1),
             ("modules/ebo_m12aa.rim", Game::Kotor1),
         ] {
-            if fsutil::file_exists(&format!("{root}{marker}")) {
+            if self.files.resolver().exists(&format!("{root}{marker}")) {
                 return Some(game);
             }
         }
@@ -2227,7 +2231,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 log.verbose(format!("NWNNSSComp says: {}", line.trim_end_matches('\r')));
             }
 
-            if !fsutil::file_exists(&compiled_path) {
+            if !self.files.resolver().exists(&compiled_path) {
                 log.error(format!(
                     "Unable to find compiled version of file \"{}\"! The compilation probably failed! Skipping...",
                     self.files.file_name()
@@ -2249,13 +2253,13 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 )?;
             } else {
                 let folder = self.files.output_folder(&destination);
-                fsutil::force_directories(&folder)?;
+                self.files.resolver().create_dir_all(&folder)?;
                 let installed = format!("{folder}{compiled_name}");
                 if overwrite {
-                    fsutil::delete_file(&installed);
+                    self.files.resolver().delete(&installed);
                 }
-                fsutil::copy_file(&compiled_path, &installed)?;
-                fsutil::delete_file(&compiled_path);
+                self.files.resolver().copy(&compiled_path, &installed)?;
+                self.files.resolver().delete(&compiled_path);
             }
 
             self.advance(host);
@@ -2268,7 +2272,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             ));
             archive.save(None)?;
             for path in queued_temp.drain(..) {
-                fsutil::delete_file(&path);
+                self.files.resolver().delete(&path);
             }
         }
 
@@ -2292,12 +2296,12 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
         default_destination: &str,
     ) -> Result<()> {
         let staging = text::include_trailing_delimiter(&format!("{}erfpatch_temp", self.data_path));
-        fsutil::force_directories(&staging)?;
+        self.files.resolver().create_dir_all(&staging)?;
 
         let staged = format!("{staging}{compiled_name}");
-        fsutil::delete_file(&staged);
-        fsutil::copy_file(compiled_path, &staged)?;
-        fsutil::delete_file(compiled_path);
+        self.files.resolver().delete(&staged);
+        self.files.resolver().copy(compiled_path, &staged)?;
+        self.files.resolver().delete(compiled_path);
 
         if self.files.backup_destination() {
             log.info(format!(
@@ -2319,7 +2323,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                     ));
                     archive.save(None)?;
                     for path in queued_temp.drain(..) {
-                        fsutil::delete_file(&path);
+                        self.files.resolver().delete(&path);
                     }
                 }
             }
