@@ -104,6 +104,14 @@ impl Patcher {
             log.notice(format!("Patch operation started {started}..."));
         }
 
+        self.files.resolver().reset_counts();
+        if self.files.resolver().is_lowercase() {
+            log.notice(
+                "Experimental: names are folded to lowercase while installing. \
+Files in the mod folder and in the folders this mod writes to are renamed.",
+            );
+        }
+
         // Fold the mod's own tree first. Mod archives are packaged with
         // wildly inconsistent casing, and every lookup below goes through a
         // resolver whose fast path is a direct `path.exists()` check, so
@@ -124,6 +132,8 @@ impl Patcher {
         // Again afterward: this run wrote files under whatever case a
         // changes.ini directive or an extracted archive used.
         let _ = Self::normalize_case(log, &self.base_path.clone(), "mod folder");
+
+        self.report_lookup_cost(log);
 
         // Record why a run stopped before summarizing it.
         if let Err(err) = &result {
@@ -160,6 +170,33 @@ impl Patcher {
     /// content conflicts are surfaced as warnings rather than resolved by
     /// guessing which copy is right, since deleting either could lose real
     /// content; both stay on disk for a human to sort out.
+    /// Say what the run's lookups cost, when there is anything to say.
+    ///
+    /// The two numbers are kept apart on purpose. Lookup fallbacks are the
+    /// scans folding was meant to remove, so zero is the number worth
+    /// reaching. Confinement resolutions are scans it does not remove: the
+    /// check that keeps a mod from writing outside the game folder resolves
+    /// case itself, and stripping that would weaken it. Reporting one number
+    /// would let the cost that was removed flatter the cost that was not.
+    ///
+    /// Neither counts as a warning. This is information, not a fault.
+    fn report_lookup_cost(&self, log: &mut Log) {
+        let resolver = self.files.resolver();
+        if !resolver.is_lowercase() {
+            return;
+        }
+
+        let fallbacks = resolver.lookup_fallbacks();
+        let confinements = resolver.confinement_resolutions();
+        if fallbacks == 0 && confinements == 0 {
+            return;
+        }
+
+        log.verbose(format!(
+            "Lookups: {fallbacks} fell back to a case-aware scan, {confinements} resolved for the confinement check."
+        ));
+    }
+
     ///
     /// Reports whether the fold left nothing unresolved.
     fn normalize_case(log: &mut Log, root: &str, label: &str) -> bool {

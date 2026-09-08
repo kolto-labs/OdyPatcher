@@ -4253,6 +4253,27 @@ fn the_default_mode_installs_the_same_mod_and_renames_nothing_in_the_game() {
 }
 
 #[test]
+fn the_run_says_when_the_experimental_mode_is_on_and_stays_quiet_when_it_is_not() {
+    let f = Fixture::new("lowercase-notice");
+    seed_mixed_case_mod(&f);
+
+    let (_, lines, _, _) = f.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::Lowercase);
+    assert!(
+        lines.iter().any(|line| line.contains("Experimental")),
+        "an opt-in run should say so once: {lines:?}"
+    );
+
+    let g = Fixture::new("case-aware-quiet");
+    seed_mixed_case_mod(&g);
+
+    let (_, lines, _, _) = g.run_in_mode(MIXED_CASE_MOD, odypatcher::paths::Mode::CaseAware);
+    assert!(
+        !lines.iter().any(|line| line.contains("Experimental")),
+        "the default run should say nothing about a mode it is not in: {lines:?}"
+    );
+}
+
+#[test]
 fn a_folder_the_mod_never_names_is_left_alone_by_the_lowercase_mode() {
     // The game folder sits outside the mod folder here, the way it does in a
     // real install. The shared fixture nests them, which would let the
