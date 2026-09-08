@@ -1,6 +1,6 @@
 [package]
 name = "odypatcher"
-version = "1.0.0"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.77"
 authors = ["Boden Crouch"]
@@ -35,16 +35,16 @@ egui = { version = "0.32", optional = true }
 egui_extras = { version = "0.32", optional = true }
 rfd = { version = "0.15", optional = true, default-features = false, features = ["xdg-portal", "tokio"] }
 
-kotor-formats = { git = "https://github.com/arrenkaetris/kotor-formats", tag = "v0.3.0" }
+kotor-formats = { git = "https://github.com/holowan-biolabs/kotor-formats", tag = "v0.1.0" }
 
 # Pinned by commit rather than tag: BioNSSComp has no release yet. Swap this
 # for a tag once one is cut.
-# bionsscomp = { git = "https://github.com/arrenkaetris/BioNSSComp", tag = "v1.0.0" }
-bionsscomp = { git = "https://github.com/arrenkaetris/BioNSSComp", rev = "fc88c4f" }
+# bionsscomp = { git = "https://github.com/bodencrouch/BioNSSComp", tag = "v1.0.0" }
+bionsscomp = { git = "https://github.com/bodencrouch/BioNSSComp", rev = "fc88c4f" }
 
 # To work against a local kotor-formats checkout instead of the pinned tag,
 # uncomment:
-# [patch."https://github.com/arrenkaetris/kotor-formats"]
+# [patch."https://github.com/holowan-biolabs/kotor-formats"]
 # kotor-formats = { path = "../kotor-formats/crates/kotor-formats" }
 
 [dev-dependencies]
