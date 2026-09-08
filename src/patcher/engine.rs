@@ -1053,14 +1053,14 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 continue;
             }
 
-            let target = format!("{install_path}{folder}");
+            let target = self.files.resolver().under(&install_path, &folder);
             if !crate::patcher::files::path_is_confined(&install_path, &target) {
                 log.error(format!(
                     "Install location \"{display}\" points outside the game folder! Skipping..."
                 ));
                 continue;
             }
-            let is_archive = if fsutil::file_exists(&target) {
+            let is_archive = if self.files.resolver().exists(&target) {
                 if ErfFile::is_valid_archive(&target) {
                     true
                 } else {
@@ -1071,7 +1071,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 }
             } else {
                 // A folder that does not exist yet is fine; a missing archive is not.
-                if !fsutil::dir_exists(&target) {
+                if !self.files.resolver().dir_exists(&target) {
                     let ext = text::extract_file_ext(&target);
                     if ext.len() > 1 {
                         log.error(format!(
@@ -1083,11 +1083,11 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 false
             };
 
-            if !is_archive && !fsutil::dir_exists(&target) {
+            if !is_archive && !self.files.resolver().dir_exists(&target) {
                 log.info(format!("Folder {target} did not exist, creating it..."));
-                let _ = fsutil::force_directories(&target);
+                let _ = self.files.resolver().create_dir_all(&target);
 
-                if !fsutil::dir_exists(&target) {
+                if !self.files.resolver().dir_exists(&target) {
                     log.error(format!(
                         "Unable to create folder {target}! Skipping folder..."
                     ));
@@ -1591,7 +1591,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                     text::extract_file_name(&existing)
                 );
 
-                if fsutil::rename_file(&existing, &renamed) {
+                if self.files.resolver().rename(&existing, &renamed) {
                     log.info(format!(
                         "A file named {filename} already existed in the override folder! This existing file has been renamed to {} to allow the one in this Mod to be used!",
                         text::extract_file_name(&renamed)
