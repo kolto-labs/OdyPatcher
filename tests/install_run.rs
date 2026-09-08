@@ -4291,7 +4291,7 @@ fn run_lowercase(
     f: &Fixture,
     ini: &str,
     game_path: &str,
-) -> (odypatcher::PatchSummary, Vec<String>) {
+) -> (odypatcher::PatchSummary, Vec<String>, usize) {
     f.mod_file("changes.ini", ini.as_bytes());
 
     let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -4307,8 +4307,9 @@ fn run_lowercase(
     patcher.files.set_install_path(game_path);
     let summary = patcher.run(&mut log, &mut host).expect("run failed");
 
+    let fallbacks = patcher.files.resolver().lookup_fallbacks();
     let lines = captured.lock().unwrap().clone();
-    (summary, lines)
+    (summary, lines, fallbacks)
 }
 
 #[test]
@@ -4323,7 +4324,7 @@ fn a_capsule_destination_is_folded_and_its_folder_renamed() {
     let mut archive = ErfFile::create(&archive_path, ArchiveKind::Mod);
     archive.save(Some(&archive_path)).unwrap();
 
-    let (summary, _) = run_lowercase(
+    let (summary, _, fallbacks) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\
@@ -4355,10 +4356,60 @@ fn a_capsule_destination_is_folded_and_its_folder_renamed() {
         .collect();
     assert_eq!(names, vec!["modules"]);
     assert!(game.join("modules").join("danm13.mod").is_file());
+    let _ = fallbacks;
 
     let updated =
         ErfFile::load(&game.join("modules").join("danm13.mod").to_string_lossy()).unwrap();
     assert!(updated.resource_exists("item.uti", false).unwrap_or(false));
+
+    let _ = std::fs::remove_dir_all(&game);
+}
+
+#[test]
+fn a_folded_destination_answers_its_own_misses() {
+    // The trust registered after a fold has to use the folded spelling. Keyed
+    // on the `Modules` an instruction file wrote, it would never match the
+    // `modules/...` every lookup builds, and each one would pay the
+    // case-aware fallback this mode exists to avoid. The counter is the only
+    // place that difference shows.
+    let f = Fixture::new("lowercase-trust-key");
+    f.mod_file("item.uti", &item_file());
+
+    let (game, game_path) = separate_game("trust-key");
+    std::fs::create_dir_all(game.join("Modules")).unwrap();
+    let archive_path = format!("{}Modules/Danm13.mod", game_path);
+    let mut archive = ErfFile::create(&archive_path, ArchiveKind::Mod);
+    archive.save(Some(&archive_path)).unwrap();
+
+    f.mod_file(
+        "changes.ini",
+        b"[Settings]\nInstallerMode=1\nFileExists=1\n\n\
+          [GFFList]\nFile0=item.uti\n\n\
+          [item.uti]\n!Destination=Modules\\Danm13.mod\nCost=750\n",
+    );
+
+    let mut log = Log::new(4, Box::new(|_| {}));
+    let mut host = SilentHost::with_game_folder(game_path.clone());
+    let mut patcher = Patcher::new(&f.base, &f.data, "changes.ini");
+    patcher.set_path_mode(odypatcher::paths::Mode::Lowercase);
+    patcher.files.set_install_path(&game_path);
+    patcher.run(&mut log, &mut host).expect("run failed");
+
+    if !odypatcher::tools::filesystem_distinguishes_case(&game) {
+        let _ = std::fs::remove_dir_all(&game);
+        return;
+    }
+
+    // Ask for something that is not there, below the folded destination. A
+    // trusted root answers that itself; an untrusted one pays for a scan.
+    let resolver = patcher.files.resolver();
+    let before = resolver.lookup_fallbacks();
+    assert!(!resolver.exists(&format!("{game_path}modules/absent.mod")));
+    assert_eq!(
+        resolver.lookup_fallbacks(),
+        before,
+        "a miss below a folded destination should cost nothing"
+    );
 
     let _ = std::fs::remove_dir_all(&game);
 }
@@ -4371,7 +4422,7 @@ fn save_as_is_folded_on_disk_while_the_log_keeps_the_authors_spelling() {
     let (game, game_path) = separate_game("saveas");
     std::fs::create_dir_all(game.join("override")).unwrap();
 
-    let (summary, lines) = run_lowercase(
+    let (summary, lines, _) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\
@@ -4417,7 +4468,7 @@ fn a_mixed_case_source_folder_resolves_in_the_lowercase_mode() {
     let (game, game_path) = separate_game("sourcefolder");
     std::fs::create_dir_all(game.join("override")).unwrap();
 
-    let (summary, _) = run_lowercase(
+    let (summary, _, fallbacks) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\
