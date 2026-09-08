@@ -599,8 +599,34 @@ impl LowercaseReport {
 /// walk. That is the right answer for a read-only game folder: nothing to
 /// gain, and no way to rename anyway.
 pub fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
-    // Unique per probe: two runs against one folder must not remove each
-    // other's file and read the answer off a stale result.
+    // Prefer asking about a name that is already there. A game folder is a
+    // place the player owns, and writing a scratch file into it to answer a
+    // question about it is a poor trade -- especially since a crash between
+    // the write and the delete leaves the scratch file behind for good.
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let flipped = flip_ascii_case(&name);
+            if flipped == name {
+                // No ASCII letters to flip; this entry cannot answer.
+                continue;
+            }
+            if !dir.join(flipped).exists() {
+                // A name that resolves under one spelling and not the other
+                // settles it, with nothing written.
+                return true;
+            }
+            // The flipped spelling resolves too. That is what a
+            // case-insensitive filesystem looks like -- and also what a
+            // genuine case-only duplicate pair looks like, which is the very
+            // thing this walk exists to clean up. Not conclusive, so keep
+            // looking, then ask the filesystem directly.
+        }
+    }
+
+    // Nothing here could settle it. Writing is the only way left to ask.
+    // A folder full of case-duplicate pairs lands here, which is why the
+    // read-only check above is a shortcut and not the whole answer.
     let name = format!(
         "OdyPatcherCaseProbe-{}-{:?}.tmp",
         std::process::id(),
@@ -613,6 +639,21 @@ pub fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
     let collided = dir.join(name.to_ascii_lowercase()).exists();
     let _ = std::fs::remove_file(&probe);
     !collided
+}
+
+/// Swap the case of every ASCII letter, leaving everything else alone.
+fn flip_ascii_case(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_uppercase() {
+                c.to_ascii_lowercase()
+            } else if c.is_ascii_lowercase() {
+                c.to_ascii_uppercase()
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// True when the path is a directory in its own right rather than a link to
@@ -778,7 +819,12 @@ fn merge_directory(
                 let dst_path = destination.join(&existing_name);
                 if is_real_dir(&src_path) && is_real_dir(&dst_path) {
                     merge_directory(&src_path, &dst_path, report);
-                    let _ = std::fs::remove_dir(&src_path);
+                    // Only empties once every entry moved. A failure here
+                    // means something is still inside, so the fold is not
+                    // clean and the caller must not treat it as one.
+                    if let Err(err) = std::fs::remove_dir(&src_path) {
+                        note_failure(report, &src_path, &err);
+                    }
                 } else if src_path.is_file() && dst_path.is_file() {
                     if files_are_identical(&src_path, &dst_path) {
                         match std::fs::remove_file(&src_path) {
@@ -1271,6 +1317,42 @@ mod tests {
         // unresolved conflicting file.
         assert!(dir.join("GOTOCUT1").exists());
         assert!(dir.join("gotocut1").join("002.wav").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_populated_folder_is_probed_without_writing_to_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir("probe-readonly");
+        fs::write(dir.join("Appearance.2DA"), b"x").unwrap();
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        // Read-only: any probe that needs to create a file cannot answer here.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let answer = filesystem_distinguishes_case(&dir);
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Running as root ignores the write bit, so there is nothing to prove.
+        if fs::write(dir.join("root-check.tmp"), b"x").is_ok() {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        assert!(
+            answer,
+            "an existing name should answer the question without a write"
+        );
+        assert_eq!(
+            fs::read_dir(&dir).unwrap().count(),
+            1,
+            "nothing should have been left behind"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
