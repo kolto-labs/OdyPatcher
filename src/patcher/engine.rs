@@ -82,6 +82,15 @@ impl Patcher {
         }
     }
 
+    /// Settle how this run resolves paths.
+    ///
+    /// Off by default: case-aware resolution is what the patcher has always
+    /// done. Set this before [`Patcher::run`]; the mode is fixed for the
+    /// length of a run.
+    pub fn set_path_mode(&mut self, mode: crate::paths::Mode) {
+        self.files.set_path_mode(mode);
+    }
+
     /// Apply every instruction in the file.
     ///
     /// Returns the counts of warnings and errors. Individual steps report their
@@ -95,7 +104,21 @@ impl Patcher {
             log.notice(format!("Patch operation started {started}..."));
         }
 
+        // Normalize case up front: mod archives are packaged with wildly
+        // inconsistent casing, and the game folder can already carry
+        // case-only duplicates from an earlier install. Every lookup below
+        // goes through `fsutil::native_path`, whose fast path is a direct
+        // `path.exists()` check — pre-normalizing means that check matches
+        // on the first try instead of falling back to its per-component
+        // directory scan, so this also removes the main cost that scan adds.
+        Self::normalize_case(log, &self.data_path.clone(), "mod data");
+        Self::normalize_case(log, &self.base_path.clone(), "game folder");
+
         let result = self.run_steps(log, host);
+
+        // Re-normalize afterward: this run may have written new files under
+        // whatever case a `changes.ini` directive or extracted archive used.
+        Self::normalize_case(log, &self.base_path.clone(), "game folder");
 
         // Record why a run stopped before summarizing it.
         if let Err(err) = &result {
@@ -123,6 +146,30 @@ impl Patcher {
         }
 
         result.map(|_| summary)
+    }
+
+    /// Fold `root` down to lowercase and report what happened.
+    ///
+    /// Byte-identical case-only duplicates are merged silently — that outcome
+    /// is routine, not something worth a log line for every mod. Genuine
+    /// content conflicts are surfaced as warnings rather than resolved by
+    /// guessing which copy is right, since deleting either could lose real
+    /// content; both stay on disk for a human to sort out.
+    fn normalize_case(log: &mut Log, root: &str, label: &str) {
+        let report = crate::tools::force_lowercase(root);
+        if report.renamed > 0 || report.merged > 0 {
+            log.verbose(format!(
+                "Normalized case under the {label} ({} renamed, {} case-only duplicates merged)",
+                report.renamed, report.merged
+            ));
+        }
+        for (a, b) in &report.conflicts {
+            log.warn(format!(
+                "Case-only duplicate with different content, left in place — please resolve manually: \"{}\" vs \"{}\"",
+                a.display(),
+                b.display()
+            ));
+        }
     }
 
     fn run_steps(&mut self, log: &mut Log, host: &mut dyn Host) -> Result<()> {
@@ -2462,6 +2509,69 @@ fn calendar_date(days: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("odypatcher-engine-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// True when the filesystem holding `dir` tells `A` and `a` apart.
+    fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
+        let probe = dir.join("CaseProbe.tmp");
+        if std::fs::write(&probe, b"x").is_err() {
+            return false;
+        }
+        let collided = dir.join("caseprobe.tmp").exists();
+        let _ = std::fs::remove_file(&probe);
+        !collided
+    }
+
+    #[test]
+    fn normalize_case_merges_identical_duplicates_without_a_warning() {
+        let dir = temp_dir("normalize-merge");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        std::fs::write(dir.join("File.txt"), b"same").unwrap();
+        std::fs::write(dir.join("file.txt"), b"same").unwrap();
+
+        let mut log = Log::silent(4);
+        Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
+
+        assert_eq!(log.warnings(), 0);
+        assert_eq!(log.errors(), 0);
+        assert!(dir.join("file.txt").is_file());
+        assert!(!dir.join("File.txt").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normalize_case_warns_on_a_real_conflict_without_deleting_either_copy() {
+        let dir = temp_dir("normalize-conflict");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        std::fs::write(dir.join("File.txt"), b"version one").unwrap();
+        std::fs::write(dir.join("file.txt"), b"version two").unwrap();
+
+        let mut log = Log::silent(4);
+        Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
+
+        assert_eq!(log.warnings(), 1, "the conflict should be reported");
+        assert_eq!(log.errors(), 0, "a case-only conflict is not fatal");
+        assert!(dir.join("File.txt").exists());
+        assert!(dir.join("file.txt").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn protected_files_are_named_with_a_reason() {

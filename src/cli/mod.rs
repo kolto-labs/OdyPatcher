@@ -34,6 +34,7 @@ pub struct Options {
     pub install: bool,
     pub uninstall: bool,
     pub validate: bool,
+    pub experimental_lowercase_paths: bool,
 }
 
 /// Usage text.
@@ -56,6 +57,13 @@ Options:
       --cli              Run in the terminal instead of opening a window
   -h, --help             Show this help
   -V, --version          Show the version
+
+Experimental:
+      --experimental-lowercase-paths
+                         Lowercase names while installing. This is faster
+                         where the filesystem tells Data and data apart. It
+                         renames files in the mod folder and in the folders
+                         the mod writes to. Off unless you ask for it.
 
 Running unattended:
       --tslpatchdata <PATH>          Folder holding the mod
@@ -103,6 +111,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             "--install" => options.install = true,
             "--uninstall" => options.uninstall = true,
             "--validate" => options.validate = true,
+            "--experimental-lowercase-paths" => options.experimental_lowercase_paths = true,
             "--game-dir" => options.game_dir = Some(take_value("--game-dir")?),
             "--tslpatchdata" => options.tslpatchdata = Some(take_value("--tslpatchdata")?),
             "--namespace-option-index" => {
@@ -442,6 +451,9 @@ fn execute(session: Session, options: Options) -> i32 {
     }
 
     let mut patcher = Patcher::new(&session.base_path, &session.data_path, &session.ini_name);
+    patcher.set_path_mode(crate::paths::resolve_mode(
+        options.experimental_lowercase_paths,
+    ));
     let outcome = patcher.run(&mut log, &mut host);
 
     let lines = collected.lock().unwrap().clone();
@@ -550,6 +562,37 @@ mod tests {
         assert!(USAGE.contains("odypatcher"));
         assert!(USAGE.contains("--game"));
         assert!(USAGE.contains("swkotor.org"));
+    }
+
+    #[test]
+    fn the_help_names_the_experimental_flag_as_experimental() {
+        assert!(USAGE.contains("--experimental-lowercase-paths"));
+        assert!(USAGE.contains("Experimental:"));
+    }
+
+    #[test]
+    fn the_experimental_flag_is_off_unless_it_is_given() {
+        let bare = parse(&["--install".to_string()]).unwrap();
+        assert!(!bare.experimental_lowercase_paths);
+
+        let asked = parse(&[
+            "--install".to_string(),
+            "--experimental-lowercase-paths".to_string(),
+        ])
+        .unwrap();
+        assert!(asked.experimental_lowercase_paths);
+    }
+
+    #[test]
+    fn an_ini_key_cannot_reach_the_experimental_flag() {
+        // The switch belongs to whoever runs the patcher. Nothing a mod ships
+        // may set it, so it is not read from the instruction file at all.
+        let options = parse(&["experimental-lowercase-paths.ini".to_string()]).unwrap();
+        assert!(!options.experimental_lowercase_paths);
+        assert_eq!(
+            options.ini_name.as_deref(),
+            Some("experimental-lowercase-paths.ini")
+        );
     }
 }
 

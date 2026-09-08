@@ -55,6 +55,34 @@ impl Counters {
     }
 }
 
+/// The variable that turns the experimental mode on when no flag was given.
+pub const MODE_ENV_VAR: &str = "ODYPATCHER_EXPERIMENTAL_LOWERCASE_PATHS";
+
+/// Settle the mode for a run: the flag wins, then the variable, then off.
+///
+/// Deliberately not readable from `changes.ini`. A mod author must not be
+/// able to change how a player's machine resolves paths.
+pub fn resolve_mode(flag: bool) -> Mode {
+    if flag || env_opt_in() {
+        Mode::Lowercase
+    } else {
+        Mode::CaseAware
+    }
+}
+
+fn env_opt_in() -> bool {
+    std::env::var(MODE_ENV_VAR).is_ok_and(|value| reads_as_on(&value))
+}
+
+/// Whether a variable's value asks for the mode. Anything unrecognised is
+/// off, so a stray value never silently changes how a run resolves paths.
+fn reads_as_on(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 /// Swap backslashes for the separator this platform opens files with.
 ///
 /// Instruction files were written on Windows, so they use `\`. `fsutil` does
@@ -611,6 +639,21 @@ mod tests {
 
         one.reset_counts();
         assert_eq!(one.confinement_resolutions(), 0);
+    }
+
+    #[test]
+    fn the_flag_turns_the_mode_on_whatever_the_environment_says() {
+        assert_eq!(resolve_mode(true), Mode::Lowercase);
+    }
+
+    #[test]
+    fn the_variable_is_read_permissively_and_anything_else_is_off() {
+        for on in ["1", "true", "TRUE", "yes", "on", "  On  "] {
+            assert!(reads_as_on(on), "{on} should turn the mode on");
+        }
+        for off in ["0", "false", "no", "off", "", "maybe", "2"] {
+            assert!(!reads_as_on(off), "{off} should leave the mode off");
+        }
     }
 
     #[test]

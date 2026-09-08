@@ -178,6 +178,10 @@ pub struct App {
     tool_text: String,
 
     selected_variant: usize,
+
+    /// Experimental: fold names to lowercase while installing. Off
+    /// unless the operator turns it on, and fixed once a run starts.
+    experimental_lowercase_paths: bool,
 }
 
 impl App {
@@ -215,6 +219,7 @@ impl App {
             game_path: String::new(),
             tool_text: String::new(),
             selected_variant: 0,
+            experimental_lowercase_paths: false,
         }
     }
 
@@ -249,6 +254,7 @@ impl App {
             game_path: String::new(),
             tool_text: String::new(),
             selected_variant: 0,
+            experimental_lowercase_paths: false,
         }
     }
 
@@ -341,6 +347,10 @@ impl App {
             session.looked_up_game_folder()
         };
 
+        // Settled here, on the thread that owns the checkbox, so a run
+        // cannot see the mode change under it.
+        let path_mode = crate::paths::resolve_mode(self.experimental_lowercase_paths);
+
         let log_sender = sender.clone();
         thread::spawn(move || {
             let mut log = Log::new(
@@ -355,6 +365,7 @@ impl App {
             };
 
             let mut patcher = Patcher::new(&base, &data, &ini_name);
+            patcher.set_path_mode(path_mode);
             if let Some(folder) = known_folder {
                 if crate::compat::fsutil::dir_exists(&folder) {
                     patcher.files.set_install_path(&folder);

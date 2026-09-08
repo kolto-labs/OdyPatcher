@@ -54,6 +54,21 @@ impl App {
                         action = Some(MenuAction::Lowercase);
                         ui.close();
                     }
+
+                    ui.separator();
+                    // Disabled mid-run: the mode is fixed once a run starts,
+                    // so a checkbox that moved would say something untrue.
+                    ui.add_enabled(
+                        !self.running,
+                        egui::Checkbox::new(
+                            &mut self.experimental_lowercase_paths,
+                            "Lowercase names while installing",
+                        ),
+                    )
+                    .on_hover_text(
+                        "Experimental. Faster where the filesystem tells Data and data apart. \
+Renames files in the mod folder and in the folders the mod writes to.",
+                    );
                 });
 
                 ui.menu_button("Help", |ui| {
@@ -175,8 +190,21 @@ impl App {
     }
 
     pub(super) fn force_lowercase(&mut self) {
-        let renamed = crate::tools::force_lowercase(&self.game_path);
-        self.tool_text = format!("Renamed {renamed} files and folders to lowercase.\n");
+        let report = crate::tools::force_lowercase(&self.game_path);
+        let mut text = format!(
+            "Renamed {} files and folders to lowercase ({} case-only duplicates merged).\n",
+            report.renamed, report.merged
+        );
+        if !report.conflicts.is_empty() {
+            text.push_str(&format!(
+                "\n{} case-only duplicate pair(s) have different content and were left as-is:\n",
+                report.conflicts.len()
+            ));
+            for (a, b) in &report.conflicts {
+                text.push_str(&format!("  {} vs {}\n", a.display(), b.display()));
+            }
+        }
+        self.tool_text = text;
         self.view = View::Tool;
     }
 

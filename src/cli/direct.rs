@@ -197,6 +197,9 @@ fn install(session: &Session, mod_root: &str, game_folder: &str, options: &Optio
     };
 
     let mut patcher = Patcher::new(&session.base_path, &session.data_path, &session.ini_name);
+    patcher.set_path_mode(crate::paths::resolve_mode(
+        options.experimental_lowercase_paths,
+    ));
     patcher.files.set_install_path(game_folder);
 
     let started = Instant::now();

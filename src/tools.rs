@@ -697,14 +697,21 @@ fn force_lowercase_into(root: &str, report: &mut LowercaseReport) {
 /// subdirectories; resolves file collisions the same way
 /// [`force_lowercase_into`] does (identical content merges, differing
 /// content is reported as a conflict and left alone).
-fn merge_directory(source: &std::path::Path, destination: &std::path::Path, report: &mut LowercaseReport) {
+fn merge_directory(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+    report: &mut LowercaseReport,
+) {
     let Ok(entries) = std::fs::read_dir(source) else {
         return;
     };
 
     for entry in entries.flatten() {
         let src_path = entry.path();
-        let Some(name) = src_path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        let Some(name) = src_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+        else {
             continue;
         };
 
@@ -1176,7 +1183,10 @@ mod tests {
         let report = force_lowercase(&dir.to_string_lossy());
 
         assert!(report.conflicts.is_empty());
-        assert!(!dir.join("GOTOCUT1").exists(), "stray directory should be gone");
+        assert!(
+            !dir.join("GOTOCUT1").exists(),
+            "stray directory should be gone"
+        );
         assert!(dir.join("gotocut1").join("001.wav").is_file());
         assert!(dir.join("gotocut1").join("002.wav").is_file());
         // Only one copy of the duplicate remains.
@@ -1197,7 +1207,11 @@ mod tests {
         fs::write(dir.join("gotocut1").join("002.wav"), b"clip two").unwrap();
 
         fs::create_dir_all(dir.join("GOTOCUT1")).unwrap();
-        fs::write(dir.join("GOTOCUT1").join("002.WAV"), b"a genuinely different clip").unwrap();
+        fs::write(
+            dir.join("GOTOCUT1").join("002.WAV"),
+            b"a genuinely different clip",
+        )
+        .unwrap();
 
         let report = force_lowercase(&dir.to_string_lossy());
 
@@ -1259,7 +1273,11 @@ mod tests {
             return;
         }
 
-        assert_eq!(report.failed.len(), 1, "the failed rename should be reported");
+        assert_eq!(
+            report.failed.len(),
+            1,
+            "the failed rename should be reported"
+        );
         assert!(!report.is_clean());
         assert!(locked.join("Appearance.2DA").is_file());
 

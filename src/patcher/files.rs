@@ -161,6 +161,10 @@ pub struct FileHandler {
     destination: String,
     backup_current: bool,
     last_skip_was_unsafe: bool,
+    /// How this run turns instruction-file paths into paths on disk, and
+    /// what those lookups cost. Per run, so two runs in one process do not
+    /// share a mode or a count.
+    resolver: crate::paths::Resolver,
 }
 
 impl FileHandler {
@@ -177,7 +181,19 @@ impl FileHandler {
             destination: String::new(),
             backup_current: true,
             last_skip_was_unsafe: false,
+            resolver: crate::paths::Resolver::default(),
         }
+    }
+
+    /// How this run resolves paths.
+    pub fn resolver(&self) -> &crate::paths::Resolver {
+        &self.resolver
+    }
+
+    /// Settle the resolution mode. Called once before a run starts; the mode
+    /// does not change while a run is in progress.
+    pub fn set_path_mode(&mut self, mode: crate::paths::Mode) {
+        self.resolver = crate::paths::Resolver::new(mode);
     }
 
     pub fn file_name(&self) -> &str {
