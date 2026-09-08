@@ -1228,8 +1228,12 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 ));
                 continue;
             }
-            let existing =
-                existing_loose_file(&installed_target, &save_as, self.settings.ignore_extensions);
+            let existing = existing_loose_file(
+                self.files.resolver(),
+                &installed_target,
+                &save_as,
+                self.settings.ignore_extensions,
+            );
 
             if let Some(existing_path) = existing {
                 if !crate::patcher::files::path_is_confined(
@@ -1465,8 +1469,12 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                             ));
                             continue;
                         }
-                        let existing =
-                            existing_loose_file(&folder, &save_as, self.settings.ignore_extensions);
+                        let existing = existing_loose_file(
+                            self.files.resolver(),
+                            &folder,
+                            &save_as,
+                            self.settings.ignore_extensions,
+                        );
                         if let Some(existing_path) = existing {
                             if !crate::patcher::files::path_is_confined(
                                 self.files.install_path_if_known(),
@@ -1575,6 +1583,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             .to_lowercase();
 
         let existing = existing_loose_file(
+            self.files.resolver(),
             &self.files.override_folder(),
             filename,
             self.settings.ignore_extensions,
@@ -2485,10 +2494,15 @@ pub(crate) fn split_tlk_property_key(key: &str) -> Option<(&str, &str)> {
 }
 
 /// Path of a loose file that would collide with `filename` in `folder`.
-fn existing_loose_file(folder: &str, filename: &str, ignore_extensions: bool) -> Option<String> {
+fn existing_loose_file(
+    resolver: &crate::paths::Resolver,
+    folder: &str,
+    filename: &str,
+    ignore_extensions: bool,
+) -> Option<String> {
     let folder = text::include_trailing_delimiter(folder);
     let exact = format!("{folder}{filename}");
-    if fsutil::file_exists(&exact) {
+    if resolver.exists(&exact) {
         return Some(exact);
     }
     if !ignore_extensions {
