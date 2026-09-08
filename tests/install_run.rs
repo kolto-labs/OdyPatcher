@@ -4324,7 +4324,7 @@ fn a_capsule_destination_is_folded_and_its_folder_renamed() {
     let mut archive = ErfFile::create(&archive_path, ArchiveKind::Mod);
     archive.save(Some(&archive_path)).unwrap();
 
-    let (summary, _, fallbacks) = run_lowercase(
+    let (summary, _, _) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\
@@ -4356,7 +4356,6 @@ fn a_capsule_destination_is_folded_and_its_folder_renamed() {
         .collect();
     assert_eq!(names, vec!["modules"]);
     assert!(game.join("modules").join("danm13.mod").is_file());
-    let _ = fallbacks;
 
     let updated =
         ErfFile::load(&game.join("modules").join("danm13.mod").to_string_lossy()).unwrap();
@@ -4468,7 +4467,7 @@ fn a_mixed_case_source_folder_resolves_in_the_lowercase_mode() {
     let (game, game_path) = separate_game("sourcefolder");
     std::fs::create_dir_all(game.join("override")).unwrap();
 
-    let (summary, _, fallbacks) = run_lowercase(
+    let (summary, _, _) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\

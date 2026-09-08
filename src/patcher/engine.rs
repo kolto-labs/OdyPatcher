@@ -20,22 +20,32 @@ use crate::patcher::tokens::TokenStore;
 /// How a finished run turned out.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PatchSummary {
+    /// How many warnings the run reported.
     pub warnings: usize,
+    /// How many errors the run reported.
     pub errors: usize,
 }
 
 impl PatchSummary {
+    /// True when nothing was reported.
     pub fn is_clean(&self) -> bool {
         self.warnings == 0 && self.errors == 0
     }
 }
 
+/// Carries out a mod's instructions against a game install.
 pub struct Patcher {
+    /// The instruction file being carried out.
     pub ini: IniFile,
+    /// The `[Settings]` values in force.
     pub settings: Settings,
+    /// Resolves which file each step works on, and handles backups.
     pub files: FileHandler,
+    /// Values earlier steps recorded for later ones to use.
     pub tokens: TokenStore,
+    /// The mod's `tslpatchdata` folder.
     pub data_path: String,
+    /// The mod folder holding it.
     pub base_path: String,
     instruction_path: String,
 

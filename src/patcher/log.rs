@@ -3,10 +3,15 @@
 /// How important a log line is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel {
+    /// Detail only useful when working out what a run did.
     Verbose,
+    /// Something went wrong and the step could not be carried out.
     Error,
+    /// Something looks wrong but the run carried on.
     Warning,
+    /// Ordinary progress.
     Information,
+    /// A line the operator should read, such as how the run ended.
     Notice,
 }
 
@@ -25,20 +30,27 @@ impl LogLevel {
 /// Overall state of the run, used to colour the closing banner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
+    /// Nothing went wrong.
     Clean,
+    /// The run finished, with something worth reading about.
     Warned,
+    /// Something failed.
     Failed,
 }
 
 /// One line of the progress log.
 #[derive(Debug, Clone)]
 pub struct LogLine {
+    /// How important the line is.
     pub level: LogLevel,
+    /// What the line says.
     pub text: String,
+    /// How the run stood when the line was written.
     pub outcome: Outcome,
 }
 
 impl LogLine {
+    /// The line as it appears in a plain-text log.
     pub fn as_plain_text(&self) -> String {
         let tag = match self.level {
             LogLevel::Verbose => " [Debug] ",
@@ -55,6 +67,7 @@ impl LogLine {
         format!("{tag}\t{}", self.text)
     }
 
+    /// The line as it appears in an RTF log.
     pub fn as_rich_text(&self) -> String {
         match self.level {
             LogLevel::Warning => format!(" \u{2022} Warning: {}", self.text),
@@ -63,6 +76,7 @@ impl LogLine {
         }
     }
 
+    /// The colour a window should show the line in.
     pub fn color(&self) -> (u8, u8, u8) {
         match self.level {
             LogLevel::Verbose => (4, 32, 152),
@@ -78,6 +92,7 @@ impl LogLine {
     }
 }
 
+/// Collects what a run reports, and hands each line to a sink.
 pub struct Log {
     level: i32,
     warnings: usize,
@@ -98,6 +113,7 @@ impl std::fmt::Debug for Log {
 }
 
 impl Log {
+    /// A log at `level` (0 through 4) writing each line to `sink`.
     pub fn new(level: i32, sink: Box<dyn FnMut(&LogLine) + Send>) -> Self {
         Self {
             level,
@@ -108,26 +124,32 @@ impl Log {
         }
     }
 
+    /// A log that counts and remembers, but writes nowhere.
     pub fn silent(level: i32) -> Self {
         Self::new(level, Box::new(|_| {}))
     }
 
+    /// How much detail this log keeps.
     pub fn level(&self) -> i32 {
         self.level
     }
 
+    /// How many warnings the run has reported.
     pub fn warnings(&self) -> usize {
         self.warnings
     }
 
+    /// How many errors the run has reported.
     pub fn errors(&self) -> usize {
         self.errors
     }
 
+    /// How many lines have been written.
     pub fn written(&self) -> usize {
         self.written
     }
 
+    /// How the run stands.
     pub fn outcome(&self) -> Outcome {
         if self.errors > 0 {
             Outcome::Failed
@@ -165,22 +187,27 @@ impl Log {
         (self.sink)(&line);
     }
 
+    /// Record detail only useful for working out what happened.
     pub fn verbose(&mut self, text: impl Into<String>) {
         self.write(LogLevel::Verbose, text);
     }
 
+    /// Record ordinary progress.
     pub fn info(&mut self, text: impl Into<String>) {
         self.write(LogLevel::Information, text);
     }
 
+    /// Record something that looks wrong, and carry on.
     pub fn warn(&mut self, text: impl Into<String>) {
         self.write(LogLevel::Warning, text);
     }
 
+    /// Record something that could not be carried out.
     pub fn error(&mut self, text: impl Into<String>) {
         self.write(LogLevel::Error, text);
     }
 
+    /// Record a line the operator should read.
     pub fn notice(&mut self, text: impl Into<String>) {
         self.write(LogLevel::Notice, text);
     }

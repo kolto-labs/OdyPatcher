@@ -11,12 +11,19 @@ use crate::patcher::log::Log;
 /// Which kind of file a step is about to work on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatchKind {
+    /// The game's string table.
     Tlk,
+    /// A 2DA table.
     TwoDa,
+    /// A GFF-format file, loose in a folder.
     Gff,
+    /// Raw bytes changed at fixed offsets.
     Hack,
+    /// A script to compile.
     Compile,
+    /// A GFF-format file held inside an ERF, MOD, or RIM archive.
     GffArchive,
+    /// A soundset.
     Ssf,
 }
 
@@ -190,19 +197,28 @@ fn push_folder(folders: &mut Vec<String>, value: &str) {
     }
 }
 
+/// What a step needs from the run around it.
 pub struct Context<'a> {
+    /// The instruction file being carried out.
     pub ini: &'a IniFile,
+    /// The `[Settings]` values in force.
     pub settings: &'a Settings,
+    /// Where the step reports what it did.
     pub log: &'a mut Log,
+    /// How the step asks the operator something.
     pub host: &'a mut dyn Host,
 }
 
 /// Resolves the file each step works on and handles backups.
 #[derive(Debug, Clone, Default)]
 pub struct FileHandler {
+    /// Install a mod, rather than patch files an operator picks by hand.
     pub installer_mode: bool,
+    /// Copy a file into `backup` before changing it.
     pub do_backups: bool,
+    /// The mod folder, holding `tslpatchdata` and `backup`.
     pub base_path: String,
+    /// The mod's `tslpatchdata` folder.
     pub data_path: String,
     source_folder: String,
     install_path: String,
@@ -220,6 +236,7 @@ pub struct FileHandler {
 }
 
 impl FileHandler {
+    /// Start a handler for a mod at `base_path` with files in `data_path`.
     pub fn new(base_path: &str, data_path: &str) -> Self {
         Self {
             installer_mode: false,
@@ -249,10 +266,12 @@ impl FileHandler {
         self.resolver = crate::paths::Resolver::new(mode);
     }
 
+    /// The file the current step is working on.
     pub fn file_name(&self) -> &str {
         &self.current_file
     }
 
+    /// Where the current step writes its result.
     pub fn destination(&self) -> &str {
         &self.destination
     }
@@ -261,18 +280,24 @@ impl FileHandler {
         self.last_skip_was_unsafe
     }
 
+    /// Point the current step at a destination.
     pub fn set_destination(&mut self, destination: &str) {
         self.destination = destination.to_string();
     }
 
+    /// The game folder, or an empty string when it has not been settled yet.
     pub fn install_path_if_known(&self) -> &str {
         &self.install_path
     }
 
+    /// Settle the game folder without asking the operator.
     pub fn set_install_path(&mut self, path: &str) {
         self.install_path = text::include_trailing_delimiter(path);
     }
 
+    /// The full path of the file the current step works on.
+    ///
+    /// Fails when no step has been settled, or when the file is not there.
     pub fn file_path(&self) -> Result<String> {
         if self.current_path.is_empty() {
             return Err(PatchError::general(
@@ -298,14 +323,17 @@ impl FileHandler {
         Ok(full)
     }
 
+    /// The game's `override` folder.
     pub fn override_folder(&self) -> String {
         text::include_trailing_delimiter(&format!("{}override", self.install_path))
     }
 
+    /// Where replaced files are copied before they are changed.
     pub fn backup_folder(&self) -> String {
         text::include_trailing_delimiter(&format!("{}backup", self.base_path))
     }
 
+    /// Settle the game folder for a patching step, asking if need be.
     pub fn resolve_install_path(&mut self, ctx: &mut Context<'_>) -> Result<String> {
         self.settle_install_path(
             ctx,
@@ -492,6 +520,7 @@ impl FileHandler {
         }
     }
 
+    /// The folder the current step reads its starting file from.
     pub fn source_folder(&self) -> &str {
         &self.source_folder
     }
@@ -529,6 +558,7 @@ impl FileHandler {
         }
     }
 
+    /// Where `name` sits in the current source folder.
     pub fn blueprint_path(&self, name: &str) -> String {
         self.resolver.under(&self.source_folder, name)
     }
@@ -555,6 +585,7 @@ impl FileHandler {
         }
     }
 
+    /// The file a step starts from, honouring `!SourceFile`.
     pub fn source_name(&self, ini: &IniFile, file: &str) -> Result<String> {
         let (renamed, explicitly_renamed) = if ini.section_exists(file) {
             let configured = ini.read_string(file, "!SourceFile", "");
@@ -650,6 +681,9 @@ impl FileHandler {
         self.resolver.copy(&source, &target).is_ok()
     }
 
+    /// Copy the destination archive into `backup` before it is changed.
+    ///
+    /// Reports whether a copy was made.
     pub fn backup_destination(&mut self) -> bool {
         if !self.do_backups {
             return false;

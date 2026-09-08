@@ -26,10 +26,13 @@ const COMPILER_NAMES: [&str; 3] = ["nwnnsscomp", "nwnnsscomp.bin", "nwnnsscomp.e
 /// What happened while preparing one script source.
 #[derive(Debug, Clone)]
 pub struct ProcessedScript {
+    /// Where the untouched source was kept while the run edits the original.
     pub backup_path: String,
+    /// True when the source has no entry point and is included by others.
     pub is_include: bool,
 }
 
+/// Find a script compiler to shell out to, if one is shipped.
 pub fn find_compiler(base_path: &str) -> Option<String> {
     let mod_folder = text::include_trailing_delimiter(&text::join_path(base_path, "tslpatchdata"));
 
@@ -115,6 +118,9 @@ fn declares_entry_point(line: &str) -> bool {
         || lowered.contains("int startingconditional ()")
 }
 
+/// Replace a script's tokens with the values the run recorded.
+///
+/// Keeps the original beside it so it can be put back afterwards.
 pub fn substitute_tokens(
     resolver: &crate::paths::Resolver,
     source_path: &str,
@@ -164,6 +170,7 @@ pub fn substitute_tokens(
     })
 }
 
+/// Compile a script by running an external compiler.
 pub fn compile(
     compiler: &str,
     source: &str,
@@ -202,6 +209,7 @@ pub fn compile(
     }
 }
 
+/// Compile a script without shelling out, using a `nwscript.nss` header.
 pub fn compile_in_process(
     resolver: &crate::paths::Resolver,
     source: &str,
@@ -260,6 +268,7 @@ fn compiler_argument(path: &str, work: &Path, runs_in_working_folder: bool) -> P
     fsutil::native_path(path)
 }
 
+/// Put the untouched script sources back after compiling.
 pub fn restore_sources(
     resolver: &crate::paths::Resolver,
     data_path: &str,

@@ -8,17 +8,26 @@ use crate::patcher::config::{
 use crate::patcher::log::LogLine;
 
 #[derive(Debug, Clone)]
+/// A mod as found on disk, with the instructions it will run.
 pub struct Session {
+    /// The mod folder, holding `tslpatchdata` and `backup`.
     pub base_path: String,
+    /// The folder the mod keeps its files in.
     pub data_path: String,
+    /// The instruction file this run uses.
     pub ini_name: String,
+    /// The description file this run shows.
     pub info_name: String,
+    /// The install variants the mod offers, if any.
     pub namespaces: NamespaceList,
+    /// The loaded instruction file.
     pub ini: IniFile,
+    /// The `[Settings]` values it declared.
     pub settings: Settings,
 }
 
 impl Session {
+    /// Find the mod at `base_path` and read what it declares.
     pub fn discover(base_path: &str, ini_name: &str, info_name: &str) -> Self {
         let base_path = text::include_trailing_delimiter(base_path);
         let data_root = text::include_trailing_delimiter(&format!("{base_path}{DATA_FOLDER}"));
@@ -46,6 +55,7 @@ impl Session {
         session
     }
 
+    /// Switch to one of the mod's install variants and reload.
     pub fn select_namespace(&mut self, index: usize) {
         let resolved = self.namespaces.resolve(index);
         self.data_path = resolved.data_path;
@@ -54,6 +64,7 @@ impl Session {
         self.reload();
     }
 
+    /// Read the instruction file again.
     pub fn reload(&mut self) {
         let path = format!("{}{}", self.data_path, self.ini_name);
         self.ini = if crate::patcher::files::path_is_confined(&self.data_path, &path) {
@@ -65,26 +76,31 @@ impl Session {
         self.info_name = config::fallback_info_name(&self.data_path, &self.info_name);
     }
 
+    /// Full path of the instruction file.
     pub fn ini_path(&self) -> String {
         format!("{}{}", self.data_path, self.ini_name)
     }
 
+    /// Full path of the description file.
     pub fn info_path(&self) -> String {
         format!("{}{}", self.data_path, self.info_name)
     }
 
+    /// True when the instruction file is there and inside the mod folder.
     pub fn has_instructions(&self) -> bool {
         let path = self.ini_path();
         crate::patcher::files::path_is_confined(&self.data_path, &path)
             && fsutil::file_exists(&path)
     }
 
+    /// True when the description file is there and inside the mod folder.
     pub fn has_info(&self) -> bool {
         let path = self.info_path();
         crate::patcher::files::path_is_confined(&self.data_path, &path)
             && fsutil::file_exists(&path)
     }
 
+    /// The mod's description, or placeholder text when it ships none.
     pub fn info_text(&self) -> String {
         if !self.has_info() {
             return "No description was provided for this mod.".to_string();
@@ -95,6 +111,7 @@ impl Session {
         }
     }
 
+    /// A readable account of what the run would change.
     pub fn summary_text(&self) -> String {
         crate::summary::to_text(&self.ini, &self.settings, &self.ini_name, &self.info_name)
     }
@@ -113,6 +130,7 @@ impl Session {
         ))
     }
 
+    /// What to call the button that starts the run.
     pub fn start_label(&self) -> &'static str {
         if self.settings.installer_mode {
             "Install Mod"
@@ -121,6 +139,7 @@ impl Session {
         }
     }
 
+    /// The game folder the mod's own registry lookup found, if it asked.
     pub fn looked_up_game_folder(&self) -> Option<String> {
         if !self.settings.lookup_game_folder {
             return None;
@@ -228,6 +247,7 @@ fn escape_rtf(text: &str) -> String {
     out
 }
 
+/// Find the mod folder for a path the operator picked.
 pub fn locate_mod(chosen: &str) -> Option<String> {
     let inner = fsutil::join(chosen, DATA_FOLDER);
 
@@ -257,10 +277,12 @@ pub fn locate_mod(chosen: &str) -> Option<String> {
     })
 }
 
+/// True when a mod's data folder sits beside the program.
 pub fn mod_is_beside_program(base_path: &str) -> bool {
     fsutil::dir_exists(&fsutil::join(base_path, DATA_FOLDER))
 }
 
+/// The folder this program is running from.
 pub fn program_folder() -> String {
     std::env::current_exe()
         .ok()

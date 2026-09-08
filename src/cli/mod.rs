@@ -14,26 +14,46 @@ use crate::session::{self, Session};
 /// What the operator asked for on the command line.
 #[derive(Debug, Clone, Default)]
 pub struct Options {
+    /// Instruction file to run instead of `changes.ini`.
     pub ini_name: Option<String>,
+    /// Description file to show instead of `info.rtf`.
     pub info_name: Option<String>,
+    /// Game folder given with `-g`.
     pub game_folder: Option<String>,
+    /// Install variant, by number or name.
     pub namespace: Option<String>,
+    /// List the install variants and exit.
     pub list_namespaces: bool,
+    /// Print what the run would change and exit.
     pub show_summary: bool,
+    /// Print the mod's description and exit.
     pub show_info: bool,
+    /// Start without asking for confirmation.
     pub assume_yes: bool,
+    /// Override how much detail is logged.
     pub log_level: Option<i32>,
+    /// Run in the terminal instead of opening a window.
     pub force_terminal: bool,
+    /// Show the help text and exit.
     pub show_help: bool,
+    /// Show the version and exit.
     pub show_version: bool,
 
+    /// Game folder for an unattended run.
     pub game_dir: Option<String>,
+    /// Mod folder for an unattended run.
     pub tslpatchdata: Option<String>,
+    /// Install variant to use, by position.
     pub namespace_option_index: Option<usize>,
+    /// Accepted for compatibility; does nothing.
     pub console: bool,
+    /// Apply the mod.
     pub install: bool,
+    /// Put the mod's backed-up files back.
     pub uninstall: bool,
+    /// Check the mod's instructions without a game folder.
     pub validate: bool,
+    /// Fold names to lowercase while installing. Experimental.
     pub experimental_lowercase_paths: bool,
 }
 
@@ -84,6 +104,7 @@ The mod's tslpatchdata folder is expected beside this program.
 More about the games and their tools: https://swkotor.org
 ";
 
+/// Read the command line, or report what was wrong with it.
 pub fn parse(args: &[String]) -> Result<Options, String> {
     let mut options = Options::default();
     let mut positional: Vec<String> = Vec::new();
@@ -242,6 +263,7 @@ fn read_line() -> Option<String> {
     Some(buffer.trim().trim_matches('"').to_string())
 }
 
+/// True when this invocation should not open a window.
 pub fn stays_in_terminal(options: &Options) -> bool {
     options.force_terminal
         || options.show_help
@@ -254,6 +276,7 @@ pub fn stays_in_terminal(options: &Options) -> bool {
         || options.validate
 }
 
+/// Run in the terminal, reporting the process exit code.
 pub fn run(options: Options) -> i32 {
     if options.show_help {
         print!("{USAGE}");

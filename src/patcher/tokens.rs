@@ -13,24 +13,33 @@ use crate::patcher::log::Log;
 /// Which step is capturing a value, which decides how the value is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Capture {
+    /// A row appended to a table.
     AddRow,
+    /// A row changed in place.
     ModifyRow,
+    /// A row copied from another.
     CopyRow,
+    /// A column appended to a table.
     AddColumn,
+    /// A field added to a structured file.
     AddField,
 }
 
 /// Where a captured value comes from.
 #[derive(Debug, Clone, Copy)]
 pub struct Source<'a> {
+    /// What kind of change produced the value.
     pub capture: Capture,
     /// Row for row captures, column for column captures, list position when
     pub position: i32,
+    /// Where the value sits inside a structured file.
     pub field_path: &'a str,
+    /// The table the value came from, when it came from one.
     pub table: Option<&'a TwoDaFile>,
 }
 
 impl<'a> Source<'a> {
+    /// A value taken from a row or column of a table.
     pub fn from_table(capture: Capture, position: i32, table: Option<&'a TwoDaFile>) -> Self {
         Self {
             capture,
@@ -40,6 +49,7 @@ impl<'a> Source<'a> {
         }
     }
 
+    /// A value taken from a field of a structured file.
     pub fn from_field(position: i32, field_path: &'a str) -> Self {
         Self {
             capture: Capture::AddField,
@@ -58,22 +68,27 @@ pub struct TokenStore {
 }
 
 impl TokenStore {
+    /// An empty store.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// The `2DAMEMORY` values recorded so far.
     pub fn slots(&self) -> &[String] {
         &self.slots
     }
 
+    /// The declared `StrRef` tokens, as (token, position in the append file).
     pub fn strrefs(&self) -> &[(i32, i32)] {
         &self.strrefs
     }
 
+    /// True when the mod declared no `StrRef` tokens.
     pub fn has_no_strrefs(&self) -> bool {
         self.strrefs.is_empty()
     }
 
+    /// Record that `token` refers to a line of the mod's append file.
     pub fn declare_strref(&mut self, token: i32, append_position: i32) {
         self.store_strref(token, append_position);
     }
@@ -101,6 +116,7 @@ impl TokenStore {
         }
     }
 
+    /// True when the text names a `StrRef` token.
     pub fn is_strref_token(token: &str) -> bool {
         let Some(head) = token.get(..6) else {
             return false;
@@ -293,6 +309,7 @@ impl TokenStore {
         Ok(())
     }
 
+    /// Point one `2DAMEMORY` slot at the value another already holds.
     pub fn copy_slot(&mut self, dest_key: &str, src_key: &str, log: &mut Log) {
         let held = self.substitute(src_key, log);
         let Some(slot) = self.slot_for_key(dest_key, log) else {
@@ -307,6 +324,7 @@ impl TokenStore {
         self.slots[slot] = held;
     }
 
+    /// True when the text names a `2DAMEMORY` token.
     pub fn is_memory_token(token: &str) -> bool {
         let Some(head) = token.get(..9) else {
             return false;

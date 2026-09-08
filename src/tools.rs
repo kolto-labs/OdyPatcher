@@ -5,8 +5,11 @@ use crate::ini::IniFile;
 use crate::session::Session;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Something validation noticed about a mod.
 pub struct Finding {
+    /// True when this would stop a run rather than just warn.
     pub blocking: bool,
+    /// What was noticed, in words.
     pub message: String,
 }
 
@@ -49,6 +52,7 @@ fn source_dir(ini: &IniFile, data: &str, list: &str, file_or_folder: &str) -> St
         .unwrap_or_else(|_| data.to_string())
 }
 
+/// Check a mod's instructions without touching a game folder.
 pub fn validate(session: &Session) -> Vec<Finding> {
     let ini = &session.ini;
     let data = &session.data_path;
@@ -524,10 +528,13 @@ fn restore_destination(game_folder: &str, name: &str) -> String {
 /// What a restore did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RestoreReport {
+    /// Files put back, as (name, where it went).
     pub restored: Vec<(String, String)>,
+    /// Files that could not be put back, as (name, why).
     pub failed: Vec<(String, String)>,
 }
 
+/// Copy everything in the mod's `backup` folder back into the game.
 pub fn restore_backup(session: &Session, game_folder: &str) -> RestoreReport {
     let mut report = RestoreReport::default();
     let folder = fsutil::join(&session.base_path, "backup");
