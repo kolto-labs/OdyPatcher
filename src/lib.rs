@@ -18,6 +18,7 @@ pub mod gamepaths;
 pub mod host;
 pub mod ini;
 pub mod patcher;
+pub mod paths;
 pub mod rtf;
 pub mod session;
 pub mod summary;
