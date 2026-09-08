@@ -390,7 +390,6 @@ impl FileHandler {
             return;
         }
 
-        let mut clean = true;
         for folder in target_folders(ctx.ini) {
             let root = format!(
                 "{}{folder}",
@@ -406,14 +405,12 @@ impl FileHandler {
             // create a second `override` beside it and the mod would land
             // somewhere the game never reads.
             if !self.fold_folder_name(&root, ctx) {
-                clean = false;
                 continue;
             }
 
             let report = crate::tools::force_lowercase(&root);
             if report.skipped {
                 // Nothing was folded, so nothing below here may be trusted.
-                clean = false;
                 continue;
             }
             if report.renamed > 0 || report.merged > 0 {
@@ -423,7 +420,6 @@ impl FileHandler {
                 ));
             }
             for (a, b) in &report.conflicts {
-                clean = false;
                 ctx.log.warn(format!(
                     "Case-only duplicate with different content, left in place — please resolve manually: \"{}\" vs \"{}\"",
                     a.display(),
@@ -431,16 +427,20 @@ impl FileHandler {
                 ));
             }
             for (path, reason) in &report.failed {
-                clean = false;
                 ctx.log.warn(format!(
                     "Could not fold \"{}\" to lowercase ({reason}); lookups below it stay case-aware",
                     path.display()
                 ));
             }
-        }
 
-        if clean {
-            self.resolver.trust_folded(&self.install_path);
+            // Trust this folder alone, and only when its fold left nothing
+            // unresolved. Trusting the whole install root would silence the
+            // fallback for everything the mod never named -- dialog.tlk at
+            // the game root, the game-detection markers -- none of which was
+            // folded.
+            if report.is_clean() {
+                self.resolver.trust_folded(&root);
+            }
         }
     }
 
@@ -714,10 +714,10 @@ impl FileHandler {
             return self.locate_string_table(filename);
         }
 
-        let destination_path = format!(
-            "{}{dest}",
-            text::include_trailing_delimiter(&self.install_path)
-        );
+        // Built through the resolver so the string checked here is the string
+        // `output_folder` will open. Confining one spelling and opening
+        // another is how a check like this gets walked past.
+        let destination_path = self.resolver.under(&self.install_path, &dest);
         if !path_is_confined(&self.install_path, &destination_path) {
             self.last_skip_was_unsafe = true;
             ctx.log.error(format!(

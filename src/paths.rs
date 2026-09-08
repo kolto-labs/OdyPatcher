@@ -581,6 +581,13 @@ mod tests {
     #[test]
     fn a_miss_outside_a_folded_root_falls_back_and_is_counted() {
         let dir = temp_dir("untrusted-miss");
+        // On a case-insensitive filesystem the folded spelling finds the
+        // mixed-case file directly, so no fallback is ever reached and there
+        // is nothing here to assert.
+        if !crate::tools::filesystem_distinguishes_case(&dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
         let resolver = Resolver::new(Mode::Lowercase);
         std::fs::create_dir_all(dir.join("Override")).unwrap();
         std::fs::write(dir.join("Override").join("Appearance.2da"), b"x").unwrap();

@@ -615,6 +615,13 @@ pub fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
     !collided
 }
 
+/// True when the path is a directory in its own right rather than a link to
+/// one. A walk that renames and deletes must not follow a link out of the
+/// tree its caller checked.
+fn is_real_dir(path: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
+}
+
 fn note_failure(report: &mut LowercaseReport, path: &std::path::Path, err: &std::io::Error) {
     report.failed.push((path.to_path_buf(), err.to_string()));
 }
@@ -672,7 +679,7 @@ fn force_lowercase_into(root: &str, report: &mut LowercaseReport) {
                     }
                     Err(err) => note_failure(report, &path, &err),
                 }
-            } else if path.is_dir() && destination.is_dir() {
+            } else if is_real_dir(&path) && is_real_dir(&destination) {
                 merge_directory(&path, &destination, report);
                 // Only succeeds once every entry underneath has been moved
                 // or merged; a non-empty remainder means unresolved
@@ -697,7 +704,10 @@ fn force_lowercase_into(root: &str, report: &mut LowercaseReport) {
             }
         }
 
-        if current.is_dir() {
+        // `symlink_metadata`, not `is_dir`: a symlinked subdirectory would
+        // walk the rename (and the merge branch's delete) outside the tree
+        // whose root was confinement-checked.
+        if is_real_dir(&current) {
             force_lowercase_into(&current.to_string_lossy(), report);
         }
     }
@@ -746,7 +756,7 @@ fn merge_directory(
             }
             Some(existing_name) => {
                 let dst_path = destination.join(&existing_name);
-                if src_path.is_dir() && dst_path.is_dir() {
+                if is_real_dir(&src_path) && is_real_dir(&dst_path) {
                     merge_directory(&src_path, &dst_path, report);
                     let _ = std::fs::remove_dir(&src_path);
                 } else if src_path.is_file() && dst_path.is_file() {
