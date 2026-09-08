@@ -532,6 +532,17 @@ pub fn restore_backup(session: &Session, game_folder: &str) -> RestoreReport {
     let mut report = RestoreReport::default();
     let folder = fsutil::join(&session.base_path, "backup");
 
+    // Undo any folding first. A run in the experimental mode renames game
+    // files before it backs anything up, so the names in the backup folder
+    // are the folded ones; putting the originals back first means the copies
+    // below land where the player's files actually were.
+    let undone = undo_folds(&folder);
+    if undone > 0 {
+        report
+            .restored
+            .push((format!("{undone} folded names"), "original casing".into()));
+    }
+
     for entry in fsutil::files_in_folder(&folder) {
         let name = entry
             .file_name()
@@ -552,6 +563,69 @@ pub fn restore_backup(session: &Session, game_folder: &str) -> RestoreReport {
     }
 
     report
+}
+
+/// Where a fold records what it renamed, inside the mod's backup folder.
+const FOLD_MANIFEST: &str = "lowercase-renames.txt";
+
+/// Record what a fold renamed, so an uninstall can put the names back.
+///
+/// Appends rather than replaces: a run folds several folders, and a later run
+/// may fold more. Failure to write is not fatal to the install — it costs the
+/// ability to undo, not the patch itself — so it is reported to the caller
+/// instead of stopping anything.
+pub fn record_folds(
+    backup_folder: &str,
+    renames: &[(std::path::PathBuf, std::path::PathBuf)],
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    if renames.is_empty() {
+        return Ok(());
+    }
+
+    let target = fsutil::native_path(&fsutil::join(backup_folder, FOLD_MANIFEST));
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&target)?;
+    for (from, to) in renames {
+        writeln!(file, "{}\t{}", from.display(), to.display())?;
+    }
+    Ok(())
+}
+
+/// Put folded names back, most recent first.
+///
+/// Reports how many were restored. A pair whose folded name is gone, or whose
+/// original name is occupied again, is left alone: the point is to undo a
+/// rename, never to overwrite whatever is there now.
+pub fn undo_folds(backup_folder: &str) -> usize {
+    let target = fsutil::native_path(&fsutil::join(backup_folder, FOLD_MANIFEST));
+    let Ok(text) = std::fs::read_to_string(&target) else {
+        return 0;
+    };
+
+    let mut undone = 0;
+    for line in text.lines().rev() {
+        let Some((from, to)) = line.split_once('\t') else {
+            continue;
+        };
+        let (from, to) = (std::path::Path::new(from), std::path::Path::new(to));
+        if !to.exists() || from.exists() {
+            continue;
+        }
+        if std::fs::rename(to, from).is_ok() {
+            undone += 1;
+        }
+    }
+
+    let _ = std::fs::remove_file(&target);
+    undone
 }
 
 /// Outcome of a [`force_lowercase`] walk.
@@ -578,6 +652,10 @@ pub struct LowercaseReport {
     /// distinguish case or could not be probed. Distinct from a clean fold:
     /// nothing was folded, so a caller must not treat the tree as folded.
     pub skipped: bool,
+    /// Every rename the walk performed, as (from, to). A fold changes names
+    /// in a folder the player owns, and an uninstall should be able to put
+    /// them back, so the pairs are kept rather than only counted.
+    pub renames: Vec<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 impl LowercaseReport {
@@ -638,8 +716,20 @@ fn note_failure(report: &mut LowercaseReport, path: &std::path::Path, err: &std:
 /// and reports nothing: there is no rename to make, and attempting one would
 /// destroy data rather than fold it.
 pub fn force_lowercase(root: &str) -> LowercaseReport {
+    force_lowercase_probed(
+        root,
+        filesystem_distinguishes_case(&fsutil::native_path(root)),
+    )
+}
+
+/// [`force_lowercase`] for a caller that has already probed the filesystem.
+///
+/// The probe writes a file into the folder it asks about. A caller folding
+/// several folders on one filesystem should ask once, at their shared root,
+/// rather than leave a probe file in each of them.
+pub fn force_lowercase_probed(root: &str, case_sensitive: bool) -> LowercaseReport {
     let mut report = LowercaseReport::default();
-    if !filesystem_distinguishes_case(&fsutil::native_path(root)) {
+    if !case_sensitive {
         report.skipped = true;
         return report;
     }
@@ -674,8 +764,9 @@ fn force_lowercase_into(root: &str, report: &mut LowercaseReport) {
             if !destination.exists() {
                 match std::fs::rename(&path, &destination) {
                     Ok(()) => {
-                        current = destination;
                         report.renamed += 1;
+                        report.renames.push((path.clone(), destination.clone()));
+                        current = destination;
                     }
                     Err(err) => note_failure(report, &path, &err),
                 }
@@ -750,7 +841,10 @@ fn merge_directory(
                 // on its next pass over `destination`.
                 let dst_path = destination.join(&name);
                 match std::fs::rename(&src_path, &dst_path) {
-                    Ok(()) => report.renamed += 1,
+                    Ok(()) => {
+                        report.renamed += 1;
+                        report.renames.push((src_path.clone(), dst_path.clone()));
+                    }
                     Err(err) => note_failure(report, &src_path, &err),
                 }
             }
@@ -1248,6 +1342,61 @@ mod tests {
         // unresolved conflicting file.
         assert!(dir.join("GOTOCUT1").exists());
         assert!(dir.join("gotocut1").join("002.wav").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fold_can_be_undone_from_what_it_recorded() {
+        let dir = temp_dir("fold-manifest");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let backup = dir.join("backup");
+        fs::create_dir_all(&backup).unwrap();
+        fs::create_dir_all(dir.join("Override")).unwrap();
+        fs::write(dir.join("Override").join("Appearance.2DA"), b"x").unwrap();
+
+        let report = force_lowercase(&dir.join("Override").to_string_lossy());
+        assert!(!report.renames.is_empty(), "the fold should have renamed");
+        assert!(dir.join("Override").join("appearance.2da").is_file());
+
+        record_folds(&backup.to_string_lossy(), &report.renames).unwrap();
+        let undone = undo_folds(&backup.to_string_lossy());
+
+        assert_eq!(undone, report.renames.len());
+        assert!(
+            dir.join("Override").join("Appearance.2DA").is_file(),
+            "the player's own spelling should be back"
+        );
+        // The manifest is consumed, so a second uninstall does not re-run it.
+        assert_eq!(undo_folds(&backup.to_string_lossy()), 0);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_undo_never_overwrites_whatever_is_there_now() {
+        let dir = temp_dir("fold-manifest-occupied");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let backup = dir.join("backup");
+        fs::create_dir_all(&backup).unwrap();
+        let from = dir.join("Thing.2DA");
+        let to = dir.join("thing.2da");
+        fs::write(&to, b"folded").unwrap();
+        fs::write(&from, b"something else entirely").unwrap();
+
+        record_folds(&backup.to_string_lossy(), &[(from.clone(), to.clone())]).unwrap();
+
+        assert_eq!(undo_folds(&backup.to_string_lossy()), 0);
+        assert_eq!(fs::read(&from).unwrap(), b"something else entirely");
+        assert_eq!(fs::read(&to).unwrap(), b"folded");
 
         let _ = fs::remove_dir_all(&dir);
     }

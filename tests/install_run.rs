@@ -4273,6 +4273,157 @@ fn install_mixed_case_mod(tag: &str, extra_files: usize) -> (usize, std::path::P
     (patcher.files.resolver().lookup_fallbacks(), game)
 }
 
+/// A game folder outside the mod folder, the way a real install sits.
+fn separate_game(tag: &str) -> (std::path::PathBuf, String) {
+    let game = std::env::temp_dir().join(format!(
+        "odypatcher-game-{tag}-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&game);
+    std::fs::create_dir_all(&game).unwrap();
+    let path = format!("{}/", game.to_string_lossy());
+    (game, path)
+}
+
+/// Run `f`'s mod against `game_path` in the lowercase mode, keeping the log.
+fn run_lowercase(
+    f: &Fixture,
+    ini: &str,
+    game_path: &str,
+) -> (odypatcher::PatchSummary, Vec<String>) {
+    f.mod_file("changes.ini", ini.as_bytes());
+
+    let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = std::sync::Arc::clone(&captured);
+    let mut log = Log::new(
+        4,
+        Box::new(move |line| sink.lock().unwrap().push(line.text.clone())),
+    );
+
+    let mut host = SilentHost::with_game_folder(game_path.to_string());
+    let mut patcher = Patcher::new(&f.base, &f.data, "changes.ini");
+    patcher.set_path_mode(odypatcher::paths::Mode::Lowercase);
+    patcher.files.set_install_path(game_path);
+    let summary = patcher.run(&mut log, &mut host).expect("run failed");
+
+    let lines = captured.lock().unwrap().clone();
+    (summary, lines)
+}
+
+#[test]
+fn a_capsule_destination_is_folded_and_its_folder_renamed() {
+    let f = Fixture::new("lowercase-capsule");
+    f.mod_file("item.uti", &item_file());
+
+    let (game, game_path) = separate_game("capsule");
+    // Capitalised, as a real install ships it.
+    std::fs::create_dir_all(game.join("Modules")).unwrap();
+    let archive_path = format!("{}Modules/Danm13.mod", game_path);
+    let mut archive = ErfFile::create(&archive_path, ArchiveKind::Mod);
+    archive.save(Some(&archive_path)).unwrap();
+
+    let (summary, _) = run_lowercase(
+        &f,
+        "[Settings]\n\
+         InstallerMode=1\n\
+         FileExists=1\n\
+         \n\
+         [GFFList]\n\
+         File0=item.uti\n\
+         \n\
+         [item.uti]\n\
+         !Destination=Modules\\Danm13.mod\n\
+         Cost=750\n",
+        &game_path,
+    );
+
+    assert_eq!(summary.errors, 0);
+    // One modules folder, folded, holding the folded archive.
+    let names: Vec<String> = std::fs::read_dir(&game)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.eq_ignore_ascii_case("modules"))
+        .collect();
+    assert_eq!(names, vec!["modules"]);
+    assert!(game.join("modules").join("danm13.mod").is_file());
+
+    let updated =
+        ErfFile::load(&game.join("modules").join("danm13.mod").to_string_lossy()).unwrap();
+    assert!(updated.resource_exists("item.uti", false).unwrap_or(false));
+
+    let _ = std::fs::remove_dir_all(&game);
+}
+
+#[test]
+fn save_as_is_folded_on_disk_while_the_log_keeps_the_authors_spelling() {
+    let f = Fixture::new("lowercase-saveas");
+    f.mod_file("Source.UTI", &item_file());
+
+    let (game, game_path) = separate_game("saveas");
+    std::fs::create_dir_all(game.join("override")).unwrap();
+
+    let (summary, lines) = run_lowercase(
+        &f,
+        "[Settings]\n\
+         InstallerMode=1\n\
+         FileExists=1\n\
+         \n\
+         [InstallList]\n\
+         loose=Override\n\
+         \n\
+         [loose]\n\
+         File0=Source.UTI\n\
+         \n\
+         [Source.UTI]\n\
+         !SaveAs=MyItem.UTI\n",
+        &game_path,
+    );
+
+    assert_eq!(summary.errors, 0);
+    assert!(
+        game.join("override").join("myitem.uti").is_file(),
+        "the installed name is folded"
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains("myitem.uti")),
+        "the log should not quote the folded name: {lines:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&game);
+}
+
+#[test]
+fn a_mixed_case_source_folder_resolves_in_the_lowercase_mode() {
+    let f = Fixture::new("lowercase-sourcefolder");
+    std::fs::create_dir_all(format!("{}ExtraFiles", f.data)).unwrap();
+    f.mod_file("ExtraFiles/Icon.TGA", b"icon bytes");
+
+    let (game, game_path) = separate_game("sourcefolder");
+    std::fs::create_dir_all(game.join("override")).unwrap();
+
+    let (summary, _) = run_lowercase(
+        &f,
+        "[Settings]\n\
+         InstallerMode=1\n\
+         FileExists=1\n\
+         \n\
+         [InstallList]\n\
+         loose=Override\n\
+         \n\
+         [loose]\n\
+         !SourceFolder=ExtraFiles\n\
+         File0=Icon.TGA\n",
+        &game_path,
+    );
+
+    assert_eq!(summary.errors, 0);
+    assert!(game.join("override").join("icon.tga").is_file());
+
+    let _ = std::fs::remove_dir_all(&game);
+}
+
 #[test]
 fn the_lowercase_mode_folds_a_capitalised_override_instead_of_shadowing_it() {
     let (_, game) = install_mixed_case_mod("fold-override", 0);

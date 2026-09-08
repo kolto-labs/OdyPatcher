@@ -1282,13 +1282,15 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 self.files.resolver().copy(&blueprint, &installed)?;
                 self.advance(host);
 
-                if save_as != source {
+                // The log quotes what the mod's author wrote, not the folded
+                // name the file is installed under.
+                if named_as_written != source {
                     log.info(format!(
-                        "Renaming and copying file \"{source}\" to \"{save_as}\" to the {installed_display} folder..."
+                        "Renaming and copying file \"{source}\" to \"{named_as_written}\" to the {installed_display} folder..."
                     ));
                 } else {
                     log.info(format!(
-                        "Copying file {save_as} to the {installed_display} folder..."
+                        "Copying file {named_as_written} to the {installed_display} folder..."
                     ));
                 }
             }
@@ -1993,6 +1995,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
 
         // Put the untouched sources back whatever happened above.
         crate::patcher::scripts::restore_sources(
+            self.files.resolver(),
             &self.data_path,
             &originals,
             self.settings.save_processed_scripts,
@@ -2187,8 +2190,12 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             }
 
             let source_path = self.files.file_path()?;
-            let processed =
-                crate::patcher::scripts::substitute_tokens(&source_path, working, &self.tokens)?;
+            let processed = crate::patcher::scripts::substitute_tokens(
+                self.files.resolver(),
+                &source_path,
+                working,
+                &self.tokens,
+            )?;
             originals.push((processed.backup_path.clone(), source_path.clone()));
 
             log.verbose(format!(
@@ -2221,6 +2228,7 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
             let feedback = if let Some(table) = nwscript {
                 let include_dir = text::extract_file_path(&source_path);
                 crate::patcher::scripts::compile_in_process(
+                    self.files.resolver(),
                     &source_path,
                     &compiled_path,
                     &include_dir,

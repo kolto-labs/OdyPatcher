@@ -386,9 +386,15 @@ impl FileHandler {
 
         // A filesystem that does not tell `Data` and `data` apart has nothing
         // to fold, and folding there destroys files rather than renaming them.
-        if !crate::tools::filesystem_distinguishes_case(&fsutil::native_path(&self.install_path)) {
+        // Asked once here, at the root the target folders share, so the probe
+        // does not leave a file in each of them.
+        let case_sensitive =
+            crate::tools::filesystem_distinguishes_case(&fsutil::native_path(&self.install_path));
+        if !case_sensitive {
             return;
         }
+
+        let mut folded: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
 
         for folder in target_folders(ctx.ini) {
             let root = format!(
@@ -408,7 +414,8 @@ impl FileHandler {
                 continue;
             }
 
-            let report = crate::tools::force_lowercase(&root);
+            let report = crate::tools::force_lowercase_probed(&root, case_sensitive);
+            folded.extend(report.renames.iter().cloned());
             if report.skipped {
                 // Nothing was folded, so nothing below here may be trusted.
                 continue;
@@ -441,6 +448,15 @@ impl FileHandler {
             if report.is_clean() {
                 self.resolver.trust_folded(&root);
             }
+        }
+
+        // Written before a single file is patched. The fold has already
+        // renamed the player's files by this point, so the record of what it
+        // did has to survive whatever the rest of the run does.
+        if let Err(err) = crate::tools::record_folds(&self.backup_folder(), &folded) {
+            ctx.log.warn(format!(
+                "Could not record what was renamed ({err}); an uninstall will not restore the original casing"
+            ));
         }
     }
 

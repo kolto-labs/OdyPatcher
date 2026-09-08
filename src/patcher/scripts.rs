@@ -116,6 +116,7 @@ fn declares_entry_point(line: &str) -> bool {
 }
 
 pub fn substitute_tokens(
+    resolver: &crate::paths::Resolver,
     source_path: &str,
     working_dir: &str,
     tokens: &TokenStore,
@@ -123,9 +124,9 @@ pub fn substitute_tokens(
     let name = text::extract_file_name(source_path);
     let backup_path = format!("{}{name}", text::include_trailing_delimiter(working_dir));
 
-    fsutil::copy_file(source_path, &backup_path)?;
+    resolver.copy(source_path, &backup_path)?;
 
-    let raw = fsutil::read_file(&backup_path)?;
+    let raw = resolver.read(&backup_path)?;
     let content = latin1::decode(&raw);
 
     let mut is_include = true;
@@ -155,7 +156,7 @@ pub fn substitute_tokens(
         out.push_str("\r\n");
     }
 
-    fsutil::write_file(source_path, &latin1::encode(&out))?;
+    resolver.write(source_path, &latin1::encode(&out))?;
 
     Ok(ProcessedScript {
         backup_path,
@@ -202,13 +203,14 @@ pub fn compile(
 }
 
 pub fn compile_in_process(
+    resolver: &crate::paths::Resolver,
     source: &str,
     output: &str,
     include_dir: &str,
     extra_include: &str,
     nwscript: &bionsscomp::NwScript,
 ) -> String {
-    let raw = match fsutil::read_file(source) {
+    let raw = match resolver.read(source) {
         Ok(bytes) => bytes,
         Err(err) => return format!("Unable to read script: {err}"),
     };
@@ -229,7 +231,7 @@ pub fn compile_in_process(
 
     match bionsscomp::compile_detailed(&source_text, &options) {
         Ok(compilation) => {
-            if let Err(err) = fsutil::write_file(output, &compilation.ncs) {
+            if let Err(err) = resolver.write(output, &compilation.ncs) {
                 return format!("Unable to write compiled script: {err}");
             }
             compilation
@@ -258,13 +260,18 @@ fn compiler_argument(path: &str, work: &Path, runs_in_working_folder: bool) -> P
     fsutil::native_path(path)
 }
 
-pub fn restore_sources(data_path: &str, originals: &[(String, String)], keep_processed: bool) {
+pub fn restore_sources(
+    resolver: &crate::paths::Resolver,
+    data_path: &str,
+    originals: &[(String, String)],
+    keep_processed: bool,
+) {
     let data_path = text::include_trailing_delimiter(data_path);
 
     for (backup_path, source_path) in originals {
         let name = text::extract_file_name(backup_path);
         let fallback = format!("{data_path}{name}");
-        let live = if fsutil::file_exists(source_path) {
+        let live = if resolver.exists(source_path) {
             source_path.as_str()
         } else {
             fallback.as_str()
@@ -272,13 +279,13 @@ pub fn restore_sources(data_path: &str, originals: &[(String, String)], keep_pro
 
         if keep_processed {
             let debug_folder = text::include_trailing_delimiter(&format!("{data_path}debug"));
-            let _ = fsutil::force_directories(&debug_folder);
-            let _ = fsutil::copy_file(live, &format!("{debug_folder}{name}"));
+            let _ = resolver.create_dir_all(&debug_folder);
+            let _ = resolver.copy(live, &format!("{debug_folder}{name}"));
         }
 
-        if fsutil::file_exists(backup_path) {
-            let _ = fsutil::copy_file(backup_path, live);
-            fsutil::delete_file(backup_path);
+        if resolver.exists(backup_path) {
+            let _ = resolver.copy(backup_path, live);
+            resolver.delete(backup_path);
         }
     }
 }
@@ -336,7 +343,13 @@ mod tests {
         )
         .unwrap();
 
-        let processed = substitute_tokens(&source, &working, &store_with_values()).unwrap();
+        let processed = substitute_tokens(
+            &crate::paths::Resolver::default(),
+            &source,
+            &working,
+            &store_with_values(),
+        )
+        .unwrap();
 
         assert!(!processed.is_include);
 
@@ -359,7 +372,13 @@ mod tests {
 
         fsutil::write_file(&source, b"int Helper() { return 1; }\n").unwrap();
 
-        let processed = substitute_tokens(&source, &working, &TokenStore::new()).unwrap();
+        let processed = substitute_tokens(
+            &crate::paths::Resolver::default(),
+            &source,
+            &working,
+            &TokenStore::new(),
+        )
+        .unwrap();
         assert!(processed.is_include);
 
         let _ = fs::remove_dir_all(&dir);
@@ -373,9 +392,16 @@ mod tests {
         let source = format!("{data}script.nss");
 
         fsutil::write_file(&source, b"void main() { int a = #2DAMEMORY1#; }\n").unwrap();
-        let processed = substitute_tokens(&source, &working, &store_with_values()).unwrap();
+        let processed = substitute_tokens(
+            &crate::paths::Resolver::default(),
+            &source,
+            &working,
+            &store_with_values(),
+        )
+        .unwrap();
 
         restore_sources(
+            &crate::paths::Resolver::default(),
             &data,
             &[(processed.backup_path.clone(), source.clone())],
             false,
@@ -396,9 +422,16 @@ mod tests {
         let source = format!("{data}script.nss");
 
         fsutil::write_file(&source, b"void main() { int a = #2DAMEMORY1#; }\n").unwrap();
-        let processed = substitute_tokens(&source, &working, &store_with_values()).unwrap();
+        let processed = substitute_tokens(
+            &crate::paths::Resolver::default(),
+            &source,
+            &working,
+            &store_with_values(),
+        )
+        .unwrap();
 
         restore_sources(
+            &crate::paths::Resolver::default(),
             &data,
             &[(processed.backup_path.clone(), source.clone())],
             true,
@@ -517,7 +550,14 @@ mod tests {
         fsutil::write_file(&source, b"void main() { }\n").unwrap();
 
         let nwscript = bionsscomp::NwScript::empty(bionsscomp::Game::K1);
-        let feedback = compile_in_process(&source, &output, &dir.to_string_lossy(), "", &nwscript);
+        let feedback = compile_in_process(
+            &crate::paths::Resolver::default(),
+            &source,
+            &output,
+            &dir.to_string_lossy(),
+            "",
+            &nwscript,
+        );
 
         assert!(
             fsutil::file_exists(&output),
