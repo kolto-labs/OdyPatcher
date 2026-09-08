@@ -7,7 +7,8 @@
 * Experimental `--experimental-lowercase-paths` mode. Names are folded to
   lowercase and looked up by that name instead of searching a folder for a
   case-insensitive match. Off by default; set by whoever runs the patcher, not
-  by a mod.
+  by a mod. Renames are recorded, so restoring the backup restores the
+  original casing.
 
 ### Fixes
 
