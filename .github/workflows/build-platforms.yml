@@ -70,3 +70,22 @@ jobs:
         with:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
+
+  windows-x86:
+    name: Windows x86
+    needs: macos-arm64
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --no-default-features --all-targets --target i686-pc-windows-msvc
+      - run: cargo build --release --target i686-pc-windows-msvc
+      - shell: bash
+        run: tar -C target/i686-pc-windows-msvc/release -czf odypatcher-windows-x86.tar.gz odypatcher.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odypatcher-windows-x86.tar.gz
+          path: odypatcher-windows-x86.tar.gz
