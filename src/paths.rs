@@ -451,12 +451,14 @@ mod tests {
     fn a_root_keeps_its_own_spelling() {
         let resolver = Resolver::new(Mode::Lowercase);
         let joined = resolver.under("/Games/KotOR II", "Override\\Appearance.2da");
+        let joined = Path::new(&joined);
 
         assert!(
-            joined.starts_with("/Games/KotOR II/"),
-            "the root must not be folded, got {joined}"
+            joined.starts_with(Path::new("/Games/KotOR II")),
+            "the root must not be folded, got {}",
+            joined.display()
         );
-        assert!(joined.ends_with("override/appearance.2da"), "got {joined}");
+        assert!(joined.ends_with(Path::new("override").join("appearance.2da")));
     }
 
     #[test]
