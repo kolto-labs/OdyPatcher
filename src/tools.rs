@@ -1454,6 +1454,7 @@ mod tests {
         assert_eq!(flip_ascii_case(""), "");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_populated_folder_is_probed_without_writing_to_it() {
         use std::os::unix::fs::PermissionsExt;
