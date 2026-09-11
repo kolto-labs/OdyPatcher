@@ -1414,6 +1414,10 @@ mod tests {
         // presents for `Spells.2da` and `spells.2da`. The old code would
         // compare this file with itself, find it identical, and delete it.
         let dir = temp_dir("same-file-guard");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
         fs::write(dir.join("Spells.2da"), b"content").unwrap();
         fs::hard_link(dir.join("Spells.2da"), dir.join("spells.2da")).unwrap();
 
