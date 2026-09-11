@@ -2,6 +2,8 @@ name: Build platform binaries
 
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/build-platform-binaries]
 
 permissions:
   contents: read
