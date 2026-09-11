@@ -233,7 +233,9 @@ Files in the mod folder and in the folders this mod writes to are renamed.",
                 path.display()
             ));
         }
-        report.is_clean()
+        // A skipped walk folded nothing, so there is nothing to trust. Only
+        // a walk that ran and left nothing unresolved earns it.
+        !report.skipped && report.is_clean()
     }
 
     fn run_steps(&mut self, log: &mut Log, host: &mut dyn Host) -> Result<()> {

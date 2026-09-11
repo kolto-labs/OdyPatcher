@@ -83,7 +83,8 @@ Experimental:
                          Lowercase names while installing. This is faster
                          where the filesystem tells Data and data apart. It
                          renames files in the mod folder and in the folders
-                         the mod writes to. Off unless you ask for it.
+                         the mod writes to. This cannot be undone. Off unless
+                         you ask for it.
 
 Running unattended:
       --tslpatchdata <PATH>          Folder holding the mod

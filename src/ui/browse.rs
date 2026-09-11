@@ -67,7 +67,8 @@ impl App {
                     )
                     .on_hover_text(
                         "Experimental. Faster where the filesystem tells Data and data apart. \
-Renames files in the mod folder and in the folders the mod writes to.",
+Renames files in the mod folder and in the folders the mod writes to. This \
+cannot be undone.",
                     );
                 });
 
@@ -150,7 +151,9 @@ Renames files in the mod folder and in the folders the mod writes to.",
                 self.dialogs.push_back(Dialog::confirm(
                     "Force Lowercase Filenames",
                     format!(
-                        "Rename every file and folder under\n{}\nto lowercase?",
+                        "Rename every file and folder under\n{}\nto lowercase?\n\n\
+Files whose names differ only in case are merged, and the extra copy is \
+deleted. This cannot be undone. Back up your game folder first.",
                         self.game_path
                     ),
                     Answer::Lowercase,
@@ -437,6 +440,82 @@ enum MenuAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "odypatcher-browse-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rename_that_cannot_be_performed_is_reported_in_the_tool_text() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir("lowercase-failed");
+        if !crate::tools::filesystem_distinguishes_case(&dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let locked = dir.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(locked.join("Appearance.2DA"), b"x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let mut app = App::browse(dir.to_string_lossy().into_owned());
+        app.game_path = dir.to_string_lossy().into_owned();
+        app.force_lowercase();
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Running as root ignores the write bit; nothing this test can prove.
+        if !app.tool_text.contains("could not be renamed") {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        assert!(
+            app.tool_text.contains("could not be renamed"),
+            "the failure should be visible to the operator: {}",
+            app.tool_text
+        );
+        assert_eq!(app.view, View::Tool);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_skipped_fold_says_so_without_claiming_a_count() {
+        // force_lowercase reports `skipped` rather than a zero count when the
+        // filesystem does not distinguish case, so the operator is told
+        // nothing was renamed rather than reading a report that implies a
+        // walk that never ran.
+        let dir = temp_dir("lowercase-skipped-text");
+        if crate::tools::filesystem_distinguishes_case(&dir) {
+            // This filesystem does distinguish case; nothing here to prove.
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let mut app = App::browse(dir.to_string_lossy().into_owned());
+        app.game_path = dir.to_string_lossy().into_owned();
+        app.force_lowercase();
+
+        assert!(
+            app.tool_text.contains("does not tell Data and data apart"),
+            "got: {}",
+            app.tool_text
+        );
+        assert_eq!(app.view, View::Tool);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_offered_links_are_absolute() {

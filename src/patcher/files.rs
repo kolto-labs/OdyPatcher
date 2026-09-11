@@ -431,12 +431,16 @@ impl FileHandler {
                 continue;
             }
 
-            // Fold the folder's own name first. `force_lowercase` folds the
-            // entries below a root, never the root itself, and a real install
-            // ships `Override` capitalised. Left alone, the write side would
-            // create a second `override` beside it and the mod would land
-            // somewhere the game never reads.
-            if !self.fold_folder_name(&root, ctx) {
+            // Fold every segment of the folder's own path first, parent
+            // to leaf. `force_lowercase` folds the entries below a root,
+            // never the root itself, and a real install ships `Override`
+            // capitalised -- or, for a nested destination such as
+            // `StreamWaves\m01aa`, ships `StreamWaves` capitalised with an
+            // already-lowercase leaf underneath it. Folding only the leaf
+            // would leave `StreamWaves` untouched while every lookup below it
+            // is built fully folded, and the write side would then create a
+            // new `streamwaves` tree beside the real one instead of using it.
+            if !self.fold_folder_path(&root, ctx) {
                 continue;
             }
 
@@ -474,11 +478,55 @@ impl FileHandler {
             // wrote. Every lookup below here is built through `under`, which
             // folds, so trusting `Modules/` would never match `modules/...`
             // and the fallback would run for every one of them.
-            if report.is_clean() {
-                self.resolver
-                    .trust_folded(&self.resolver.under(&self.install_path, &folder));
+            // Only the last segment is folded on disk: `fold_folder_name`
+            // renames the folder itself, not its parents. A multi-segment
+            // destination like `StreamWaves\\m01aa` therefore has a folded
+            // key that names nothing, and trusting it would have every lookup
+            // below believe its own miss and install into a shadow tree.
+            let key = self.resolver.under(&self.install_path, &folder);
+            if report.is_clean()
+                && std::path::Path::new(&crate::paths::native_separators(&key)).is_dir()
+            {
+                self.resolver.trust_folded(&key);
             }
         }
+    }
+
+    /// Fold every segment of a target folder's path below the install root,
+    /// parent before child, so a nested destination such as
+    /// `StreamWaves\m01aa` gets each real directory folded in turn rather
+    /// than only the last one.
+    ///
+    /// Reports whether the whole path now sits at its folded spelling.
+    fn fold_folder_path(&self, root: &str, ctx: &mut Context<'_>) -> bool {
+        let native_root = crate::paths::native_separators(root);
+        let native_install = crate::paths::native_separators(&self.install_path);
+        let root_path = std::path::Path::new(&native_root);
+        let install_path = std::path::Path::new(&native_install);
+
+        let Ok(relative) = root_path.strip_prefix(install_path) else {
+            // `root` is always built under `install_path`; this should not
+            // happen, but there is nothing safe to fold if it does.
+            return true;
+        };
+
+        let mut current = install_path.to_path_buf();
+        for component in relative.components() {
+            current.push(component);
+            if !self.fold_folder_name(&current.to_string_lossy(), ctx) {
+                return false;
+            }
+            // The segment sits at its folded spelling now, whether
+            // `fold_folder_name` renamed it or found it already there.
+            // Advance using that spelling so the next segment's lookup
+            // resolves against the real, just-folded parent rather than the
+            // name the instruction file wrote.
+            if let Some(name) = current.file_name() {
+                let folded = crate::paths::fold_ascii(&name.to_string_lossy());
+                current.set_file_name(folded);
+            }
+        }
+        true
     }
 
     /// Rename a target folder to its folded spelling.
@@ -1016,15 +1064,27 @@ impl FileHandler {
             }
         }
 
-        let compiled = text::with_extension(filename, ".ncs");
+        // Derived from the checked output name rather than the raw section
+        // value. `filename` still traverses when a section supplies both
+        // `!SaveAs` and `!SourceFile`, and it lands here after both of those
+        // gates have passed on other strings.
+        let compiled = text::with_extension(&self.save_name(ctx.ini, filename), ".ncs");
         let dest_folder = self.output_folder(dest);
         let in_dest = format!("{dest_folder}{compiled}");
 
         if overwrite {
-            if !capsule && self.resolver.exists(&in_dest) && self.do_backups {
+            if !capsule
+                && !compiled.is_empty()
+                && path_is_confined(&self.install_path, &in_dest)
+                && self.resolver.exists(&in_dest)
+                && self.do_backups
+            {
                 let folder = self.backup_folder();
                 let _ = self.resolver.create_dir_all(&folder);
                 let target = format!("{folder}{compiled}");
+                if !path_is_confined(&self.base_path, &target) {
+                    return Ok(true);
+                }
 
                 if !self.resolver.exists(&target) && self.resolver.copy(&in_dest, &target).is_ok() {
                     ctx.log.info(format!(

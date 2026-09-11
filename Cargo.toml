@@ -37,21 +37,7 @@ rfd = { version = "0.15", optional = true, default-features = false, features = 
 
 kotor-formats = { git = "https://github.com/holowan-biolabs/kotor-formats", tag = "v0.1.0" }
 
-# Pinned by commit rather than tag: BioNSSComp has no release yet. Swap this
-# for a tag once one is cut.
-#
-# This pin breaks the two CI jobs that build with Rust 1.77.2. `fc88c4f` only
-# exists upstream as `refs/pull/1/head` -- BioNSSComp's `main` holds no source
-# at all -- and cargo 1.77 fetches `refs/heads/*`, so it cannot see a commit
-# that is not on a branch. Cargo 1.80 and later ask for the bare SHA, which
-# GitHub answers, which is why current toolchains build fine.
-#
-# The code itself is 1.77-clean: with the crate available locally, `cargo
-# +1.77.2 test --no-default-features --all-targets` passes. Merging that PR to
-# `main`, or pushing a tag at that commit, is all the older-toolchain and
-# windows-7 jobs need.
-# bionsscomp = { git = "https://github.com/bodencrouch/BioNSSComp", tag = "v1.0.0" }
-bionsscomp = { git = "https://github.com/bodencrouch/BioNSSComp", rev = "fc88c4f" }
+bionsscomp = { git = "https://github.com/holowan-biolabs/odynsscomp", rev = "00c53a9" }
 
 # To work against a local kotor-formats checkout instead of the pinned tag,
 # uncomment:

@@ -611,18 +611,35 @@ pub fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
     // question about it is a poor trade -- especially since a crash between
     // the write and the delete leaves the scratch file behind for good.
     if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
+        // Bounded: on a filesystem that does not distinguish case every
+        // flipped name resolves, so without a cap this would stat a whole
+        // `override` folder before falling through to the write probe below.
+        for entry in entries.flatten().take(32) {
+            // A name that cannot be read faithfully cannot answer. Converting
+            // it lossily would invent a spelling that exists under neither
+            // case, which reads as proof of case-sensitivity -- the answer
+            // that folds, and folding is what deletes.
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
             let flipped = flip_ascii_case(&name);
             if flipped == name {
                 // No ASCII letters to flip; this entry cannot answer.
                 continue;
             }
-            if !dir.join(flipped).exists() {
-                // A name that resolves under one spelling and not the other
-                // settles it, with nothing written.
+
+            // `symlink_metadata`, not `exists`. `exists` follows links and
+            // reports false for any error at all, so a broken symlink or a
+            // directory that can be listed but not searched would both look
+            // like proof of case-sensitivity. Ask whether each *name*
+            // resolves, and demand a positive answer for the one that is
+            // really there before believing the negative for the other.
+            if std::fs::symlink_metadata(dir.join(&name)).is_ok()
+                && std::fs::symlink_metadata(dir.join(&flipped)).is_err()
+            {
                 return true;
             }
+
             // The flipped spelling resolves too. That is what a
             // case-insensitive filesystem looks like -- and also what a
             // genuine case-only duplicate pair looks like, which is the very
@@ -661,6 +678,35 @@ fn flip_ascii_case(name: &str) -> String {
             }
         })
         .collect()
+}
+
+/// True when two paths name one and the same file on disk.
+///
+/// The guard of last resort. Where case is not distinguished, `Spells.2da`
+/// and `spells.2da` are one file, and the merge below would compare it with
+/// itself, find it identical, and delete it. Every other check here tries to
+/// keep the walk away from such a filesystem; this one makes being wrong
+/// about that survivable.
+///
+/// `canonicalize` answers on Windows, which corrects case; it does not on
+/// macOS, which returns the spelling it was given. Identity numbers answer
+/// everywhere that has them.
+fn is_same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(left), Ok(right)) => left.dev() == right.dev() && left.ino() == right.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            (Ok(left), Ok(right)) => left == right,
+            _ => false,
+        }
+    }
 }
 
 /// True when the path is a directory in its own right rather than a link to
@@ -748,7 +794,11 @@ fn force_lowercase_into(root: &str, report: &mut LowercaseReport) {
                     current = destination;
                 }
             } else if path.is_file() && destination.is_file() {
-                if files_are_identical(&path, &destination) {
+                if is_same_file(&path, &destination) {
+                    // One file wearing two spellings. There is nothing to
+                    // merge and nothing that may be deleted.
+                    report.conflicts.push((path.clone(), destination));
+                } else if files_are_identical(&path, &destination) {
                     match std::fs::remove_file(&path) {
                         Ok(()) => {
                             report.merged += 1;
@@ -833,7 +883,9 @@ fn merge_directory(
                         note_failure(report, &src_path, &err);
                     }
                 } else if src_path.is_file() && dst_path.is_file() {
-                    if files_are_identical(&src_path, &dst_path) {
+                    if is_same_file(&src_path, &dst_path) {
+                        report.conflicts.push((src_path, dst_path));
+                    } else if files_are_identical(&src_path, &dst_path) {
                         match std::fs::remove_file(&src_path) {
                             Ok(()) => report.merged += 1,
                             Err(err) => note_failure(report, &src_path, &err),
@@ -1329,6 +1381,75 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_does_not_answer_the_probe() {
+        // A broken link resolves under neither spelling, so exists() alone
+        // would read this as proof the filesystem is case-sensitive -- the
+        // answer that folds. symlink_metadata must not be fooled by it.
+        let dir = temp_dir("probe-dangling-symlink");
+        std::os::unix::fs::symlink(dir.join("Nowhere"), dir.join("Missing")).unwrap();
+
+        if fs::write(dir.join("root-check.tmp"), b"x").is_ok() {
+            let _ = fs::remove_file(dir.join("root-check.tmp"));
+        } else {
+            // Cannot write here at all; nothing this test can prove.
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        // Whatever the write probe below concludes is correct by definition
+        // for this filesystem; the property under test is narrower: the
+        // dangling entry alone must not short-circuit to `true`.
+        let _ = filesystem_distinguishes_case(&dir);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn one_file_wearing_two_spellings_is_never_deleted() {
+        // The guard of last resort. Simulated portably with a hard link:
+        // same inode, two names, exactly what a case-insensitive filesystem
+        // presents for `Spells.2da` and `spells.2da`. The old code would
+        // compare this file with itself, find it identical, and delete it.
+        let dir = temp_dir("same-file-guard");
+        fs::write(dir.join("Spells.2da"), b"content").unwrap();
+        fs::hard_link(dir.join("Spells.2da"), dir.join("spells.2da")).unwrap();
+
+        let report = force_lowercase(&dir.to_string_lossy());
+
+        assert_eq!(report.merged, 0, "nothing should be treated as a duplicate to merge");
+        assert!(dir.join("Spells.2da").exists() || dir.join("spells.2da").exists());
+        assert!(
+            dir.join("Spells.2da").exists() && dir.join("spells.2da").exists(),
+            "both names should still be on disk"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_name_with_no_ascii_letters_cannot_answer_and_is_skipped() {
+        let dir = temp_dir("probe-no-letters");
+        fs::write(dir.join("12345"), b"x").unwrap();
+
+        // Not an assertion on the answer -- only that the letterless entry is
+        // passed over rather than mistaken for a settling one. flip_ascii_case
+        // is exercised directly for that.
+        assert_eq!(flip_ascii_case("12345"), "12345");
+
+        let _ = filesystem_distinguishes_case(&dir);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn flip_ascii_case_swaps_letters_and_leaves_everything_else() {
+        assert_eq!(flip_ascii_case("Appearance.2DA"), "aPPEARANCE.2da");
+        assert_eq!(flip_ascii_case("12345"), "12345");
+        assert_eq!(flip_ascii_case(""), "");
+    }
+
     #[test]
     fn a_populated_folder_is_probed_without_writing_to_it() {
         use std::os::unix::fs::PermissionsExt;

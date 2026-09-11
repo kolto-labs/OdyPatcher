@@ -2523,6 +2523,49 @@ fn compile_source_aliases_cannot_escape_the_mod() {
 }
 
 #[test]
+fn compile_backup_copy_stays_inside_the_confined_folders_in_lowercase_mode() {
+    // The compiled name feeding the backup copy is derived from save_name,
+    // which already refuses anything that is not a safe leaf name, and both
+    // sides of that copy are now confinement-checked directly. This pins the
+    // legitimate path continuing to work with a custom !SaveAs under a
+    // mixed-case destination in the opt-in mode, where the confinement
+    // checks run against folded strings rather than the ones written.
+    let f = Fixture::new("compile-lowercase-saveas");
+    f.mod_file("nwscript.nss", stub_nwscript());
+    f.mod_file("k_test.nss", b"void main() { }
+");
+
+    let (game, game_path) = separate_game("compile-saveas");
+    std::fs::create_dir_all(game.join("Override")).unwrap();
+    std::fs::write(game.join("Override").join("legit.ncs"), b"NCS V1.0 placeholder").unwrap();
+
+    let (summary, _) = run_lowercase(
+        &f,
+        "[Settings]
+         InstallerMode=1
+         FileExists=1
+         
+         [CompileList]
+         File0=script
+         
+         [script]
+         !SourceFile=k_test.nss
+         !SaveAs=Legit.ncs
+",
+        &game_path,
+    );
+
+    assert_eq!(summary.errors, 0);
+    if !odypatcher::tools::filesystem_distinguishes_case(&game) {
+        let _ = std::fs::remove_dir_all(&game);
+        return;
+    }
+    assert!(game.join("override").join("legit.ncs").is_file());
+
+    let _ = std::fs::remove_dir_all(&game);
+}
+
+#[test]
 fn an_include_only_script_is_not_compiled() {
     let f = Fixture::new("includeonly");
     f.mod_file("nwscript.nss", stub_nwscript());
@@ -4291,7 +4334,7 @@ fn run_lowercase(
     f: &Fixture,
     ini: &str,
     game_path: &str,
-) -> (odypatcher::PatchSummary, Vec<String>, usize) {
+) -> (odypatcher::PatchSummary, Vec<String>) {
     f.mod_file("changes.ini", ini.as_bytes());
 
     let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -4307,9 +4350,8 @@ fn run_lowercase(
     patcher.files.set_install_path(game_path);
     let summary = patcher.run(&mut log, &mut host).expect("run failed");
 
-    let fallbacks = patcher.files.resolver().lookup_fallbacks();
     let lines = captured.lock().unwrap().clone();
-    (summary, lines, fallbacks)
+    (summary, lines)
 }
 
 #[test]
@@ -4324,7 +4366,7 @@ fn a_capsule_destination_is_folded_and_its_folder_renamed() {
     let mut archive = ErfFile::create(&archive_path, ArchiveKind::Mod);
     archive.save(Some(&archive_path)).unwrap();
 
-    let (summary, _, _) = run_lowercase(
+    let (summary, _) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\
@@ -4360,6 +4402,67 @@ fn a_capsule_destination_is_folded_and_its_folder_renamed() {
     let updated =
         ErfFile::load(&game.join("modules").join("danm13.mod").to_string_lossy()).unwrap();
     assert!(updated.resource_exists("item.uti", false).unwrap_or(false));
+
+    let _ = std::fs::remove_dir_all(&game);
+}
+
+#[test]
+fn a_multi_segment_destination_with_an_unfolded_parent_stays_untrusted() {
+    // `fold_folder_name` renames only the leaf of a target folder, never its
+    // parents. `StreamWaves` in `StreamWaves\m01aa` is a parent, not a
+    // target, so it is never folded and the folded key built from it names
+    // nothing on disk. Trusting that key anyway would have every lookup
+    // below it believe a miss instead of falling back -- installing into a
+    // folder the game does not read.
+    let f = Fixture::new("lowercase-multi-segment");
+    f.mod_file("item.uti", &item_file());
+
+    let (game, game_path) = separate_game("multi-segment");
+    // Capitalised, and nested -- StreamWaves is never named as a target on
+    // its own, only as the parent of m01aa.
+    std::fs::create_dir_all(game.join("StreamWaves").join("m01aa")).unwrap();
+
+    let (summary, _) = run_lowercase(
+        &f,
+        "[Settings]
+         InstallerMode=1
+         FileExists=1
+         
+         [GFFList]
+         File0=item.uti
+         
+         [item.uti]
+         !Destination=StreamWaves\\m01aa\n\
+         Cost=750
+",
+        &game_path,
+    );
+
+    assert_eq!(summary.errors, 0);
+    if !odypatcher::tools::filesystem_distinguishes_case(&game) {
+        let _ = std::fs::remove_dir_all(&game);
+        return;
+    }
+
+    // Every segment of the destination should be folded in place -- the
+    // parent (StreamWaves, capitalised on disk before the run) as well as
+    // the leaf -- so the file lands in the one real folder rather than a new
+    // lowercase tree created beside it.
+    assert!(
+        game.join("streamwaves").join("m01aa").join("item.uti").is_file(),
+        "the parent folder should have been folded along with the leaf"
+    );
+    assert!(
+        !game.join("StreamWaves").exists(),
+        "no capitalised StreamWaves should remain once its whole path is folded"
+    );
+    let entries: Vec<String> = std::fs::read_dir(&game)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.eq_ignore_ascii_case("streamwaves"))
+        .collect();
+    assert_eq!(entries, vec!["streamwaves"], "exactly one, folded");
 
     let _ = std::fs::remove_dir_all(&game);
 }
@@ -4421,7 +4524,7 @@ fn save_as_is_folded_on_disk_while_the_log_keeps_the_authors_spelling() {
     let (game, game_path) = separate_game("saveas");
     std::fs::create_dir_all(game.join("override")).unwrap();
 
-    let (summary, lines, _) = run_lowercase(
+    let (summary, lines) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\
@@ -4467,7 +4570,7 @@ fn a_mixed_case_source_folder_resolves_in_the_lowercase_mode() {
     let (game, game_path) = separate_game("sourcefolder");
     std::fs::create_dir_all(game.join("override")).unwrap();
 
-    let (summary, _, _) = run_lowercase(
+    let (summary, _) = run_lowercase(
         &f,
         "[Settings]\n\
          InstallerMode=1\n\
