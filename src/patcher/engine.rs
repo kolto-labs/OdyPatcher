@@ -20,22 +20,32 @@ use crate::patcher::tokens::TokenStore;
 /// How a finished run turned out.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PatchSummary {
+    /// How many warnings the run reported.
     pub warnings: usize,
+    /// How many errors the run reported.
     pub errors: usize,
 }
 
 impl PatchSummary {
+    /// True when nothing was reported.
     pub fn is_clean(&self) -> bool {
         self.warnings == 0 && self.errors == 0
     }
 }
 
+/// Carries out a mod's instructions against a game install.
 pub struct Patcher {
+    /// The instruction file being carried out.
     pub ini: IniFile,
+    /// The `[Settings]` values in force.
     pub settings: Settings,
+    /// Resolves which file each step works on, and handles backups.
     pub files: FileHandler,
+    /// Values earlier steps recorded for later ones to use.
     pub tokens: TokenStore,
+    /// The mod's `tslpatchdata` folder.
     pub data_path: String,
+    /// The mod folder holding it.
     pub base_path: String,
     instruction_path: String,
 
@@ -82,6 +92,15 @@ impl Patcher {
         }
     }
 
+    /// Settle how this run resolves paths.
+    ///
+    /// Off by default: case-aware resolution is what the patcher has always
+    /// done. Set this before [`Patcher::run`]; the mode is fixed for the
+    /// length of a run.
+    pub fn set_path_mode(&mut self, mode: crate::paths::Mode) {
+        self.files.set_path_mode(mode);
+    }
+
     /// Apply every instruction in the file.
     ///
     /// Returns the counts of warnings and errors. Individual steps report their
@@ -95,7 +114,40 @@ impl Patcher {
             log.notice(format!("Patch operation started {started}..."));
         }
 
+        self.files.resolver().reset_counts();
+        if self.files.resolver().is_lowercase() {
+            log.notice(
+                "Experimental: names are folded to lowercase while installing. \
+Files in the mod folder and in the folders this mod writes to are renamed.",
+            );
+        }
+
+        // Fold the mod's own tree first. Mod archives are packaged with
+        // wildly inconsistent casing, and every lookup below goes through a
+        // resolver whose fast path is a direct `path.exists()` check, so
+        // folding first means that check matches on the first try instead of
+        // scanning the directory to find the name.
+        //
+        // `base_path` holds `tslpatchdata` and `backup`, so one walk covers
+        // both. It is the mod folder, not the game folder: the game folder is
+        // settled later, by `settle_install_path`, and is folded there.
+        if self.files.resolver().is_lowercase()
+            && Self::normalize_case(log, &self.base_path.clone(), "mod folder")
+        {
+            // Folded with nothing left unresolved, so a folded lookup that
+            // misses below here is a real miss and needs no second attempt.
+            self.files.resolver().trust_folded(&self.base_path.clone());
+        }
+
         let result = self.run_steps(log, host);
+
+        // Again afterward: this run wrote files under whatever case a
+        // changes.ini directive or an extracted archive used.
+        if self.files.resolver().is_lowercase() {
+            let _ = Self::normalize_case(log, &self.base_path.clone(), "mod folder");
+        }
+
+        self.report_lookup_cost(log);
 
         // Record why a run stopped before summarizing it.
         if let Err(err) = &result {
@@ -123,6 +175,67 @@ impl Patcher {
         }
 
         result.map(|_| summary)
+    }
+
+    /// Fold `root` down to lowercase and report what happened.
+    ///
+    /// Byte-identical case-only duplicates are merged silently — that outcome
+    /// is routine, not something worth a log line for every mod. Genuine
+    /// content conflicts are surfaced as warnings rather than resolved by
+    /// guessing which copy is right, since deleting either could lose real
+    /// content; both stay on disk for a human to sort out.
+    /// Say how many lookups fell back to a case-aware scan.
+    ///
+    /// This counts the lookups folding was meant to make cheap, and nothing
+    /// else. The confinement check in `path_is_confined` still resolves case
+    /// on every write and is deliberately not counted here, because it is not
+    /// routed through the resolver — see the note there. Do not read this
+    /// number as "scans this run performed"; read it as "folded lookups that
+    /// did not find what they expected".
+    ///
+    /// It is not a warning. A fallback is information, not a fault.
+    fn report_lookup_cost(&self, log: &mut Log) {
+        let resolver = self.files.resolver();
+        if !resolver.is_lowercase() {
+            return;
+        }
+
+        let fallbacks = resolver.lookup_fallbacks();
+        if fallbacks == 0 {
+            return;
+        }
+
+        log.verbose(format!(
+            "{fallbacks} folded lookups fell back to a case-aware scan."
+        ));
+    }
+
+    ///
+    /// Reports whether the fold left nothing unresolved.
+    fn normalize_case(log: &mut Log, root: &str, label: &str) -> bool {
+        let report = crate::tools::force_lowercase(root);
+        if report.renamed > 0 || report.merged > 0 {
+            log.verbose(format!(
+                "Normalized case under the {label} ({} renamed, {} case-only duplicates merged)",
+                report.renamed, report.merged
+            ));
+        }
+        for (a, b) in &report.conflicts {
+            log.warn(format!(
+                "Case-only duplicate with different content, left in place — please resolve manually: \"{}\" vs \"{}\"",
+                a.display(),
+                b.display()
+            ));
+        }
+        for (path, reason) in &report.failed {
+            log.warn(format!(
+                "Could not fold \"{}\" to lowercase ({reason})",
+                path.display()
+            ));
+        }
+        // A skipped walk folded nothing, so there is nothing to trust. Only
+        // a walk that ran and left nothing unresolved earns it.
+        !report.skipped && report.is_clean()
     }
 
     fn run_steps(&mut self, log: &mut Log, host: &mut dyn Host) -> Result<()> {
@@ -671,7 +784,7 @@ impl Patcher {
         if let Ok(opened) = self.files.file_path() {
             let dir = text::extract_file_path(&opened);
             if !dir.is_empty()
-                && fsutil::file_exists(&format!(
+                && self.files.resolver().exists(&format!(
                     "{}dialogf.tlk",
                     text::include_trailing_delimiter(&dir)
                 ))
@@ -684,7 +797,7 @@ impl Patcher {
         if root.is_empty() {
             return false;
         }
-        fsutil::file_exists(&format!(
+        self.files.resolver().exists(&format!(
             "{}dialogf.tlk",
             text::include_trailing_delimiter(root)
         ))
@@ -798,7 +911,7 @@ impl Patcher {
         let Some(append_path) = self.tlk_blueprint(&append_name, log) else {
             return Ok(());
         };
-        if !fsutil::file_exists(&append_path) {
+        if !self.files.resolver().exists(&append_path) {
             return Ok(());
         }
 
@@ -955,14 +1068,14 @@ impl Patcher {
                 continue;
             }
 
-            let target = format!("{install_path}{folder}");
+            let target = self.files.resolver().under(&install_path, &folder);
             if !crate::patcher::files::path_is_confined(&install_path, &target) {
                 log.error(format!(
                     "Install location \"{display}\" points outside the game folder! Skipping..."
                 ));
                 continue;
             }
-            let is_archive = if fsutil::file_exists(&target) {
+            let is_archive = if self.files.resolver().exists(&target) {
                 if ErfFile::is_valid_archive(&target) {
                     true
                 } else {
@@ -973,7 +1086,7 @@ impl Patcher {
                 }
             } else {
                 // A folder that does not exist yet is fine; a missing archive is not.
-                if !fsutil::dir_exists(&target) {
+                if !self.files.resolver().dir_exists(&target) {
                     let ext = text::extract_file_ext(&target);
                     if ext.len() > 1 {
                         log.error(format!(
@@ -985,11 +1098,11 @@ impl Patcher {
                 false
             };
 
-            if !is_archive && !fsutil::dir_exists(&target) {
+            if !is_archive && !self.files.resolver().dir_exists(&target) {
                 log.info(format!("Folder {target} did not exist, creating it..."));
-                let _ = fsutil::force_directories(&target);
+                let _ = self.files.resolver().create_dir_all(&target);
 
-                if !fsutil::dir_exists(&target) {
+                if !self.files.resolver().dir_exists(&target) {
                     log.error(format!(
                         "Unable to create folder {target}! Skipping folder..."
                     ));
@@ -1049,11 +1162,14 @@ impl Patcher {
                 }
             };
             let save_as = self.files.save_name(&self.ini, &named);
+            // The log quotes the name the mod's author wrote, not the folded
+            // one the file is installed under.
+            let named_as_written = self.files.save_name_as_written(&self.ini, &named);
 
             let blueprint = self.files.blueprint_path(&source);
-            if save_as.is_empty() || !fsutil::file_exists(&blueprint) {
+            if save_as.is_empty() || !self.files.resolver().exists(&blueprint) {
                 log.warn(format!(
-                    "Unable to copy file \"{save_as}\", file does not exist!"
+                    "Unable to copy file \"{named_as_written}\", file does not exist!"
                 ));
                 continue;
             }
@@ -1113,7 +1229,7 @@ impl Patcher {
                     file_dest,
                 )
             };
-            let _ = fsutil::force_directories(&installed_target);
+            let _ = self.files.resolver().create_dir_all(&installed_target);
             let installed = text::join_path(&installed_target, &save_as);
             if !crate::patcher::files::path_is_confined(
                 self.files.install_path_if_known(),
@@ -1124,8 +1240,12 @@ impl Patcher {
                 ));
                 continue;
             }
-            let existing =
-                existing_loose_file(&installed_target, &save_as, self.settings.ignore_extensions);
+            let existing = existing_loose_file(
+                self.files.resolver(),
+                &installed_target,
+                &save_as,
+                self.settings.ignore_extensions,
+            );
 
             if let Some(existing_path) = existing {
                 if !crate::patcher::files::path_is_confined(
@@ -1151,12 +1271,14 @@ impl Patcher {
 
                 if self.files.do_backups {
                     let folder = self.files.backup_folder();
-                    fsutil::force_directories(&folder)?;
-                    fsutil::copy_file(&existing_path, &format!("{folder}{save_as}"))?;
+                    self.files.resolver().create_dir_all(&folder)?;
+                    self.files
+                        .resolver()
+                        .copy(&existing_path, &format!("{folder}{save_as}"))?;
                 }
 
-                fsutil::delete_file(&existing_path);
-                fsutil::copy_file(&blueprint, &installed)?;
+                self.files.resolver().delete(&existing_path);
+                self.files.resolver().copy(&blueprint, &installed)?;
                 self.advance(host);
 
                 if save_as != source {
@@ -1169,16 +1291,18 @@ impl Patcher {
                     ));
                 }
             } else {
-                fsutil::copy_file(&blueprint, &installed)?;
+                self.files.resolver().copy(&blueprint, &installed)?;
                 self.advance(host);
 
-                if save_as != source {
+                // The log quotes what the mod's author wrote, not the folded
+                // name the file is installed under.
+                if named_as_written != source {
                     log.info(format!(
-                        "Renaming and copying file \"{source}\" to \"{save_as}\" to the {installed_display} folder..."
+                        "Renaming and copying file \"{source}\" to \"{named_as_written}\" to the {installed_display} folder..."
                     ));
                 } else {
                     log.info(format!(
-                        "Copying file {save_as} to the {installed_display} folder..."
+                        "Copying file {named_as_written} to the {installed_display} folder..."
                     ));
                 }
             }
@@ -1201,7 +1325,7 @@ impl Patcher {
         archive_path: &str,
         display: &str,
     ) -> Result<()> {
-        if !fsutil::file_exists(archive_path) {
+        if !self.files.resolver().exists(archive_path) {
             log.error(format!(
                 "Destination file \"{display}\" does not exist at the specified location! Skipping..."
             ));
@@ -1291,11 +1415,14 @@ impl Patcher {
                 }
             };
             let save_as = self.files.save_name(&self.ini, &named);
+            // The log quotes the name the mod's author wrote, not the folded
+            // one the file is installed under.
+            let named_as_written = self.files.save_name_as_written(&self.ini, &named);
 
             let blueprint = self.files.blueprint_path(&source);
-            if save_as.is_empty() || !fsutil::file_exists(&blueprint) {
+            if save_as.is_empty() || !self.files.resolver().exists(&blueprint) {
                 log.warn(format!(
-                    "Unable to copy file \"{save_as}\", file does not exist!"
+                    "Unable to copy file \"{named_as_written}\", file does not exist!"
                 ));
                 continue;
             }
@@ -1345,7 +1472,7 @@ impl Patcher {
                             "{}{dest}",
                             text::include_trailing_delimiter(self.files.install_path_if_known())
                         );
-                        let _ = fsutil::force_directories(&folder);
+                        let _ = self.files.resolver().create_dir_all(&folder);
                         let installed = text::join_path(&folder, &save_as);
                         if !crate::patcher::files::path_is_confined(
                             self.files.install_path_if_known(),
@@ -1356,8 +1483,12 @@ impl Patcher {
                             ));
                             continue;
                         }
-                        let existing =
-                            existing_loose_file(&folder, &save_as, self.settings.ignore_extensions);
+                        let existing = existing_loose_file(
+                            self.files.resolver(),
+                            &folder,
+                            &save_as,
+                            self.settings.ignore_extensions,
+                        );
                         if let Some(existing_path) = existing {
                             if !crate::patcher::files::path_is_confined(
                                 self.files.install_path_if_known(),
@@ -1380,12 +1511,14 @@ impl Patcher {
                             }
                             if self.files.do_backups {
                                 let backup = self.files.backup_folder();
-                                fsutil::force_directories(&backup)?;
-                                fsutil::copy_file(&existing_path, &format!("{backup}{save_as}"))?;
+                                self.files.resolver().create_dir_all(&backup)?;
+                                self.files
+                                    .resolver()
+                                    .copy(&existing_path, &format!("{backup}{save_as}"))?;
                             }
-                            fsutil::delete_file(&existing_path);
+                            self.files.resolver().delete(&existing_path);
                         }
-                        fsutil::copy_file(&blueprint, &installed)?;
+                        self.files.resolver().copy(&blueprint, &installed)?;
                         self.advance(host);
                         log.info(format!("Copying file {save_as} to the {dest} folder..."));
                         continue;
@@ -1464,6 +1597,7 @@ impl Patcher {
             .to_lowercase();
 
         let existing = existing_loose_file(
+            self.files.resolver(),
             &self.files.override_folder(),
             filename,
             self.settings.ignore_extensions,
@@ -1487,7 +1621,7 @@ impl Patcher {
                     text::extract_file_name(&existing)
                 );
 
-                if fsutil::rename_file(&existing, &renamed) {
+                if self.files.resolver().rename(&existing, &renamed) {
                     log.info(format!(
                         "A file named {filename} already existed in the override folder! This existing file has been renamed to {} to allow the one in this Mod to be used!",
                         text::extract_file_name(&renamed)
@@ -1606,7 +1740,7 @@ impl Patcher {
             ));
         }
 
-        let mut data = fsutil::read_file(&path)?;
+        let mut data = self.files.resolver().read(&path)?;
         let is_script = self.files.file_name().to_lowercase().ends_with("ncs");
 
         for offset_key in offsets {
@@ -1654,7 +1788,7 @@ impl Patcher {
             ));
         }
 
-        fsutil::write_file(&path, &data)?;
+        self.files.resolver().write(&path, &data)?;
         self.advance(host);
 
         if into_archive {
@@ -1716,7 +1850,7 @@ impl Patcher {
             }
 
             let path = self.files.file_path()?;
-            if !fsutil::file_exists(&path) {
+            if !self.files.resolver().exists(&path) {
                 log.warn(format!(
                     "File {filename} could not be found! Skipping it..."
                 ));
@@ -1848,7 +1982,7 @@ impl Patcher {
         };
 
         let working = text::include_trailing_delimiter(&format!("{}nsspatch_temp", self.data_path));
-        let _ = fsutil::force_directories(&working);
+        let _ = self.files.resolver().create_dir_all(&working);
 
         let configured_default =
             self.ini
@@ -1873,6 +2007,7 @@ impl Patcher {
 
         // Put the untouched sources back whatever happened above.
         crate::patcher::scripts::restore_sources(
+            self.files.resolver(),
             &self.data_path,
             &originals,
             self.settings.save_processed_scripts,
@@ -1880,7 +2015,7 @@ impl Patcher {
         fsutil::remove_dir(&working);
 
         if let Some(borrowed) = borrowed_header {
-            fsutil::delete_file(&borrowed);
+            self.files.resolver().delete(&borrowed);
         }
 
         outcome
@@ -1914,7 +2049,7 @@ impl Patcher {
         }
 
         for path in candidates {
-            if !fsutil::file_exists(&path) {
+            if !self.files.resolver().exists(&path) {
                 continue;
             }
             match bionsscomp::NwScript::load(game, fsutil::native_path(&path)) {
@@ -1950,7 +2085,7 @@ impl Patcher {
         let compiler_folder = text::include_trailing_delimiter(&text::extract_file_path(compiler));
 
         let header = format!("{compiler_folder}nwscript.nss");
-        if fsutil::file_exists(&header) {
+        if self.files.resolver().exists(&header) {
             return None;
         }
 
@@ -1962,7 +2097,7 @@ impl Patcher {
 
         let source = preferred
             .map(|name| format!("{compiler_folder}{name}"))
-            .filter(|path| fsutil::file_exists(path))
+            .filter(|path| self.files.resolver().exists(path))
             .or_else(|| {
                 let beside_program = std::env::current_exe()
                     .ok()
@@ -1972,10 +2107,10 @@ impl Patcher {
                     .into_iter()
                     .flatten()
                     .map(|name| format!("{beside_program}{name}"))
-                    .find(|path| fsutil::file_exists(path))
+                    .find(|path| self.files.resolver().exists(path))
             })?;
 
-        if fsutil::copy_file(&source, &header).is_err() {
+        if self.files.resolver().copy(&source, &header).is_err() {
             return None;
         }
 
@@ -2003,7 +2138,7 @@ impl Patcher {
             ("swkotor.exe", Game::Kotor1),
             ("modules/ebo_m12aa.rim", Game::Kotor1),
         ] {
-            if fsutil::file_exists(&format!("{root}{marker}")) {
+            if self.files.resolver().exists(&format!("{root}{marker}")) {
                 return Some(game);
             }
         }
@@ -2067,8 +2202,12 @@ impl Patcher {
             }
 
             let source_path = self.files.file_path()?;
-            let processed =
-                crate::patcher::scripts::substitute_tokens(&source_path, working, &self.tokens)?;
+            let processed = crate::patcher::scripts::substitute_tokens(
+                self.files.resolver(),
+                &source_path,
+                working,
+                &self.tokens,
+            )?;
             originals.push((processed.backup_path.clone(), source_path.clone()));
 
             log.verbose(format!(
@@ -2101,6 +2240,7 @@ impl Patcher {
             let feedback = if let Some(table) = nwscript {
                 let include_dir = text::extract_file_path(&source_path);
                 crate::patcher::scripts::compile_in_process(
+                    self.files.resolver(),
                     &source_path,
                     &compiled_path,
                     &include_dir,
@@ -2123,7 +2263,7 @@ impl Patcher {
                 log.verbose(format!("NWNNSSComp says: {}", line.trim_end_matches('\r')));
             }
 
-            if !fsutil::file_exists(&compiled_path) {
+            if !self.files.resolver().exists(&compiled_path) {
                 log.error(format!(
                     "Unable to find compiled version of file \"{}\"! The compilation probably failed! Skipping...",
                     self.files.file_name()
@@ -2145,13 +2285,13 @@ impl Patcher {
                 )?;
             } else {
                 let folder = self.files.output_folder(&destination);
-                fsutil::force_directories(&folder)?;
+                self.files.resolver().create_dir_all(&folder)?;
                 let installed = format!("{folder}{compiled_name}");
                 if overwrite {
-                    fsutil::delete_file(&installed);
+                    self.files.resolver().delete(&installed);
                 }
-                fsutil::copy_file(&compiled_path, &installed)?;
-                fsutil::delete_file(&compiled_path);
+                self.files.resolver().copy(&compiled_path, &installed)?;
+                self.files.resolver().delete(&compiled_path);
             }
 
             self.advance(host);
@@ -2164,7 +2304,7 @@ impl Patcher {
             ));
             archive.save(None)?;
             for path in queued_temp.drain(..) {
-                fsutil::delete_file(&path);
+                self.files.resolver().delete(&path);
             }
         }
 
@@ -2188,12 +2328,12 @@ impl Patcher {
         default_destination: &str,
     ) -> Result<()> {
         let staging = text::include_trailing_delimiter(&format!("{}erfpatch_temp", self.data_path));
-        fsutil::force_directories(&staging)?;
+        self.files.resolver().create_dir_all(&staging)?;
 
         let staged = format!("{staging}{compiled_name}");
-        fsutil::delete_file(&staged);
-        fsutil::copy_file(compiled_path, &staged)?;
-        fsutil::delete_file(compiled_path);
+        self.files.resolver().delete(&staged);
+        self.files.resolver().copy(compiled_path, &staged)?;
+        self.files.resolver().delete(compiled_path);
 
         if self.files.backup_destination() {
             log.info(format!(
@@ -2215,7 +2355,7 @@ impl Patcher {
                     ));
                     archive.save(None)?;
                     for path in queued_temp.drain(..) {
-                        fsutil::delete_file(&path);
+                        self.files.resolver().delete(&path);
                     }
                 }
             }
@@ -2374,10 +2514,15 @@ pub(crate) fn split_tlk_property_key(key: &str) -> Option<(&str, &str)> {
 }
 
 /// Path of a loose file that would collide with `filename` in `folder`.
-fn existing_loose_file(folder: &str, filename: &str, ignore_extensions: bool) -> Option<String> {
+fn existing_loose_file(
+    resolver: &crate::paths::Resolver,
+    folder: &str,
+    filename: &str,
+    ignore_extensions: bool,
+) -> Option<String> {
     let folder = text::include_trailing_delimiter(folder);
     let exact = format!("{folder}{filename}");
-    if fsutil::file_exists(&exact) {
+    if resolver.exists(&exact) {
         return Some(exact);
     }
     if !ignore_extensions {
@@ -2462,6 +2607,69 @@ fn calendar_date(days: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("odypatcher-engine-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// True when the filesystem holding `dir` tells `A` and `a` apart.
+    fn filesystem_distinguishes_case(dir: &std::path::Path) -> bool {
+        let probe = dir.join("CaseProbe.tmp");
+        if std::fs::write(&probe, b"x").is_err() {
+            return false;
+        }
+        let collided = dir.join("caseprobe.tmp").exists();
+        let _ = std::fs::remove_file(&probe);
+        !collided
+    }
+
+    #[test]
+    fn normalize_case_merges_identical_duplicates_without_a_warning() {
+        let dir = temp_dir("normalize-merge");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        std::fs::write(dir.join("File.txt"), b"same").unwrap();
+        std::fs::write(dir.join("file.txt"), b"same").unwrap();
+
+        let mut log = Log::silent(4);
+        let _ = Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
+
+        assert_eq!(log.warnings(), 0);
+        assert_eq!(log.errors(), 0);
+        assert!(dir.join("file.txt").is_file());
+        assert!(!dir.join("File.txt").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normalize_case_warns_on_a_real_conflict_without_deleting_either_copy() {
+        let dir = temp_dir("normalize-conflict");
+        if !filesystem_distinguishes_case(&dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        std::fs::write(dir.join("File.txt"), b"version one").unwrap();
+        std::fs::write(dir.join("file.txt"), b"version two").unwrap();
+
+        let mut log = Log::silent(4);
+        let _ = Patcher::normalize_case(&mut log, &dir.to_string_lossy(), "test folder");
+
+        assert_eq!(log.warnings(), 1, "the conflict should be reported");
+        assert_eq!(log.errors(), 0, "a case-only conflict is not fatal");
+        assert!(dir.join("File.txt").exists());
+        assert!(dir.join("file.txt").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn protected_files_are_named_with_a_reason() {

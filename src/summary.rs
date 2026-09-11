@@ -3,6 +3,7 @@
 use crate::ini::IniFile;
 use crate::patcher::config::Settings;
 
+/// Describe what a run would change, one line at a time.
 pub fn build(ini: &IniFile, settings: &Settings, ini_name: &str, info_name: &str) -> Vec<String> {
     let mut out = Vec::new();
 
@@ -273,12 +274,14 @@ fn count_table_changes(ini: &IniFile, table: &str) -> (usize, usize, usize) {
     (added, modified, columns)
 }
 
+/// The same account as [`build`], as one block of text.
 pub fn to_text(ini: &IniFile, settings: &Settings, ini_name: &str, info_name: &str) -> String {
     let mut text = build(ini, settings, ini_name, info_name).join("\n");
     text.push('\n');
     text
 }
 
+/// True when the instruction file asks for nothing at all.
 pub fn declares_no_changes(ini: &IniFile) -> bool {
     [
         "TLKList",

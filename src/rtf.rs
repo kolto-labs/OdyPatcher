@@ -2,6 +2,7 @@
 
 use crate::compat::latin1;
 
+/// Read an RTF document as the text it shows.
 pub fn to_plain_text(bytes: &[u8]) -> String {
     let content = latin1::decode(bytes);
 

@@ -37,10 +37,7 @@ rfd = { version = "0.15", optional = true, default-features = false, features = 
 
 kotor-formats = { git = "https://github.com/holowan-biolabs/kotor-formats", tag = "v0.1.0" }
 
-# Pinned by commit rather than tag: BioNSSComp has no release yet. Swap this
-# for a tag once one is cut.
-# bionsscomp = { git = "https://github.com/bodencrouch/BioNSSComp", tag = "v1.0.0" }
-bionsscomp = { git = "https://github.com/bodencrouch/BioNSSComp", rev = "fc88c4f" }
+bionsscomp = { git = "https://github.com/holowan-biolabs/odynsscomp", rev = "00c53a9" }
 
 # To work against a local kotor-formats checkout instead of the pinned tag,
 # uncomment:

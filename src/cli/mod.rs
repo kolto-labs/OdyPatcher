@@ -14,26 +14,47 @@ use crate::session::{self, Session};
 /// What the operator asked for on the command line.
 #[derive(Debug, Clone, Default)]
 pub struct Options {
+    /// Instruction file to run instead of `changes.ini`.
     pub ini_name: Option<String>,
+    /// Description file to show instead of `info.rtf`.
     pub info_name: Option<String>,
+    /// Game folder given with `-g`.
     pub game_folder: Option<String>,
+    /// Install variant, by number or name.
     pub namespace: Option<String>,
+    /// List the install variants and exit.
     pub list_namespaces: bool,
+    /// Print what the run would change and exit.
     pub show_summary: bool,
+    /// Print the mod's description and exit.
     pub show_info: bool,
+    /// Start without asking for confirmation.
     pub assume_yes: bool,
+    /// Override how much detail is logged.
     pub log_level: Option<i32>,
+    /// Run in the terminal instead of opening a window.
     pub force_terminal: bool,
+    /// Show the help text and exit.
     pub show_help: bool,
+    /// Show the version and exit.
     pub show_version: bool,
 
+    /// Game folder for an unattended run.
     pub game_dir: Option<String>,
+    /// Mod folder for an unattended run.
     pub tslpatchdata: Option<String>,
+    /// Install variant to use, by position.
     pub namespace_option_index: Option<usize>,
+    /// Accepted for compatibility; does nothing.
     pub console: bool,
+    /// Apply the mod.
     pub install: bool,
+    /// Put the mod's backed-up files back.
     pub uninstall: bool,
+    /// Check the mod's instructions without a game folder.
     pub validate: bool,
+    /// Fold names to lowercase while installing. Experimental.
+    pub experimental_lowercase_paths: bool,
 }
 
 /// Usage text.
@@ -57,6 +78,14 @@ Options:
   -h, --help             Show this help
   -V, --version          Show the version
 
+Experimental:
+      --experimental-lowercase-paths
+                         Lowercase names while installing. This is faster
+                         where the filesystem tells Data and data apart. It
+                         renames files in the mod folder and in the folders
+                         the mod writes to. This cannot be undone. Off unless
+                         you ask for it.
+
 Running unattended:
       --tslpatchdata <PATH>          Folder holding the mod
       --game-dir <PATH>              Folder the game is installed in
@@ -76,6 +105,7 @@ The mod's tslpatchdata folder is expected beside this program.
 More about the games and their tools: https://swkotor.org
 ";
 
+/// Read the command line, or report what was wrong with it.
 pub fn parse(args: &[String]) -> Result<Options, String> {
     let mut options = Options::default();
     let mut positional: Vec<String> = Vec::new();
@@ -103,6 +133,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             "--install" => options.install = true,
             "--uninstall" => options.uninstall = true,
             "--validate" => options.validate = true,
+            "--experimental-lowercase-paths" => options.experimental_lowercase_paths = true,
             "--game-dir" => options.game_dir = Some(take_value("--game-dir")?),
             "--tslpatchdata" => options.tslpatchdata = Some(take_value("--tslpatchdata")?),
             "--namespace-option-index" => {
@@ -233,6 +264,7 @@ fn read_line() -> Option<String> {
     Some(buffer.trim().trim_matches('"').to_string())
 }
 
+/// True when this invocation should not open a window.
 pub fn stays_in_terminal(options: &Options) -> bool {
     options.force_terminal
         || options.show_help
@@ -245,6 +277,7 @@ pub fn stays_in_terminal(options: &Options) -> bool {
         || options.validate
 }
 
+/// Run in the terminal, reporting the process exit code.
 pub fn run(options: Options) -> i32 {
     if options.show_help {
         print!("{USAGE}");
@@ -442,6 +475,9 @@ fn execute(session: Session, options: Options) -> i32 {
     }
 
     let mut patcher = Patcher::new(&session.base_path, &session.data_path, &session.ini_name);
+    patcher.set_path_mode(crate::paths::resolve_mode(
+        options.experimental_lowercase_paths,
+    ));
     let outcome = patcher.run(&mut log, &mut host);
 
     let lines = collected.lock().unwrap().clone();
@@ -550,6 +586,37 @@ mod tests {
         assert!(USAGE.contains("odypatcher"));
         assert!(USAGE.contains("--game"));
         assert!(USAGE.contains("swkotor.org"));
+    }
+
+    #[test]
+    fn the_help_names_the_experimental_flag_as_experimental() {
+        assert!(USAGE.contains("--experimental-lowercase-paths"));
+        assert!(USAGE.contains("Experimental:"));
+    }
+
+    #[test]
+    fn the_experimental_flag_is_off_unless_it_is_given() {
+        let bare = parse(&["--install".to_string()]).unwrap();
+        assert!(!bare.experimental_lowercase_paths);
+
+        let asked = parse(&[
+            "--install".to_string(),
+            "--experimental-lowercase-paths".to_string(),
+        ])
+        .unwrap();
+        assert!(asked.experimental_lowercase_paths);
+    }
+
+    #[test]
+    fn an_ini_key_cannot_reach_the_experimental_flag() {
+        // The switch belongs to whoever runs the patcher. Nothing a mod ships
+        // may set it, so it is not read from the instruction file at all.
+        let options = parse(&["experimental-lowercase-paths.ini".to_string()]).unwrap();
+        assert!(!options.experimental_lowercase_paths);
+        assert_eq!(
+            options.ini_name.as_deref(),
+            Some("experimental-lowercase-paths.ini")
+        );
     }
 }
 

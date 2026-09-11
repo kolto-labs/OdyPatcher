@@ -3,16 +3,26 @@
 use crate::compat::{fsutil, text};
 use crate::ini::IniFile;
 
+/// The instruction file a mod ships, unless one is named on the command line.
 pub const DEFAULT_INI: &str = "changes.ini";
+/// The description shown before installing.
 pub const DEFAULT_INFO: &str = "info.rtf";
+/// The folder a mod keeps its files and instructions in.
 pub const DATA_FOLDER: &str = "tslpatchdata";
+/// The optional file listing the install variants a mod offers.
 pub const NAMESPACES_FILE: &str = "namespaces.ini";
+/// Read as the description when no `info.rtf` is there.
 pub const FALLBACK_INFO: &str = "info.rte";
 
 fn has_parent_component(path: &str) -> bool {
     path.split(['/', '\\']).any(|part| part == "..")
 }
 
+/// Settle which description file to show.
+///
+/// Takes the requested name when it exists inside the mod folder, then
+/// `info.rtf`, then `info.rte`. A name that escapes the mod folder is refused
+/// rather than followed.
 pub fn fallback_info_name(data_path: &str, requested: &str) -> String {
     let base = text::include_trailing_delimiter(data_path);
     let requested = requested.trim();
@@ -46,11 +56,15 @@ pub fn fallback_info_name(data_path: &str, requested: &str) -> String {
 /// Which game a lookup should target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Game {
+    /// Knights of the Old Republic.
     Kotor1,
+    /// Knights of the Old Republic II: The Sith Lords.
     Kotor2,
 }
 
 impl Game {
+    /// Read `LookupGameNumber`. Anything but `1` means the second game,
+    /// which is what Delphi did.
     pub fn from_setting(value: i32) -> Self {
         if value == 1 {
             Game::Kotor1
@@ -80,22 +94,35 @@ impl Game {
 /// Values read from the `[Settings]` section.
 #[derive(Debug, Clone)]
 pub struct Settings {
+    /// Install a mod, rather than patch files an operator picks by hand.
     pub installer_mode: bool,
+    /// Copy a file into `backup` before changing it.
     pub backup_files: bool,
+    /// How much detail to log, 0 through 4.
     pub log_level: i32,
+    /// Write the install log as plain text rather than RTF.
     pub plaintext_log: bool,
+    /// Shown before the run starts. `N/A` starts without asking.
     pub confirm_message: String,
+    /// Window title.
     pub window_caption: String,
+    /// Treat a file already being present as something to work with rather
+    /// than an error.
     pub file_exists: bool,
+    /// Look the game folder up in the registry before asking the operator.
     pub lookup_game_folder: bool,
+    /// Which game that lookup should target.
     pub lookup_game: Game,
     /// Files that must already be in `override`, with a message per group.
     ///
     /// Delphi has a single `Required` / `RequiredMsg` pair. HoloPatcher also
     /// accepts `RequiredN` and comma-separated names; a group fails if any
     pub required: Vec<RequiredCheck>,
+    /// Extra flags handed to an external script compiler.
     pub script_compiler_flags: String,
+    /// Keep the token-substituted script sources after compiling them.
     pub save_processed_scripts: bool,
+    /// Match an installed file by name without its extension.
     pub ignore_extensions: bool,
 }
 
@@ -120,6 +147,7 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Read the `[Settings]` section, falling back to the defaults above.
     pub fn from_ini(ini: &IniFile) -> Self {
         let defaults = Settings::default();
         let caption = ini.read_string("Settings", "WindowCaption", "");
@@ -146,6 +174,7 @@ impl Settings {
         }
     }
 
+    /// What to ask before starting, or a generic prompt when the mod set none.
     pub fn confirm_prompt(&self) -> String {
         if self.confirm_message.is_empty() {
             "This will start patching the necessary game files. Do you want to do this?".to_string()
@@ -154,6 +183,7 @@ impl Settings {
         }
     }
 
+    /// True when the mod asked not to be confirmed at all.
     pub fn starts_without_asking(&self) -> bool {
         self.confirm_message == "N/A"
     }
@@ -162,7 +192,10 @@ impl Settings {
 /// One `Required` / `RequiredN` group and the message shown if it is missing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RequiredCheck {
+    /// Names that must already be in `override`. The group fails if any is
+    /// missing.
     pub files: Vec<String>,
+    /// Shown when the group fails.
     pub message: String,
 }
 
@@ -232,17 +265,24 @@ fn parse_required_checks(ini: &IniFile) -> Vec<RequiredCheck> {
 /// One install variant offered by `namespaces.ini`.
 #[derive(Debug, Clone)]
 pub struct Namespace {
+    /// The section in `namespaces.ini` this variant came from.
     pub section: String,
+    /// Shown to the operator when choosing.
     pub name: String,
+    /// Longer text about the variant.
     pub description: String,
+    /// The instruction file this variant runs.
     pub ini_name: String,
+    /// The description file this variant shows.
     pub info_name: String,
+    /// The folder this variant reads its files from.
     pub data_path: String,
 }
 
 /// The set of install variants a mod offers.
 #[derive(Debug, Clone, Default)]
 pub struct NamespaceList {
+    /// The variants, in the order the file listed them.
     pub entries: Vec<Namespace>,
     base_path: String,
 }
@@ -307,6 +347,7 @@ impl NamespaceList {
         }
     }
 
+    /// True when the mod offers no variants and runs a single way.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -368,8 +409,11 @@ impl NamespaceList {
 /// Paths a chosen install variant resolves to.
 #[derive(Debug, Clone)]
 pub struct ResolvedNamespace {
+    /// The instruction file to run.
     pub ini_name: String,
+    /// The description file to show.
     pub info_name: String,
+    /// The folder to read files from.
     pub data_path: String,
 }
 
@@ -453,6 +497,7 @@ const GAME_FOLDERS: [&str; 8] = [
     "lips",
 ];
 
+/// True when a folder holds the subfolders a game install has.
 pub fn looks_like_game_folder(path: &str) -> bool {
     let base = text::include_trailing_delimiter(path);
     GAME_FOLDERS

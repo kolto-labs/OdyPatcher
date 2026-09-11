@@ -16,18 +16,28 @@ use super::Options;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ExitCode {
+    /// Finished, with nothing to report.
     Success = 0,
+    /// Something went wrong before the run could start.
     UnknownStartupError = 1,
+    /// The command line did not make sense.
     NumberOfArgs = 2,
+    /// No mod was found at the path given.
     NamespacesIniNotFound = 3,
+    /// The install variant asked for does not exist.
     NamespaceIndexOutOfRange = 4,
+    /// The mod ships no instruction file.
     ChangesIniNotFound = 5,
+    /// The run was refused before changing anything.
     AbortInstallUnsafe = 6,
+    /// The run stopped partway through.
     ExceptionDuringInstall = 7,
+    /// The run finished, but steps failed along the way.
     InstallCompletedWithErrors = 8,
 }
 
 impl ExitCode {
+    /// The number the process exits with.
     pub fn code(self) -> i32 {
         self as i32
     }
@@ -39,6 +49,7 @@ fn fail(message: &str, code: ExitCode) -> i32 {
     code.code()
 }
 
+/// True when the command line asks for an unattended run.
 pub fn is_requested(options: &Options) -> bool {
     options.install
         || options.uninstall
@@ -47,6 +58,7 @@ pub fn is_requested(options: &Options) -> bool {
         || options.namespace_option_index.is_some()
 }
 
+/// Carry out an unattended run, reporting the process exit code.
 pub fn run(options: Options) -> i32 {
     let Some(mod_argument) = options.tslpatchdata.clone() else {
         return fail(
@@ -197,6 +209,9 @@ fn install(session: &Session, mod_root: &str, game_folder: &str, options: &Optio
     };
 
     let mut patcher = Patcher::new(&session.base_path, &session.data_path, &session.ini_name);
+    patcher.set_path_mode(crate::paths::resolve_mode(
+        options.experimental_lowercase_paths,
+    ));
     patcher.files.set_install_path(game_folder);
 
     let started = Instant::now();
@@ -281,6 +296,7 @@ fn validate(session: &Session) -> i32 {
     ExitCode::Success.code()
 }
 
+/// How long the run took, in words.
 pub fn format_install_time(elapsed: Duration) -> String {
     let total = elapsed.as_secs();
 

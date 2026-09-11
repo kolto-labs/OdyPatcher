@@ -11,12 +11,19 @@ use crate::patcher::log::Log;
 /// Which kind of file a step is about to work on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatchKind {
+    /// The game's string table.
     Tlk,
+    /// A 2DA table.
     TwoDa,
+    /// A GFF-format file, loose in a folder.
     Gff,
+    /// Raw bytes changed at fixed offsets.
     Hack,
+    /// A script to compile.
     Compile,
+    /// A GFF-format file held inside an ERF, MOD, or RIM archive.
     GffArchive,
+    /// A soundset.
     Ssf,
 }
 
@@ -140,19 +147,78 @@ pub fn resolve_source_folder(
     Ok(resolved)
 }
 
+/// The folders under the game install this mod writes to.
+///
+/// `override` always, plus every `!Destination` and `!DefaultDestination`
+/// value, plus every `[InstallList]` folder. That last one is easy to miss:
+/// install folders are the *values* of arbitrary keys in that section
+/// (`install_folder0=StreamMusic`), not `!Destination` keys, so a mod that
+/// bulk-copies into `StreamMusic` names it nowhere else.
+///
+/// A capsule destination names an archive file rather than a folder, so the
+/// folder holding it is what gets folded.
+fn target_folders(ini: &IniFile) -> Vec<String> {
+    let mut folders: Vec<String> = vec!["override".to_string()];
+
+    for section in ini.section_names() {
+        for key in ["!Destination", "!DefaultDestination"] {
+            push_folder(&mut folders, &ini.read_string(&section, key, ""));
+        }
+    }
+
+    for key in ini.read_section("InstallList") {
+        push_folder(&mut folders, &ini.read_string("InstallList", &key, ""));
+    }
+
+    folders
+}
+
+fn push_folder(folders: &mut Vec<String>, value: &str) {
+    let value = value.trim();
+    if value.is_empty() || !is_safe_relative_path(value) {
+        return;
+    }
+
+    let folder = if is_capsule_destination(value) {
+        text::extract_file_path(value)
+    } else {
+        value.to_string()
+    };
+    let folder = folder.trim_end_matches(['/', '\\']).to_string();
+
+    if folder.is_empty() || folder == "." {
+        return;
+    }
+    if !folders
+        .iter()
+        .any(|known| known.eq_ignore_ascii_case(&folder))
+    {
+        folders.push(folder);
+    }
+}
+
+/// What a step needs from the run around it.
 pub struct Context<'a> {
+    /// The instruction file being carried out.
     pub ini: &'a IniFile,
+    /// The `[Settings]` values in force.
     pub settings: &'a Settings,
+    /// Where the step reports what it did.
     pub log: &'a mut Log,
+    /// How the step asks the operator something.
     pub host: &'a mut dyn Host,
 }
 
 /// Resolves the file each step works on and handles backups.
 #[derive(Debug, Clone, Default)]
 pub struct FileHandler {
+    /// Install a mod, rather than patch files an operator picks by hand.
     pub installer_mode: bool,
+    /// Copy a file into `backup` before changing it.
     pub do_backups: bool,
+    /// The mod folder, holding `tslpatchdata` and `backup`.
     pub base_path: String,
+    /// The mod's `tslpatchdata` folder.
     pub data_path: String,
     source_folder: String,
     install_path: String,
@@ -161,9 +227,16 @@ pub struct FileHandler {
     destination: String,
     backup_current: bool,
     last_skip_was_unsafe: bool,
+    /// How this run turns instruction-file paths into paths on disk, and
+    /// what those lookups cost. Per run, so two runs in one process do not
+    /// share a mode or a count.
+    resolver: crate::paths::Resolver,
+    /// Whether the folders this mod writes to have been folded yet.
+    normalized_game_folders: bool,
 }
 
 impl FileHandler {
+    /// Start a handler for a mod at `base_path` with files in `data_path`.
     pub fn new(base_path: &str, data_path: &str) -> Self {
         Self {
             installer_mode: false,
@@ -177,13 +250,28 @@ impl FileHandler {
             destination: String::new(),
             backup_current: true,
             last_skip_was_unsafe: false,
+            resolver: crate::paths::Resolver::default(),
+            normalized_game_folders: false,
         }
     }
 
+    /// How this run resolves paths.
+    pub fn resolver(&self) -> &crate::paths::Resolver {
+        &self.resolver
+    }
+
+    /// Settle the resolution mode. Called once before a run starts; the mode
+    /// does not change while a run is in progress.
+    pub fn set_path_mode(&mut self, mode: crate::paths::Mode) {
+        self.resolver = crate::paths::Resolver::new(mode);
+    }
+
+    /// The file the current step is working on.
     pub fn file_name(&self) -> &str {
         &self.current_file
     }
 
+    /// Where the current step writes its result.
     pub fn destination(&self) -> &str {
         &self.destination
     }
@@ -192,18 +280,24 @@ impl FileHandler {
         self.last_skip_was_unsafe
     }
 
+    /// Point the current step at a destination.
     pub fn set_destination(&mut self, destination: &str) {
         self.destination = destination.to_string();
     }
 
+    /// The game folder, or an empty string when it has not been settled yet.
     pub fn install_path_if_known(&self) -> &str {
         &self.install_path
     }
 
+    /// Settle the game folder without asking the operator.
     pub fn set_install_path(&mut self, path: &str) {
         self.install_path = text::include_trailing_delimiter(path);
     }
 
+    /// The full path of the file the current step works on.
+    ///
+    /// Fails when no step has been settled, or when the file is not there.
     pub fn file_path(&self) -> Result<String> {
         if self.current_path.is_empty() {
             return Err(PatchError::general(
@@ -219,7 +313,7 @@ impl FileHandler {
         }
 
         let full = format!("{}{}", self.current_path, self.current_file);
-        if !fsutil::file_exists(&full) {
+        if !self.resolver.exists(&full) {
             return Err(PatchError::general(
                 5,
                 format!("Error! File \"{full}\" set to be patched does not exist!"),
@@ -229,14 +323,17 @@ impl FileHandler {
         Ok(full)
     }
 
+    /// The game's `override` folder.
     pub fn override_folder(&self) -> String {
         text::include_trailing_delimiter(&format!("{}override", self.install_path))
     }
 
+    /// Where replaced files are copied before they are changed.
     pub fn backup_folder(&self) -> String {
         text::include_trailing_delimiter(&format!("{}backup", self.base_path))
     }
 
+    /// Settle the game folder for a patching step, asking if need be.
     pub fn resolve_install_path(&mut self, ctx: &mut Context<'_>) -> Result<String> {
         self.settle_install_path(
             ctx,
@@ -258,7 +355,11 @@ impl FileHandler {
         missing_code: i32,
         missing_message: &str,
     ) -> Result<String> {
-        if !self.install_path.is_empty() && fsutil::dir_exists(&self.install_path) {
+        if !self.install_path.is_empty() && self.resolver.dir_exists(&self.install_path) {
+            // The common case: the window, --game-dir, and the tests all set
+            // the path before the run reaches here. Folding has to happen on
+            // this exit too, or it would never happen at all for them.
+            self.normalize_target_folders(ctx);
             return Ok(self.install_path.clone());
         }
 
@@ -268,7 +369,7 @@ impl FileHandler {
             String::new()
         };
 
-        if chosen.is_empty() || !fsutil::dir_exists(&chosen) {
+        if chosen.is_empty() || !self.resolver.dir_exists(&chosen) {
             chosen = ctx
                 .host
                 .choose_game_folder(
@@ -277,7 +378,7 @@ impl FileHandler {
                 .unwrap_or_default();
         }
 
-        if chosen.is_empty() || !fsutil::dir_exists(&chosen) {
+        if chosen.is_empty() || !self.resolver.dir_exists(&chosen) {
             return Err(PatchError::general(missing_code, missing_message));
         }
 
@@ -286,10 +387,188 @@ impl FileHandler {
         self.install_path = chosen.clone();
         ctx.log.verbose(format!("Install path set to {chosen}."));
         ctx.host.install_path_changed(&chosen);
+        self.normalize_target_folders(ctx);
 
         Ok(chosen)
     }
 
+    /// Fold the folders this mod writes to, once per run.
+    ///
+    /// Scoped rather than whole-install on purpose: a KOTOR II `StreamVoice`
+    /// folder alone holds tens of thousands of entries, and a mod only ever
+    /// writes to the handful of folders its instruction file names. Folding
+    /// the rest would cost a walk of the entire game install for nothing.
+    ///
+    /// Only a clean fold is trusted. Where a rename could not be performed,
+    /// the folded name a lookup expects is not the name on disk, so the
+    /// case-aware fallback still has work to do below that root.
+    fn normalize_target_folders(&mut self, ctx: &mut Context<'_>) {
+        if !self.resolver.is_lowercase() || self.normalized_game_folders {
+            return;
+        }
+        self.normalized_game_folders = true;
+
+        if self.install_path.is_empty() {
+            return;
+        }
+
+        // A filesystem that does not tell `Data` and `data` apart has nothing
+        // to fold, and folding there destroys files rather than renaming them.
+        // This is an early-out for the whole loop only: each folder is probed
+        // in its own right below, because a case-insensitive mount can sit
+        // underneath a case-sensitive game folder.
+        if !crate::tools::filesystem_distinguishes_case(&fsutil::native_path(&self.install_path)) {
+            return;
+        }
+
+        for folder in target_folders(ctx.ini) {
+            let root = format!(
+                "{}{folder}",
+                text::include_trailing_delimiter(&self.install_path)
+            );
+
+            if !self.resolver.dir_exists(&root) || !path_is_confined(&self.install_path, &root) {
+                continue;
+            }
+
+            // Fold every segment of the folder's own path first, parent
+            // to leaf. `force_lowercase` folds the entries below a root,
+            // never the root itself, and a real install ships `Override`
+            // capitalised -- or, for a nested destination such as
+            // `StreamWaves\m01aa`, ships `StreamWaves` capitalised with an
+            // already-lowercase leaf underneath it. Folding only the leaf
+            // would leave `StreamWaves` untouched while every lookup below it
+            // is built fully folded, and the write side would then create a
+            // new `streamwaves` tree beside the real one instead of using it.
+            if !self.fold_folder_path(&root, ctx) {
+                continue;
+            }
+
+            let report = crate::tools::force_lowercase(&root);
+            if report.skipped {
+                // Nothing was folded, so nothing below here may be trusted.
+                continue;
+            }
+            if report.renamed > 0 || report.merged > 0 {
+                ctx.log.verbose(format!(
+                    "Folded names under \"{folder}\" ({} renamed, {} case-only duplicates merged)",
+                    report.renamed, report.merged
+                ));
+            }
+            for (a, b) in &report.conflicts {
+                ctx.log.warn(format!(
+                    "Case-only duplicate with different content, left in place — please resolve manually: \"{}\" vs \"{}\"",
+                    a.display(),
+                    b.display()
+                ));
+            }
+            for (path, reason) in &report.failed {
+                ctx.log.warn(format!(
+                    "Could not fold \"{}\" to lowercase ({reason}); lookups below it stay case-aware",
+                    path.display()
+                ));
+            }
+
+            // Trust this folder alone, and only when its fold left nothing
+            // unresolved. Trusting the whole install root would silence the
+            // fallback for everything the mod never named -- dialog.tlk at
+            // the game root, the game-detection markers -- none of which was
+            // folded.
+            // Trust the folded spelling, not the one the instruction file
+            // wrote. Every lookup below here is built through `under`, which
+            // folds, so trusting `Modules/` would never match `modules/...`
+            // and the fallback would run for every one of them.
+            // Only the last segment is folded on disk: `fold_folder_name`
+            // renames the folder itself, not its parents. A multi-segment
+            // destination like `StreamWaves\\m01aa` therefore has a folded
+            // key that names nothing, and trusting it would have every lookup
+            // below believe its own miss and install into a shadow tree.
+            let key = self.resolver.under(&self.install_path, &folder);
+            if report.is_clean()
+                && std::path::Path::new(&crate::paths::native_separators(&key)).is_dir()
+            {
+                self.resolver.trust_folded(&key);
+            }
+        }
+    }
+
+    /// Fold every segment of a target folder's path below the install root,
+    /// parent before child, so a nested destination such as
+    /// `StreamWaves\m01aa` gets each real directory folded in turn rather
+    /// than only the last one.
+    ///
+    /// Reports whether the whole path now sits at its folded spelling.
+    fn fold_folder_path(&self, root: &str, ctx: &mut Context<'_>) -> bool {
+        let native_root = crate::paths::native_separators(root);
+        let native_install = crate::paths::native_separators(&self.install_path);
+        let root_path = std::path::Path::new(&native_root);
+        let install_path = std::path::Path::new(&native_install);
+
+        let Ok(relative) = root_path.strip_prefix(install_path) else {
+            // `root` is always built under `install_path`; this should not
+            // happen, but there is nothing safe to fold if it does.
+            return true;
+        };
+
+        let mut current = install_path.to_path_buf();
+        for component in relative.components() {
+            current.push(component);
+            if !self.fold_folder_name(&current.to_string_lossy(), ctx) {
+                return false;
+            }
+            // The segment sits at its folded spelling now, whether
+            // `fold_folder_name` renamed it or found it already there.
+            // Advance using that spelling so the next segment's lookup
+            // resolves against the real, just-folded parent rather than the
+            // name the instruction file wrote.
+            if let Some(name) = current.file_name() {
+                let folded = crate::paths::fold_ascii(&name.to_string_lossy());
+                current.set_file_name(folded);
+            }
+        }
+        true
+    }
+
+    /// Rename a target folder to its folded spelling.
+    ///
+    /// Reports whether the folder now sits at the name a folded lookup will
+    /// ask for. A folder that already matches, or that cannot be renamed
+    /// because something else holds the folded name, reports accordingly:
+    /// the caller then leaves the root untrusted so lookups below it keep
+    /// reaching the case-aware fallback.
+    fn fold_folder_name(&self, root: &str, ctx: &mut Context<'_>) -> bool {
+        let actual = fsutil::native_path(root);
+        let Some(name) = actual.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            return true;
+        };
+        let folded = crate::paths::fold_ascii(&name);
+        if folded == name {
+            return true;
+        }
+
+        let destination = actual.with_file_name(&folded);
+        if destination.exists() {
+            ctx.log.warn(format!(
+                "Both \"{name}\" and \"{folded}\" exist in the game folder; leaving them alone"
+            ));
+            return false;
+        }
+
+        match std::fs::rename(&actual, &destination) {
+            Ok(()) => {
+                ctx.log
+                    .verbose(format!("Renamed \"{name}\" to \"{folded}\""));
+                true
+            }
+            Err(err) => {
+                ctx.log
+                    .warn(format!("Could not rename \"{name}\" to lowercase ({err})"));
+                false
+            }
+        }
+    }
+
+    /// The folder the current step reads its starting file from.
     pub fn source_folder(&self) -> &str {
         &self.source_folder
     }
@@ -314,7 +593,7 @@ impl FileHandler {
             }
         }
 
-        match resolve_source_folder(&self.data_path, &requested) {
+        match resolve_source_folder(&self.data_path, &self.resolver.fold(&requested)) {
             Ok(folder) => {
                 self.source_folder = folder;
                 true
@@ -327,11 +606,9 @@ impl FileHandler {
         }
     }
 
+    /// Where `name` sits in the current source folder.
     pub fn blueprint_path(&self, name: &str) -> String {
-        format!(
-            "{}{name}",
-            text::include_trailing_delimiter(&self.source_folder)
-        )
+        self.resolver.under(&self.source_folder, name)
     }
 
     /// Path of a file in the current source folder, or `data_path` if it is only
@@ -341,7 +618,7 @@ impl FileHandler {
             return String::new();
         }
         let nested = self.blueprint_path(name);
-        if fsutil::file_exists(&nested) && path_is_confined(&self.data_path, &nested) {
+        if self.resolver.exists(&nested) && path_is_confined(&self.data_path, &nested) {
             nested
         } else {
             let root = format!(
@@ -356,6 +633,7 @@ impl FileHandler {
         }
     }
 
+    /// The file a step starts from, honouring `!SourceFile`.
     pub fn source_name(&self, ini: &IniFile, file: &str) -> Result<String> {
         let (renamed, explicitly_renamed) = if ini.section_exists(file) {
             let configured = ini.read_string(file, "!SourceFile", "");
@@ -376,7 +654,7 @@ impl FileHandler {
             ));
         }
 
-        if !explicitly_renamed || fsutil::file_exists(&path) {
+        if !explicitly_renamed || self.resolver.exists(&path) {
             Ok(renamed)
         } else {
             Err(PatchError::general(
@@ -393,6 +671,19 @@ impl FileHandler {
     /// several patches can target the same member (e.g. `bastila.dlg`) in
     /// different modules under distinct section names. `!Filename` takes
     pub fn save_name(&self, ini: &IniFile, file: &str) -> String {
+        let name = self.save_name_as_written(ini, file);
+        if name.is_empty() {
+            name
+        } else {
+            self.resolver.fold(&name)
+        }
+    }
+
+    /// The name the mod asked for, spelled the way its author wrote it.
+    ///
+    /// Log lines quote this rather than the folded name: a player reading the
+    /// log should see the name that is in their mod's instruction file.
+    pub fn save_name_as_written(&self, ini: &IniFile, file: &str) -> String {
         let name = if !ini.section_exists(file) {
             file.to_string()
         } else {
@@ -425,19 +716,22 @@ impl FileHandler {
         }
 
         let folder = self.backup_folder();
-        let _ = fsutil::force_directories(&folder);
+        let _ = self.resolver.create_dir_all(&folder);
 
         let name = self.save_name(ini, &self.current_file);
         let target = format!("{folder}{name}");
         let source = format!("{}{name}", self.current_path);
 
-        if fsutil::file_exists(&target) || !fsutil::file_exists(&source) {
+        if self.resolver.exists(&target) || !self.resolver.exists(&source) {
             return false;
         }
 
-        fsutil::copy_file(&source, &target).is_ok()
+        self.resolver.copy(&source, &target).is_ok()
     }
 
+    /// Copy the destination archive into `backup` before it is changed.
+    ///
+    /// Reports whether a copy was made.
     pub fn backup_destination(&mut self) -> bool {
         if !self.do_backups {
             return false;
@@ -445,22 +739,22 @@ impl FileHandler {
         if self.destination.eq_ignore_ascii_case("override") || self.destination.is_empty() {
             return false;
         }
-        if !fsutil::file_exists(&self.destination) {
+        if !self.resolver.exists(&self.destination) {
             return false;
         }
 
         let folder = self.backup_folder();
-        let _ = fsutil::force_directories(&folder);
-        let _ = fsutil::force_directories(&format!("{folder}modules"));
+        let _ = self.resolver.create_dir_all(&folder);
+        let _ = self.resolver.create_dir_all(&format!("{folder}modules"));
 
         let name = text::extract_file_name(&self.destination);
         let target = format!("{folder}{name}");
 
-        if fsutil::file_exists(&target) {
+        if self.resolver.exists(&target) {
             return false;
         }
 
-        fsutil::copy_file(&self.destination, &target).is_ok()
+        self.resolver.copy(&self.destination, &target).is_ok()
     }
 
     /// Settle which file the next step works on.
@@ -511,10 +805,10 @@ impl FileHandler {
             return self.locate_string_table(filename);
         }
 
-        let destination_path = format!(
-            "{}{dest}",
-            text::include_trailing_delimiter(&self.install_path)
-        );
+        // Built through the resolver so the string checked here is the string
+        // `output_folder` will open. Confining one spelling and opening
+        // another is how a check like this gets walked past.
+        let destination_path = self.resolver.under(&self.install_path, &dest);
         if !path_is_confined(&self.install_path, &destination_path) {
             self.last_skip_was_unsafe = true;
             ctx.log.error(format!(
@@ -581,14 +875,14 @@ impl FileHandler {
                         format!("Unsafe Required file name \"{name}\" encountered."),
                     ));
                 }
-                let target = format!("{}{}", self.override_folder(), name);
+                let target = self.resolver.under(&self.override_folder(), name);
                 if !path_is_confined(&self.install_path, &target) {
                     return Err(PatchError::general(
                         99,
                         format!("Required file \"{name}\" points outside the game folder."),
                     ));
                 }
-                if fsutil::file_exists(&target) {
+                if self.resolver.exists(&target) {
                     continue;
                 }
 
@@ -608,7 +902,7 @@ impl FileHandler {
     /// The string table lives in the game folder, not the override folder.
     fn locate_string_table(&mut self, filename: &str) -> Result<bool> {
         let candidate = format!("{}{filename}", self.install_path);
-        if fsutil::file_exists(&candidate) {
+        if self.resolver.exists(&candidate) {
             self.current_file = filename.to_string();
             self.current_path = self.install_path.clone();
             return Ok(true);
@@ -625,16 +919,13 @@ impl FileHandler {
         if dest.is_empty() || dest.eq_ignore_ascii_case("override") {
             self.override_folder()
         } else {
-            text::include_trailing_delimiter(&format!(
-                "{}{dest}",
-                text::include_trailing_delimiter(&self.install_path)
-            ))
+            text::include_trailing_delimiter(&self.resolver.under(&self.install_path, dest))
         }
     }
     fn ensure_override_folder(&self, ctx: &mut Context<'_>) {
         let folder = self.override_folder();
-        if !fsutil::dir_exists(&folder) {
-            let _ = fsutil::force_directories(&folder);
+        if !self.resolver.dir_exists(&folder) {
+            let _ = self.resolver.create_dir_all(&folder);
             ctx.log.info(format!(
                 "No Override folder found, creating it at {folder}."
             ));
@@ -653,12 +944,9 @@ impl FileHandler {
         dest: &str,
     ) -> Result<bool> {
         self.current_file = filename.to_string();
-        self.destination = format!(
-            "{}{dest}",
-            text::include_trailing_delimiter(&self.install_path)
-        );
+        self.destination = self.resolver.under(&self.install_path, dest);
 
-        if !fsutil::file_exists(&self.destination) {
+        if !self.resolver.exists(&self.destination) {
             ctx.log.error(format!(
                 "Unable to locate archive \"{}\" to modify or insert file \"{}\" into, skipping...",
                 self.destination, self.current_file
@@ -683,13 +971,13 @@ impl FileHandler {
             "{}erfpatch_temp",
             text::include_trailing_delimiter(&self.data_path)
         ));
-        let _ = fsutil::force_directories(&self.current_path);
+        let _ = self.resolver.create_dir_all(&self.current_path);
 
         let save_as = self.save_name(ctx.ini, &self.current_file);
         let working = format!("{}{save_as}", self.current_path);
 
-        if fsutil::file_exists(&working) {
-            fsutil::delete_file(&working);
+        if self.resolver.exists(&working) {
+            self.resolver.delete(&working);
         }
 
         let already_present = archive.resource_exists(&save_as, false).unwrap_or(false);
@@ -718,10 +1006,10 @@ impl FileHandler {
                 "Adding file \"{save_as}\" to archive \"{}\"...",
                 text::extract_file_name(&self.destination)
             ));
-            let _ = fsutil::copy_file(&self.blueprint_path(&source), &working);
+            let _ = self.resolver.copy(&self.blueprint_path(&source), &working);
         }
 
-        if !fsutil::file_exists(&working) {
+        if !self.resolver.exists(&working) {
             ctx.log.error(format!(
                 "Unable to make work copy of file \"{save_as}\". File not saved to ERF/RIM archive!"
             ));
@@ -745,12 +1033,9 @@ impl FileHandler {
 
         let capsule = is_capsule_destination(dest);
         if capsule {
-            self.destination = format!(
-                "{}{dest}",
-                text::include_trailing_delimiter(&self.install_path)
-            );
+            self.destination = self.resolver.under(&self.install_path, dest);
 
-            if !fsutil::file_exists(&self.destination) {
+            if !self.resolver.exists(&self.destination) {
                 ctx.log.error(format!(
                     "Unable to locate archive \"{}\" to insert script \"{}\" into, skipping...",
                     self.destination, self.current_file
@@ -768,10 +1053,7 @@ impl FileHandler {
                 return Ok(false);
             }
         } else if !dest.is_empty() && !dest.eq_ignore_ascii_case("override") {
-            self.destination = format!(
-                "{}{dest}",
-                text::include_trailing_delimiter(&self.install_path)
-            );
+            self.destination = self.resolver.under(&self.install_path, dest);
         }
 
         match self.source_name(ctx.ini, filename) {
@@ -782,17 +1064,29 @@ impl FileHandler {
             }
         }
 
-        let compiled = text::with_extension(filename, ".ncs");
+        // Derived from the checked output name rather than the raw section
+        // value. `filename` still traverses when a section supplies both
+        // `!SaveAs` and `!SourceFile`, and it lands here after both of those
+        // gates have passed on other strings.
+        let compiled = text::with_extension(&self.save_name(ctx.ini, filename), ".ncs");
         let dest_folder = self.output_folder(dest);
         let in_dest = format!("{dest_folder}{compiled}");
 
         if overwrite {
-            if !capsule && fsutil::file_exists(&in_dest) && self.do_backups {
+            if !capsule
+                && !compiled.is_empty()
+                && path_is_confined(&self.install_path, &in_dest)
+                && self.resolver.exists(&in_dest)
+                && self.do_backups
+            {
                 let folder = self.backup_folder();
-                let _ = fsutil::force_directories(&folder);
+                let _ = self.resolver.create_dir_all(&folder);
                 let target = format!("{folder}{compiled}");
+                if !path_is_confined(&self.base_path, &target) {
+                    return Ok(true);
+                }
 
-                if !fsutil::file_exists(&target) && fsutil::copy_file(&in_dest, &target).is_ok() {
+                if !self.resolver.exists(&target) && self.resolver.copy(&in_dest, &target).is_ok() {
                     ctx.log.info(format!(
                         "Making backup copy of script file \"{filename}\" found in override..."
                     ));
@@ -802,7 +1096,7 @@ impl FileHandler {
             // The source name is checked here rather than the compiled name,
             // which is what decides whether an existing script blocks the step.
             let source_in_dest = format!("{dest_folder}{filename}");
-            if fsutil::file_exists(&source_in_dest) {
+            if self.resolver.exists(&source_in_dest) {
                 ctx.log.warn(format!(
                     "Script file \"{filename}\" already exists in override! Skipping..."
                 ));
@@ -831,7 +1125,7 @@ impl FileHandler {
         let save_as = self.save_name(ctx.ini, filename);
         let blueprint = self.blueprint_path(&source);
 
-        if !fsutil::file_exists(&blueprint) {
+        if !self.resolver.exists(&blueprint) {
             ctx.log.error(format!(
                 "Unable to locate file \"{filename}\" to install, skipping..."
             ));
@@ -840,7 +1134,7 @@ impl FileHandler {
 
         self.current_file = filename.to_string();
         self.current_path = self.output_folder(dest);
-        let _ = fsutil::force_directories(&self.current_path);
+        let _ = self.resolver.create_dir_all(&self.current_path);
         let installed = format!("{}{save_as}", self.current_path);
         if !path_is_confined(&self.install_path, &installed) {
             ctx.log.error(format!(
@@ -849,10 +1143,10 @@ impl FileHandler {
             return Ok(false);
         }
 
-        if fsutil::file_exists(&installed) {
+        if self.resolver.exists(&installed) {
             self.backup_current = true;
             self.backup_current(ctx.ini);
-            fsutil::delete_file(&installed);
+            self.resolver.delete(&installed);
             ctx.log.info(format!(
                 "Updating and replacing file {save_as} in Override folder..."
             ));
@@ -862,7 +1156,7 @@ impl FileHandler {
             ));
         }
 
-        let _ = fsutil::copy_file(&blueprint, &installed);
+        let _ = self.resolver.copy(&blueprint, &installed);
         self.current_file = save_as;
         self.backup_current = false;
 
@@ -881,7 +1175,7 @@ impl FileHandler {
     ) -> Result<bool> {
         self.current_file = filename.to_string();
         self.current_path = self.output_folder(dest);
-        let _ = fsutil::force_directories(&self.current_path);
+        let _ = self.resolver.create_dir_all(&self.current_path);
 
         let source = match self.source_name(ctx.ini, &self.current_file) {
             Ok(name) => name,
@@ -899,7 +1193,7 @@ impl FileHandler {
             return Ok(false);
         }
 
-        if fsutil::file_exists(&installed) {
+        if self.resolver.exists(&installed) {
             ctx.log.warn(format!(
                 "A file named \"{save_as}\" already exists in the Override folder. Skipping..."
             ));
@@ -907,7 +1201,7 @@ impl FileHandler {
         }
 
         let blueprint = self.blueprint_path(&source);
-        if !fsutil::file_exists(&blueprint) {
+        if !self.resolver.exists(&blueprint) {
             ctx.log.error(format!(
                 "Unable to locate file \"{source}\" to install as \"{}\", skipping...",
                 self.current_file
@@ -915,7 +1209,7 @@ impl FileHandler {
             return Ok(false);
         }
 
-        let _ = fsutil::copy_file(&blueprint, &installed);
+        let _ = self.resolver.copy(&blueprint, &installed);
         self.backup_current = false;
         self.current_file = save_as.clone();
         ctx.log
@@ -942,7 +1236,7 @@ impl FileHandler {
         let save_as = self.save_name(ctx.ini, filename);
 
         let folder = self.output_folder(dest);
-        let _ = fsutil::force_directories(&folder);
+        let _ = self.resolver.create_dir_all(&folder);
         let installed = format!("{folder}{save_as}");
         if !path_is_confined(&self.install_path, &installed) {
             ctx.log.error(format!(
@@ -951,7 +1245,7 @@ impl FileHandler {
             return Ok(false);
         }
 
-        if fsutil::file_exists(&installed) {
+        if self.resolver.exists(&installed) {
             ctx.log.info(format!(
                 "Modifying file \"{save_as}\" found in Override folder..."
             ));
@@ -965,7 +1259,7 @@ impl FileHandler {
 
         let blueprint = self.blueprint_path(&source);
 
-        if !fsutil::file_exists(&blueprint) {
+        if !self.resolver.exists(&blueprint) {
             ctx.log.verbose(
                 "No file blueprint found in tslpatchdata folder, fallback to manual source...",
             );
@@ -987,7 +1281,7 @@ impl FileHandler {
                 ));
             };
 
-            let _ = fsutil::copy_file(&chosen, &installed);
+            let _ = self.resolver.copy(&chosen, &installed);
             self.current_file = save_as.clone();
             ctx.log.info(format!(
                 "Copying file \"{}\" as \"{save_as}\" to Override folder...",
@@ -996,7 +1290,7 @@ impl FileHandler {
             return Ok(true);
         }
 
-        let _ = fsutil::copy_file(&blueprint, &installed);
+        let _ = self.resolver.copy(&blueprint, &installed);
         self.backup_current = false;
         self.current_file = save_as.clone();
 

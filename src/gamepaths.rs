@@ -4,8 +4,11 @@ use crate::compat::{fsutil, text};
 use crate::patcher::config::{self, Game};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A game install found on this machine.
 pub struct Install {
+    /// The folder the game is in.
     pub path: String,
+    /// Which game it is, when that could be worked out.
     pub game: Option<Game>,
 }
 
@@ -23,6 +26,7 @@ const GAME_FOLDERS: [(&str, Game); 8] = [
     ),
 ];
 
+/// Look in the usual places for installed games.
 pub fn detect() -> Vec<Install> {
     let mut found: Vec<Install> = Vec::new();
 
@@ -204,6 +208,7 @@ fn home_dir() -> Option<String> {
     None
 }
 
+/// Work out which game a folder holds, by what is inside it.
 pub fn identify(path: &str) -> Option<Game> {
     let base = text::include_trailing_delimiter(path);
 
