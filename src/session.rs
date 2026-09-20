@@ -69,19 +69,15 @@ impl Session {
             }
         }
 
+        let lone_namespace = namespaces.is_empty();
         let namespace = match namespaces.first() {
             Some(first) => first.clone(),
             None => {
                 let mut lone = PatcherNamespace::new(ini_name, info_name);
-                lone.name = match PatcherConfig::as_namespace(
-                    &tslpatchdata_path.join(lone.changes_filepath()),
-                ) {
-                    Ok(found) => found.name,
-                    Err(_) => base_path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
-                };
+                lone.name = base_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 lone
             }
         };
@@ -97,6 +93,15 @@ impl Session {
             config_error: None,
             load_logs: Vec::new(),
         };
+
+        // A lone `changes.ini` names itself through `as_namespace`, but only
+        // once the file is known to sit inside the mod folder.
+        if lone_namespace && session.has_instructions() {
+            if let Ok(found) = PatcherConfig::as_namespace(&session.ini_path()) {
+                session.namespace.name = found.name;
+            }
+        }
+
         session.reload();
         session
     }

@@ -1911,7 +1911,8 @@ mod tests {
         assert!(package.join("uninstall").join("uninstall.sh").is_file());
 
         let messages: Vec<&str> = installer.log.all_logs.iter().map(|l| l.message.as_str()).collect();
-        assert!(messages.contains(&"Copying 'Spells.2da' and replacing existing file 'spells.2da' in the 'Override' folder"));
+        // saveas.casefold() == sourcefile.casefold(), so patcher.py:775 uses the bare "in" form.
+        assert!(messages.contains(&"Copying 'Spells.2da' and replacing existing file in the 'Override' folder"));
         assert!(messages.contains(&"'exists.utc' already exists in the 'Override' folder. Skipping file..."));
         assert_eq!(
             messages.last().copied().unwrap(),
