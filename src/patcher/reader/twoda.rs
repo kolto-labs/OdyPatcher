@@ -12,8 +12,8 @@ use crate::patcher::error::{PResult, PatchException};
 use crate::patcher::ini::CaseInsensitiveDict;
 use crate::patcher::mods::template::DEFAULT_DESTINATION;
 use crate::patcher::mods::twoda::{
-    store_set, AddColumn2DA, AddRow2DA, ChangeRow2DA, CopyRow2DA, Entry, Modifications2DA, Modify2DA,
-    RowValue, Target, TargetType, TargetValue,
+    store_set, AddColumn2DA, AddRow2DA, ChangeRow2DA, CopyRow2DA, Entry, Modifications2DA,
+    Modify2DA, RowValue, Target, TargetType, TargetValue,
 };
 use crate::patcher::mods::PatcherModifications;
 
@@ -32,7 +32,8 @@ impl ConfigReader<'_> {
         self.log.add_note("Loading [2DAList] patches from ini...");
 
         let mut twoda_section_dict = self.section_dict(&twoda_section_name);
-        let default_destination = twoda_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
+        let default_destination =
+            twoda_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
         let default_source_folder = twoda_section_dict.pop_or("!DefaultSourceFolder", ".");
         let files: Vec<(String, String)> = twoda_section_dict
             .items()
@@ -70,7 +71,9 @@ impl ConfigReader<'_> {
                     None => CaseInsensitiveDict::new(),
                     Some(next_section_name) => self.section_dict(&next_section_name),
                 };
-                let Some(manipulation) = self.discern_2da(&key, &modification_id, &modification_ids_dict) else {
+                let Some(manipulation) =
+                    self.discern_2da(&key, &modification_id, &modification_ids_dict)
+                else {
                     continue;
                 };
                 if let Some(modifications) = self.config.patches_2da.last_mut() {
@@ -83,23 +86,40 @@ impl ConfigReader<'_> {
 
     /// `discern_2da(key, identifier, modifiers)`: pick the modifier class
     /// from the key's text and hand it the section's entries in order.
-    pub fn discern_2da(&mut self, key: &str, identifier: &str, modifiers: &CaseInsensitiveDict) -> Option<Modify2DA> {
+    pub fn discern_2da(
+        &mut self,
+        key: &str,
+        identifier: &str,
+        modifiers: &CaseInsensitiveDict,
+    ) -> Option<Modify2DA> {
         let ordered_entries: Vec<Entry> = modifiers
             .items()
             .map(|(modifier, value)| (modifier.to_string(), value.to_string()))
             .collect();
 
         if key.contains("AddRow") {
-            return Some(Modify2DA::AddRow(AddRow2DA::from_entries(identifier, ordered_entries)));
+            return Some(Modify2DA::AddRow(AddRow2DA::from_entries(
+                identifier,
+                ordered_entries,
+            )));
         }
         if key.contains("ChangeRow") {
-            return Some(Modify2DA::ChangeRow(ChangeRow2DA::from_entries(identifier, ordered_entries)));
+            return Some(Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                identifier,
+                ordered_entries,
+            )));
         }
         if key.contains("AddColumn") {
-            return Some(Modify2DA::AddColumn(AddColumn2DA::from_entries(identifier, ordered_entries)));
+            return Some(Modify2DA::AddColumn(AddColumn2DA::from_entries(
+                identifier,
+                ordered_entries,
+            )));
         }
         if key.contains("CopyRow") {
-            return Some(Modify2DA::CopyRow(CopyRow2DA::from_entries(identifier, ordered_entries)));
+            return Some(Modify2DA::CopyRow(CopyRow2DA::from_entries(
+                identifier,
+                ordered_entries,
+            )));
         }
 
         self.log.add_warning(format!(
@@ -117,14 +137,31 @@ impl ConfigReader<'_> {
     ) -> PResult<AddColumn2DA> {
         let header = modifiers.pop_or("ColumnLabel", "");
         let default = modifiers.pop_or("DefaultValue", "");
-        let default = if default != "****" { default } else { String::new() };
+        let default = if default != "****" {
+            default
+        } else {
+            String::new()
+        };
 
-        let (index_insert, label_insert, store_2da) = self.column_inserts_2da(identifier, modifiers)?;
-        Ok(AddColumn2DA::new(identifier, &header, &default, index_insert, label_insert, store_2da, entries))
+        let (index_insert, label_insert, store_2da) =
+            self.column_inserts_2da(identifier, modifiers)?;
+        Ok(AddColumn2DA::new(
+            identifier,
+            &header,
+            &default,
+            index_insert,
+            label_insert,
+            store_2da,
+            entries,
+        ))
     }
 
     /// `target_2da(identifier, modifiers)`: legacy constructor path.
-    pub fn target_2da(&mut self, identifier: &str, modifiers: &mut CaseInsensitiveDict) -> PResult<Option<Target>> {
+    pub fn target_2da(
+        &mut self,
+        identifier: &str,
+        modifiers: &mut CaseInsensitiveDict,
+    ) -> PResult<Option<Target>> {
         fn get_target(
             identifier: &str,
             modifiers: &mut CaseInsensitiveDict,
@@ -138,9 +175,15 @@ impl ConfigReader<'_> {
                 )));
             };
             let lower_raw_value = raw_value.to_lowercase();
-            let value = if lower_raw_value.starts_with("strref") && raw_value.len() > "strref".len() && is_ascii_digits(&raw_value[6..]) {
+            let value = if lower_raw_value.starts_with("strref")
+                && raw_value.len() > "strref".len()
+                && is_ascii_digits(&raw_value[6..])
+            {
                 TargetValue::TlkMemory(python_int(&raw_value[6..])? as i32)
-            } else if lower_raw_value.starts_with("2damemory") && raw_value.len() > "2damemory".len() && is_ascii_digits(&raw_value[9..]) {
+            } else if lower_raw_value.starts_with("2damemory")
+                && raw_value.len() > "2damemory".len()
+                && is_ascii_digits(&raw_value[9..])
+            {
                 TargetValue::TwoDAMemory(python_int(&raw_value[9..])? as i32)
             } else if is_int {
                 TargetValue::Int(python_int(&raw_value)?)
@@ -151,16 +194,38 @@ impl ConfigReader<'_> {
         }
 
         if modifiers.contains("RowIndex") {
-            return get_target(identifier, modifiers, TargetType::RowIndex, "RowIndex", true).map(Some);
+            return get_target(
+                identifier,
+                modifiers,
+                TargetType::RowIndex,
+                "RowIndex",
+                true,
+            )
+            .map(Some);
         }
         if modifiers.contains("RowLabel") {
-            return get_target(identifier, modifiers, TargetType::RowLabel, "RowLabel", false).map(Some);
+            return get_target(
+                identifier,
+                modifiers,
+                TargetType::RowLabel,
+                "RowLabel",
+                false,
+            )
+            .map(Some);
         }
         if modifiers.contains("LabelIndex") {
-            return get_target(identifier, modifiers, TargetType::LabelColumn, "LabelIndex", false).map(Some);
+            return get_target(
+                identifier,
+                modifiers,
+                TargetType::LabelColumn,
+                "LabelIndex",
+                false,
+            )
+            .map(Some);
         }
 
-        self.log.add_warning(format!("No line set to be modified in [{identifier}]."));
+        self.log
+            .add_warning(format!("No line set to be modified in [{identifier}]."));
         Ok(None)
     }
 
@@ -171,7 +236,11 @@ impl ConfigReader<'_> {
         &mut self,
         _identifier: &str,
         modifiers: &CaseInsensitiveDict,
-    ) -> PResult<(Vec<(String, RowValue)>, Vec<(i32, RowValue)>, Vec<(i32, RowValue)>)> {
+    ) -> PResult<(
+        Vec<(String, RowValue)>,
+        Vec<(i32, RowValue)>,
+        Vec<(i32, RowValue)>,
+    )> {
         let mut cells: Vec<(String, RowValue)> = Vec::new();
         let mut store_2da: Vec<(i32, RowValue)> = Vec::new();
         let mut store_tlk: Vec<(i32, RowValue)> = Vec::new();
@@ -211,9 +280,17 @@ impl ConfigReader<'_> {
             };
 
             if is_store_2da {
-                store_set(&mut store_2da, python_int(&modifier[9..])? as i32, row_value);
+                store_set(
+                    &mut store_2da,
+                    python_int(&modifier[9..])? as i32,
+                    row_value,
+                );
             } else if is_store_tlk {
-                store_set(&mut store_tlk, python_int(&modifier[6..])? as i32, row_value);
+                store_set(
+                    &mut store_tlk,
+                    python_int(&modifier[6..])? as i32,
+                    row_value,
+                );
             } else if !is_row_label {
                 store_set(&mut cells, modifier.to_string(), row_value);
             }
@@ -223,7 +300,11 @@ impl ConfigReader<'_> {
     }
 
     /// `row_label_2da(identifier, modifiers)`: legacy constructor path.
-    pub fn row_label_2da(&mut self, _identifier: &str, modifiers: &mut CaseInsensitiveDict) -> PResult<Option<RowValue>> {
+    pub fn row_label_2da(
+        &mut self,
+        _identifier: &str,
+        modifiers: &mut CaseInsensitiveDict,
+    ) -> PResult<Option<RowValue>> {
         // Python evaluates the default argument first, so both keys are popped.
         let new_row_label = modifiers.pop("NewRowLabel");
         let raw_value = modifiers.pop("RowLabel").or(new_row_label);
@@ -235,11 +316,16 @@ impl ConfigReader<'_> {
         if lower_value == "high()" {
             return Ok(Some(RowValue::High(None)));
         }
-        if lower_value.starts_with("2damemory") && is_ascii_digits(raw_value.get(9..).unwrap_or("")) {
-            return Ok(Some(RowValue::TwoDAMemory(python_int(&raw_value[9..])? as i32)));
+        if lower_value.starts_with("2damemory") && is_ascii_digits(raw_value.get(9..).unwrap_or(""))
+        {
+            return Ok(Some(RowValue::TwoDAMemory(
+                python_int(&raw_value[9..])? as i32
+            )));
         }
         if lower_value.starts_with("strref") && is_ascii_digits(raw_value.get(6..).unwrap_or("")) {
-            return Ok(Some(RowValue::TlkMemory(python_int(&raw_value[6..])? as i32)));
+            return Ok(Some(RowValue::TlkMemory(
+                python_int(&raw_value[6..])? as i32
+            )));
         }
         Ok(Some(RowValue::Constant(raw_value)))
     }
@@ -251,7 +337,11 @@ impl ConfigReader<'_> {
         &mut self,
         _identifier: &str,
         modifiers: &CaseInsensitiveDict,
-    ) -> PResult<(Vec<(i64, RowValue)>, Vec<(String, RowValue)>, Vec<(i32, String)>)> {
+    ) -> PResult<(
+        Vec<(i64, RowValue)>,
+        Vec<(String, RowValue)>,
+        Vec<(i32, String)>,
+    )> {
         let mut index_insert: Vec<(i64, RowValue)> = Vec::new();
         let mut label_insert: Vec<(String, RowValue)> = Vec::new();
         let mut store_2da: Vec<(i32, String)> = Vec::new();
@@ -278,7 +368,11 @@ impl ConfigReader<'_> {
             } else if modifier_lowercase.starts_with('l') {
                 store_set(&mut label_insert, rest.to_string(), row_value);
             } else if modifier_lowercase.starts_with("2damemory") {
-                store_set(&mut store_2da, python_int(modifier.get(9..).unwrap_or(""))? as i32, value.to_string());
+                store_set(
+                    &mut store_2da,
+                    python_int(modifier.get(9..).unwrap_or(""))? as i32,
+                    value.to_string(),
+                );
             }
         }
 
@@ -315,13 +409,18 @@ mod tests {
             Modify2DA::AddRow(m) => {
                 assert_eq!(m.identifier, "add");
                 assert_eq!(m.entries[0], ("RowLabel".to_string(), "high()".to_string()));
-                assert_eq!(m.entries[2], ("2DAMEMORY1".to_string(), "RowIndex".to_string()));
+                assert_eq!(
+                    m.entries[2],
+                    ("2DAMEMORY1".to_string(), "RowIndex".to_string())
+                );
             }
             other => panic!("expected AddRow, got {other:?}"),
         }
         assert!(matches!(&patch.modifiers[1], Modify2DA::ChangeRow(_)));
         match &patch.modifiers[2] {
-            Modify2DA::CopyRow(m) => assert!(m.entries.is_empty(), "missing section gives no entries"),
+            Modify2DA::CopyRow(m) => {
+                assert!(m.entries.is_empty(), "missing section gives no entries")
+            }
             other => panic!("expected CopyRow, got {other:?}"),
         }
         assert!(matches!(&patch.modifiers[3], Modify2DA::AddColumn(_)));
@@ -330,7 +429,10 @@ mod tests {
             logger.warnings()[0].message,
             "Could not parse key 'Bogus0=x', expecting one of ['AddRow', 'ChangeRow', 'AddColumn', 'CopyRow']"
         );
-        assert_eq!(logger.notes()[0].message, "Loading [2DAList] patches from ini...");
+        assert_eq!(
+            logger.notes()[0].message,
+            "Loading [2DAList] patches from ini..."
+        );
     }
 
     #[test]
@@ -338,7 +440,10 @@ mod tests {
         let mut logger = PatchLogger::new();
         let mut r = reader("[Settings]\n", &mut logger);
         r.load_2da_list().unwrap();
-        assert_eq!(logger.notes()[0].message, "[2DAList] section missing from ini.");
+        assert_eq!(
+            logger.notes()[0].message,
+            "[2DAList] section missing from ini."
+        );
 
         let mut logger = PatchLogger::new();
         let mut r = reader("[2DAList]\nTable0=nope.2da\n", &mut logger);
@@ -355,16 +460,23 @@ mod tests {
         let mut logger = PatchLogger::new();
         let mut r = reader("[x]\n", &mut logger);
 
-        let mut modifiers = CaseInsensitiveDict::from_pairs([("RowIndex", "2DAMEMORY4"), ("label", "v")]);
+        let mut modifiers =
+            CaseInsensitiveDict::from_pairs([("RowIndex", "2DAMEMORY4"), ("label", "v")]);
         let target = r.target_2da("sec", &mut modifiers).unwrap().unwrap();
         assert_eq!(target.value, TargetValue::TwoDAMemory(4));
         assert!(!modifiers.contains("RowIndex"));
 
         let mut modifiers = CaseInsensitiveDict::from_pairs([("RowIndex", "abc")]);
-        assert_eq!(r.target_2da("sec", &mut modifiers).unwrap_err().kind, "ValueError");
+        assert_eq!(
+            r.target_2da("sec", &mut modifiers).unwrap_err().kind,
+            "ValueError"
+        );
         let mut modifiers = CaseInsensitiveDict::new();
         assert!(r.target_2da("sec", &mut modifiers).unwrap().is_none());
-        assert_eq!(r.log.warnings()[0].message, "No line set to be modified in [sec].");
+        assert_eq!(
+            r.log.warnings()[0].message,
+            "No line set to be modified in [sec]."
+        );
 
         let modifiers = CaseInsensitiveDict::from_pairs([
             ("label", "****"),
@@ -375,14 +487,23 @@ mod tests {
             ("Col2", "StrRef7"),
         ]);
         let (cells, store_2da, store_tlk) = r.cells_2da("sec", &modifiers).unwrap();
-        assert_eq!(cells[0], ("label".to_string(), RowValue::Constant(String::new())));
-        assert_eq!(cells[1], ("Col1".to_string(), RowValue::High(Some("Col1".into()))));
+        assert_eq!(
+            cells[0],
+            ("label".to_string(), RowValue::Constant(String::new()))
+        );
+        assert_eq!(
+            cells[1],
+            ("Col1".to_string(), RowValue::High(Some("Col1".into())))
+        );
         assert_eq!(cells[2], ("Col2".to_string(), RowValue::TlkMemory(7)));
         assert_eq!(store_2da, vec![(2, RowValue::RowIndex)]);
         assert_eq!(store_tlk, vec![(3, RowValue::RowCell("Col1".into()))]);
 
         let mut modifiers = CaseInsensitiveDict::from_pairs([("NewRowLabel", "2DAMEMORY5")]);
-        assert_eq!(r.row_label_2da("sec", &mut modifiers).unwrap(), Some(RowValue::TwoDAMemory(5)));
+        assert_eq!(
+            r.row_label_2da("sec", &mut modifiers).unwrap(),
+            Some(RowValue::TwoDAMemory(5))
+        );
         assert!(modifiers.is_empty());
 
         let mut modifiers = CaseInsensitiveDict::from_pairs([
@@ -396,8 +517,14 @@ mod tests {
         assert_eq!(column.header, "NewCol");
         assert_eq!(column.default, "");
         assert_eq!(column.index_insert, vec![(3, RowValue::TlkMemory(2))]);
-        assert_eq!(column.label_insert, vec![("name".to_string(), RowValue::TwoDAMemory(1))]);
+        assert_eq!(
+            column.label_insert,
+            vec![("name".to_string(), RowValue::TwoDAMemory(1))]
+        );
         assert_eq!(column.store_2da, vec![(6, "I3".to_string())]);
-        assert_eq!(column.entries[0], ("ColumnLabel".to_string(), "NewCol".to_string()));
+        assert_eq!(
+            column.entries[0],
+            ("ColumnLabel".to_string(), "NewCol".to_string())
+        );
     }
 }

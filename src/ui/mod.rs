@@ -223,8 +223,10 @@ impl App {
         let session = Session::discover(&root.to_string_lossy(), "changes.ini", "info.rtf");
 
         if let Some(error) = &session.namespace_error {
-            self.dialogs
-                .push_back(Dialog::warning("Error", format!("Cannot read namespaces.ini: {error}")));
+            self.dialogs.push_back(Dialog::warning(
+                "Error",
+                format!("Cannot read namespaces.ini: {error}"),
+            ));
         }
 
         self.mod_label = mod_label(&session, 0);
@@ -285,7 +287,11 @@ impl App {
             return Some(PathBuf::from(&self.game_path));
         }
 
-        if let Some(found) = self.session.as_ref().and_then(|s| s.looked_up_game_folder()) {
+        if let Some(found) = self
+            .session
+            .as_ref()
+            .and_then(|s| s.looked_up_game_folder())
+        {
             if Path::new(&found).is_dir() {
                 return Some(PathBuf::from(found));
             }
@@ -513,8 +519,10 @@ impl App {
         };
 
         if let Some(error) = &session.namespace_error {
-            self.dialogs
-                .push_back(Dialog::warning("Error", format!("Cannot read namespaces.ini: {error}")));
+            self.dialogs.push_back(Dialog::warning(
+                "Error",
+                format!("Cannot read namespaces.ini: {error}"),
+            ));
         }
 
         if !session.has_instructions() {

@@ -212,7 +212,12 @@ impl PatcherConfig {
         let num_2da: usize = self.patches_2da.iter().map(|p| p.modifiers.len()).sum();
         let num_gff = self.flatten_gff_patches().len();
         let num_ssf: usize = self.patches_ssf.iter().map(|p| p.modifiers.len()).sum();
-        let num_tlk: usize = self.patches_tlk.modifiers.iter().map(|m| m.patch_count()).sum();
+        let num_tlk: usize = self
+            .patches_tlk
+            .modifiers
+            .iter()
+            .map(|m| m.patch_count())
+            .sum();
         let num_install = self.install_list.len();
         let num_nss = self.patches_nss.len();
         let num_ncs = self.patches_ncs.len();

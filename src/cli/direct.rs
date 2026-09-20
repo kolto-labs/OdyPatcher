@@ -253,7 +253,10 @@ fn uninstall(session: &Session, game_folder: &Path) -> i32 {
         println!("[Info] Uninstall completed successfully");
         ExitCode::Success.code()
     } else {
-        fail("Uninstall did not restore a backup", ExitCode::ExceptionDuringInstall)
+        fail(
+            "Uninstall did not restore a backup",
+            ExitCode::ExceptionDuringInstall,
+        )
     }
 }
 
@@ -414,7 +417,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("tslpatchdata")).unwrap();
         std::fs::create_dir_all(dir.join("game")).unwrap();
-        std::fs::write(dir.join("tslpatchdata").join("changes.ini"), b"[Settings]\n").unwrap();
+        std::fs::write(
+            dir.join("tslpatchdata").join("changes.ini"),
+            b"[Settings]\n",
+        )
+        .unwrap();
 
         let mut o = options();
         o.tslpatchdata = Some(dir.to_string_lossy().into_owned());

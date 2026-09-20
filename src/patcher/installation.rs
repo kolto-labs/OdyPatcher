@@ -301,7 +301,8 @@ fn random_token() -> String {
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
     let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mut state = nanos ^ (u64::from(std::process::id()) << 32) ^ counter.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let mut state =
+        nanos ^ (u64::from(std::process::id()) << 32) ^ counter.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     // xorshift64*
     state ^= state >> 12;
     state ^= state << 25;
@@ -421,7 +422,9 @@ pub fn rim_to_mod(
                 if extension.is_empty() {
                     return Err(PatchException::value(format!(
                         "Invalid ResourceType: '{}' (resource type {} of '{}')",
-                        resource.resref, resource.res_type, source.path()
+                        resource.resref,
+                        resource.res_type,
+                        source.path()
                     )));
                 }
                 let file_name = format!("{}.{}", resource.resref, extension);
@@ -508,7 +511,11 @@ mod tests {
         let b = mkstemp(&dir, ".holopatcher_", ".mod").unwrap();
         assert_ne!(a, b);
         assert!(a.is_file() && b.is_file());
-        assert!(a.file_name().unwrap().to_string_lossy().starts_with(".holopatcher_"));
+        assert!(a
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".holopatcher_"));
         assert!(a.to_string_lossy().ends_with(".mod"));
         let d = mkdtemp(&dir, ".holopatcher_tlk_").unwrap();
         assert!(d.is_dir());
@@ -537,12 +544,18 @@ mod tests {
         std::fs::create_dir_all(&modules).unwrap();
         std::fs::write(
             modules.join("danm13.rim"),
-            archive_bytes(ArchiveKind::Rim, &[("a", "utc", b"rim-a"), ("b", "uti", b"rim-b")]),
+            archive_bytes(
+                ArchiveKind::Rim,
+                &[("a", "utc", b"rim-a"), ("b", "uti", b"rim-b")],
+            ),
         )
         .unwrap();
         std::fs::write(
             modules.join("danm13_s.rim"),
-            archive_bytes(ArchiveKind::Rim, &[("a", "utc", b"s-a"), ("c", "ncs", b"s-c")]),
+            archive_bytes(
+                ArchiveKind::Rim,
+                &[("a", "utc", b"s-a"), ("c", "ncs", b"s-c")],
+            ),
         )
         .unwrap();
         std::fs::write(
@@ -569,7 +582,10 @@ mod tests {
         assert_eq!(built.count(), 4);
 
         let bad = rim_to_mod(&modules.join("x.rim"), &modules, "danm13", None).unwrap_err();
-        assert_eq!(bad.message, "Specified file must end with the .mod extension");
+        assert_eq!(
+            bad.message,
+            "Specified file must end with the .mod extension"
+        );
         let missing = rim_to_mod(&modules.join("nope.mod"), &modules, "nope", None).unwrap_err();
         assert_eq!(missing.kind, "FileNotFoundError");
 

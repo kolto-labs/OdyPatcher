@@ -293,7 +293,10 @@ mod tests {
     fn table_changes_are_counted_by_kind() {
         let config = sample();
         // Two additions come from AddRow, one more from CopyRow.
-        assert_eq!(count_table_changes(&config.patches_2da[0].modifiers), (3, 1, 1));
+        assert_eq!(
+            count_table_changes(&config.patches_2da[0].modifiers),
+            (3, 1, 1)
+        );
         let text = to_text(&config, "changes.ini", "info.rtf");
         assert!(text.contains("spells.2da - new rows: 3, modified rows: 1, new columns: 1"));
     }
@@ -315,7 +318,10 @@ mod tests {
 
         assert!(text.contains(" * Location: override"), "{text}");
         assert!(text.contains("--> icon.tga - skip existing"), "{text}");
-        assert!(text.contains("--> other.tga - overwrite existing"), "{text}");
+        assert!(
+            text.contains("--> other.tga - overwrite existing"),
+            "{text}"
+        );
     }
 
     #[test]

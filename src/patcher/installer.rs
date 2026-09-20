@@ -7,14 +7,16 @@ use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
 use super::capsule::{Capsule, ResourceIdentifier};
-use super::casepath::{abspath, normcase_realpath, safe_exists, safe_isdir, safe_isfile, safe_iterdir};
+use super::casepath::{
+    abspath, normcase_realpath, safe_exists, safe_isdir, safe_isfile, safe_iterdir,
+};
 use super::config::{Game, PatcherConfig};
 use super::encoding::decode_ini_text;
 use super::error::{PResult, PatchException};
 use super::ini::CaseInsensitiveDict;
 use super::installation::{
-    determine_game, get_module_root, is_capsule_file, is_mod_path, is_rim_path,
-    mkdtemp, mkstemp, pure_suffix, rim_to_mod,
+    determine_game, get_module_root, is_capsule_file, is_mod_path, is_rim_path, mkdtemp, mkstemp,
+    pure_suffix, rim_to_mod,
 };
 use super::logger::PatchLogger;
 use super::memory::PatcherMemory;
@@ -30,7 +32,11 @@ use super::timeutil::backup_timestamp;
 
 /// `repr()` of a Python `str`.
 fn py_str_repr(text: &str) -> String {
-    let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
     let mut out = String::with_capacity(text.len() + 2);
     out.push(quote);
     for ch in text.chars() {
@@ -43,7 +49,9 @@ fn py_str_repr(text: &str) -> String {
                 out.push('\\');
                 out.push(c);
             }
-            c if (c as u32) < 0x20 || c as u32 == 0x7F => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7F => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -96,7 +104,8 @@ fn expanduser(path: &Path) -> PathBuf {
     let text = path.to_string_lossy();
     if let Some(rest) = text.strip_prefix('~') {
         if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') {
-            if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+            {
                 return PathBuf::from(home).join(rest.trim_start_matches(['/', '\\']));
             }
         }
@@ -190,7 +199,8 @@ impl PatcherModifications for Patch {
         logger: &mut PatchLogger,
         game: Game,
     ) -> PResult<PatchOutput> {
-        self.inner_mut().patch_resource(source, memory, logger, game)
+        self.inner_mut()
+            .patch_resource(source, memory, logger, game)
     }
 
     fn pop_tslpatcher_vars(
@@ -296,7 +306,9 @@ impl ModInstaller {
         // The selected INI owns default source paths.  Its enclosing patch-data
         // directory owns shared inputs; neither is the package's backup root.
         let patch_data_path = Self::resolve_folder(
-            resolved_changes_ini.parent().unwrap_or_else(|| Path::new("")),
+            resolved_changes_ini
+                .parent()
+                .unwrap_or_else(|| Path::new("")),
         );
         let tslpatchdata_path = std::iter::once(patch_data_path.as_path())
             .chain(patch_data_path.ancestors().skip(1))
@@ -309,7 +321,10 @@ impl ModInstaller {
             .map(Path::to_path_buf);
         let mut resolved_mod_path = requested_mod_path.clone();
         if let Some(tslpatchdata) = &tslpatchdata_path {
-            let package_root = tslpatchdata.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+            let package_root = tslpatchdata
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_path_buf();
             Self::ensure_within_root(&requested_mod_path, &package_root, "mod directory")?;
             resolved_mod_path = package_root;
         }
@@ -331,7 +346,11 @@ impl ModInstaller {
     /// `_find_case_insensitive_child(folder, name, directory=...)`: the child
     /// spelled exactly like `name`, else the alphabetically first
     /// case-insensitive match; `directory` restricts to folders / files.
-    fn find_case_insensitive_child(folder: &Path, name: &str, directory: Option<bool>) -> Option<PathBuf> {
+    fn find_case_insensitive_child(
+        folder: &Path,
+        name: &str,
+        directory: Option<bool>,
+    ) -> Option<PathBuf> {
         if !safe_isdir(folder) {
             return None;
         }
@@ -488,7 +507,11 @@ impl ModInstaller {
     }
 
     /// `_resolve_relative_folder_within(root, relative_path, description)`.
-    fn resolve_relative_folder_within(root: &Path, relative_path: &str, description: &str) -> PResult<PathBuf> {
+    fn resolve_relative_folder_within(
+        root: &Path,
+        relative_path: &str,
+        description: &str,
+    ) -> PResult<PathBuf> {
         let root_path = pathify(root);
         let parts = Self::relative_path_parts(relative_path, description, true, false)?;
         let resolved_path = Self::resolve_folder(&join_parts(&root_path, &parts));
@@ -496,12 +519,17 @@ impl ModInstaller {
     }
 
     /// `_resolve_relative_file_within(root, relative_path, description)`.
-    fn resolve_relative_file_within(root: &Path, relative_path: &str, description: &str) -> PResult<PathBuf> {
+    fn resolve_relative_file_within(
+        root: &Path,
+        relative_path: &str,
+        description: &str,
+    ) -> PResult<PathBuf> {
         let root_path = pathify(root);
         let parts = Self::relative_path_parts(relative_path, description, false, false)?;
         let requested_path = join_parts(&root_path, &parts);
         let name = file_name_of(&requested_path);
-        let resolved_parent = Self::resolve_folder(requested_path.parent().unwrap_or_else(|| Path::new("")));
+        let resolved_parent =
+            Self::resolve_folder(requested_path.parent().unwrap_or_else(|| Path::new("")));
         Self::ensure_within_root(&resolved_parent, &root_path, description)?;
         let resolved_path = Self::find_case_insensitive_child(&resolved_parent, &name, Some(false))
             .unwrap_or_else(|| resolved_parent.join(&name));
@@ -509,7 +537,11 @@ impl ModInstaller {
     }
 
     /// `_resolve_file_path_within(root, filepath, description)`.
-    fn resolve_file_path_within(root: &Path, filepath: &Path, description: &str) -> PResult<PathBuf> {
+    fn resolve_file_path_within(
+        root: &Path,
+        filepath: &Path,
+        description: &str,
+    ) -> PResult<PathBuf> {
         let root_path = pathify(root);
         let requested_path = abspath(&pathify(filepath));
         Self::ensure_within_root(&requested_path, &root_path, description)?;
@@ -520,7 +552,8 @@ impl ModInstaller {
             false,
         )?;
         let name = file_name_of(&requested_path);
-        let resolved_parent = Self::resolve_folder(requested_path.parent().unwrap_or_else(|| Path::new("")));
+        let resolved_parent =
+            Self::resolve_folder(requested_path.parent().unwrap_or_else(|| Path::new("")));
         Self::ensure_within_root(&resolved_parent, &root_path, description)?;
         let resolved_path = Self::find_case_insensitive_child(&resolved_parent, &name, Some(false))
             .unwrap_or_else(|| resolved_parent.join(&name));
@@ -565,12 +598,16 @@ impl ModInstaller {
     /// lower-cases `patch.saveas` as a side effect.
     fn resolve_patch_output_paths(&self, patch: &mut ModBase) -> PResult<(PathBuf, PathBuf)> {
         patch.saveas = Self::validate_output_filename(&patch.saveas)?.to_lowercase();
-        let destination_parts = Self::relative_path_parts(&patch.destination, "patch destination", true, false)?;
+        let destination_parts =
+            Self::relative_path_parts(&patch.destination, "patch destination", true, false)?;
         let requested_destination = join_parts(&self.game_path, &destination_parts);
 
         let (container_path, output_path) = if is_capsule_file(&patch.destination) {
-            let destination_folder =
-                Self::resolve_folder(requested_destination.parent().unwrap_or_else(|| Path::new("")));
+            let destination_folder = Self::resolve_folder(
+                requested_destination
+                    .parent()
+                    .unwrap_or_else(|| Path::new("")),
+            );
             Self::ensure_within_root(&destination_folder, &self.game_path, "patch destination")?;
             let output_path = destination_folder.join(file_name_of(&requested_destination));
             (output_path.clone(), output_path)
@@ -608,14 +645,19 @@ impl ModInstaller {
                     }
                     if let TlkModifier::Merge(merge) = modifier {
                         if let Some(tlk_filepath_f) = &merge.tlk_filepath_f {
-                            self.resolve_source_file_path(tlk_filepath_f, "female TLK source file")?;
+                            self.resolve_source_file_path(
+                                tlk_filepath_f,
+                                "female TLK source file",
+                            )?;
                         }
                     }
                 }
                 if let Some(female) = tlk.female.take() {
                     let mut nested = [Patch::Tlk(*female)];
                     let result = self.validate_patch_paths(&mut nested);
-                    let [Patch::Tlk(female)] = nested else { unreachable!() };
+                    let [Patch::Tlk(female)] = nested else {
+                        unreachable!()
+                    };
                     tlk.female = Some(Box::new(female));
                     result?;
                 }
@@ -638,7 +680,8 @@ impl ModInstaller {
         let parent = Self::resolve_folder(requested_path.parent().unwrap_or_else(|| Path::new("")));
         let lowercase_name = file_name_of(&requested_path).to_lowercase();
         let lowercase_path = parent.join(&lowercase_name);
-        let existing_path = Self::find_case_insensitive_child(&parent, &lowercase_name, Some(false));
+        let existing_path =
+            Self::find_case_insensitive_child(&parent, &lowercase_name, Some(false));
 
         let Some(existing_path) = existing_path else {
             return Ok(lowercase_path);
@@ -650,7 +693,8 @@ impl ModInstaller {
         let temp_stem = format!(".{lowercase_name}.holopatcher");
         let mut temp_path = parent.join(format!("{temp_stem}.tmp"));
         let mut index = 2;
-        while Self::find_case_insensitive_child(&parent, &file_name_of(&temp_path), None).is_some() {
+        while Self::find_case_insensitive_child(&parent, &file_name_of(&temp_path), None).is_some()
+        {
             temp_path = parent.join(format!("{temp_stem}.{index}.tmp"));
             index += 1;
         }
@@ -659,7 +703,10 @@ impl ModInstaller {
             .map_err(|e| PatchException::from_io(&e, Some(&existing_path.to_string_lossy())))?;
         if let Err(err) = std::fs::rename(&temp_path, &lowercase_path) {
             let _ = std::fs::rename(&temp_path, &existing_path);
-            return Err(PatchException::from_io(&err, Some(&temp_path.to_string_lossy())));
+            return Err(PatchException::from_io(
+                &err,
+                Some(&temp_path.to_string_lossy()),
+            ));
         }
         Ok(lowercase_path)
     }
@@ -716,12 +763,21 @@ impl ModInstaller {
     pub fn config(&mut self) -> PResult<&mut PatcherConfig> {
         if self.config.is_none() {
             Self::ensure_within_root(&self.changes_ini_path, &self.mod_path, "changes INI")?;
-            Self::ensure_within_root(&self.patch_data_path, &self.mod_path, "namespace source folder")?;
+            Self::ensure_within_root(
+                &self.patch_data_path,
+                &self.mod_path,
+                "namespace source folder",
+            )?;
             if let Some(tslpatchdata_path) = &self.tslpatchdata_path {
-                Self::ensure_within_root(tslpatchdata_path, &self.mod_path, "shared patch-data folder")?;
+                Self::ensure_within_root(
+                    tslpatchdata_path,
+                    &self.mod_path,
+                    "shared patch-data folder",
+                )?;
             }
-            let ini_file_bytes = std::fs::read(&self.changes_ini_path)
-                .map_err(|e| PatchException::from_io(&e, Some(&self.changes_ini_path.to_string_lossy())))?;
+            let ini_file_bytes = std::fs::read(&self.changes_ini_path).map_err(|e| {
+                PatchException::from_io(&e, Some(&self.changes_ini_path.to_string_lossy()))
+            })?;
             let (ini_text, forced) = decode_ini_text(&ini_file_bytes);
             if forced {
                 self.log.add_warning(format!(
@@ -739,18 +795,34 @@ impl ModInstaller {
             )?;
             self.config = Some(config);
 
-            let required_files = self.config.as_ref().map(|c| c.required_files.clone()).unwrap_or_default();
-            let required_messages = self.config.as_ref().map(|c| c.required_messages.clone()).unwrap_or_default();
+            let required_files = self
+                .config
+                .as_ref()
+                .map(|c| c.required_files.clone())
+                .unwrap_or_default();
+            let required_messages = self
+                .config
+                .as_ref()
+                .map(|c| c.required_messages.clone())
+                .unwrap_or_default();
             if !required_files.is_empty() {
-                let override_folder =
-                    Self::resolve_relative_folder_within(&self.game_path, "override", "required-file destination")?;
+                let override_folder = Self::resolve_relative_folder_within(
+                    &self.game_path,
+                    "override",
+                    "required-file destination",
+                )?;
                 for (i, files) in required_files.iter().enumerate() {
                     for file in files {
-                        let requiredfile_path =
-                            Self::resolve_relative_file_within(&override_folder, file, "required file")?;
+                        let requiredfile_path = Self::resolve_relative_file_within(
+                            &override_folder,
+                            file,
+                            "required file",
+                        )?;
                         if !safe_isfile(&requiredfile_path) {
-                            let mut required_message =
-                                required_messages.get(i).map(|m| m.trim().to_string()).unwrap_or_default();
+                            let mut required_message = required_messages
+                                .get(i)
+                                .map(|m| m.trim().to_string())
+                                .unwrap_or_default();
                             if required_message.is_empty() {
                                 required_message =
                                     format!("Cannot locate required file {file}, unable to continue with install!");
@@ -773,7 +845,11 @@ impl ModInstaller {
         let mut package_root = self.mod_path.clone();
         let timestamp = backup_timestamp();
         if file_name_of(&self.mod_path).to_lowercase() == "tslpatchdata" {
-            package_root = self.mod_path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+            package_root = self
+                .mod_path
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_path_buf();
         } else if safe_isdir(&Self::resolve_relative_folder_within(
             &self.mod_path,
             "tslpatchdata",
@@ -781,7 +857,8 @@ impl ModInstaller {
         )?) {
             package_root = self.mod_path.clone();
         }
-        let uninstall_dir = Self::resolve_relative_folder_within(&package_root, "uninstall", "uninstall folder")?;
+        let uninstall_dir =
+            Self::resolve_relative_folder_within(&package_root, "uninstall", "uninstall folder")?;
         if uninstall_dir.is_dir() {
             if let Err(err) = std::fs::remove_dir_all(&uninstall_dir) {
                 let exc = PatchException::from_io(&err, Some(&uninstall_dir.to_string_lossy()));
@@ -791,21 +868,37 @@ impl ModInstaller {
                 ));
             }
         }
-        let backup_parent = Self::resolve_relative_folder_within(&package_root, "backup", "backup folder")?;
-        let backup_dir = Self::ensure_within_root(&backup_parent.join(&timestamp), &package_root, "backup folder")?;
+        let backup_parent =
+            Self::resolve_relative_folder_within(&package_root, "backup", "backup folder")?;
+        let backup_dir = Self::ensure_within_root(
+            &backup_parent.join(&timestamp),
+            &package_root,
+            "backup folder",
+        )?;
         if let Err(err) = std::fs::create_dir_all(&backup_dir) {
             let exc = PatchException::from_io(&err, Some(&backup_dir.to_string_lossy()));
-            self.log.add_error(format!("Could not create backup folder: {}", simplified_tuple(&exc)));
+            self.log.add_error(format!(
+                "Could not create backup folder: {}",
+                simplified_tuple(&exc)
+            ));
             return Err(exc);
         }
-        self.log.add_note(format!("Using backup directory: '{}'", backup_dir.display()));
+        self.log.add_note(format!(
+            "Using backup directory: '{}'",
+            backup_dir.display()
+        ));
         self.backup_dir = Some(backup_dir.clone());
         self.processed_backup_files = HashSet::new();
         Ok(backup_dir)
     }
 
     /// `create_backup(self.log, destination, *self.backup(), subdirectory, is_new_file=...)`.
-    fn backup_file(&mut self, destination: &Path, subdirectory: &Path, is_new_file: bool) -> PResult<()> {
+    fn backup_file(
+        &mut self,
+        destination: &Path,
+        subdirectory: &Path,
+        is_new_file: bool,
+    ) -> PResult<()> {
         let backup_dir = self.backup()?;
         create_backup(
             &mut self.log,
@@ -819,7 +912,11 @@ impl ModInstaller {
 
     /// `handle_capsule_and_backup(patch, output_container_path)`: prepare the
     /// target; archive backups are deferred until a write is ready.
-    fn handle_capsule_and_backup(&mut self, patch: &ModBase, output_container_path: &Path) -> PResult<PatchTarget> {
+    fn handle_capsule_and_backup(
+        &mut self,
+        patch: &ModBase,
+        output_container_path: &Path,
+    ) -> PResult<PatchTarget> {
         if is_capsule_file(&patch.destination) {
             let container_name = file_name_of(output_container_path);
             let module_root = get_module_root(&output_container_path.to_string_lossy());
@@ -858,25 +955,39 @@ impl ModInstaller {
                         String::new()
                     }
                 ));
-                let modules_folder = Self::resolve_relative_folder_within(&self.game_path, "modules", "module folder")?;
-                let mut module_source_names = vec![format!("{module_root}.rim"), format!("{module_root}_s.rim")];
+                let modules_folder = Self::resolve_relative_folder_within(
+                    &self.game_path,
+                    "modules",
+                    "module folder",
+                )?;
+                let mut module_source_names =
+                    vec![format!("{module_root}.rim"), format!("{module_root}_s.rim")];
                 if is_k2 {
                     module_source_names.push(format!("{module_root}_dlg.erf"));
                 }
                 for module_source_name in &module_source_names {
-                    let module_source =
-                        Self::resolve_relative_file_within(&modules_folder, module_source_name, "module source")?;
+                    let module_source = Self::resolve_relative_file_within(
+                        &modules_folder,
+                        module_source_name,
+                        "module source",
+                    )?;
                     if safe_exists(&module_source) {
                         Self::ensure_within_root(&module_source, &modules_folder, "module source")?;
                     }
                 }
 
-                let parent = output_container_path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+                let parent = output_container_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .to_path_buf();
                 std::fs::create_dir_all(&parent)?;
                 let staged = mkstemp(&parent, ".holopatcher_", ".mod")?;
                 if let Err(exc) = rim_to_mod(&staged, &modules_folder, &module_root, self.game) {
                     let _ = std::fs::remove_file(&staged);
-                    self.log.add_error(format!("Failed to build module '{container_name}': {}", exc.message));
+                    self.log.add_error(format!(
+                        "Failed to build module '{container_name}': {}",
+                        exc.message
+                    ));
                     return Err(exc);
                 }
                 capsule_path = staged.clone();
@@ -895,7 +1006,11 @@ impl ModInstaller {
         }
 
         let backup_subdirectory = relpath(output_container_path, &self.game_path);
-        self.backup_file(&output_container_path.join(&patch.saveas), &backup_subdirectory, false)?;
+        self.backup_file(
+            &output_container_path.join(&patch.saveas),
+            &backup_subdirectory,
+            false,
+        )?;
         let exists = output_container_path.join(&patch.saveas).is_file();
         Ok(PatchTarget {
             exists,
@@ -906,19 +1021,28 @@ impl ModInstaller {
 
     /// `_commit_staged_capsule(staged, output)`: atomically install a newly
     /// constructed capsule and register it for uninstall.
-    fn commit_staged_capsule(&mut self, staged_capsule_path: &Path, output_container_path: &Path) -> PResult<()> {
-        let parent = output_container_path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+    fn commit_staged_capsule(
+        &mut self,
+        staged_capsule_path: &Path,
+        output_container_path: &Path,
+    ) -> PResult<()> {
+        let parent = output_container_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_path_buf();
         let backup_subdirectory = relpath(&parent, &self.game_path);
         let is_new_file = !safe_isfile(output_container_path);
         self.backup_file(output_container_path, &backup_subdirectory, is_new_file)?;
-        std::fs::rename(staged_capsule_path, output_container_path)
-            .map_err(|e| PatchException::from_io(&e, Some(&staged_capsule_path.to_string_lossy())))?;
+        std::fs::rename(staged_capsule_path, output_container_path).map_err(|e| {
+            PatchException::from_io(&e, Some(&staged_capsule_path.to_string_lossy()))
+        })?;
         Ok(())
     }
 
     /// `load_resource_file(source)`: the file's bytes.
     pub fn load_resource_file(&self, source: &Path) -> PResult<Vec<u8>> {
-        std::fs::read(source).map_err(|e| PatchException::from_io(&e, Some(&source.to_string_lossy())))
+        std::fs::read(source)
+            .map_err(|e| PatchException::from_io(&e, Some(&source.to_string_lossy())))
     }
 
     /// `lookup_resource(patch, output_container_path, exists_at_output_location, capsule)`:
@@ -938,7 +1062,9 @@ impl ModInstaller {
                 return self.load_resource_file(&source_path).map(Some);
             }
             match capsule {
-                None => self.load_resource_file(&output_container_path.join(&patch.saveas)).map(Some),
+                None => self
+                    .load_resource_file(&output_container_path.join(&patch.saveas))
+                    .map(Some),
                 Some(capsule) => {
                     let identifier = ResourceIdentifier::from_path(&patch.saveas);
                     let (resname, restype) = identifier.unpack();
@@ -963,7 +1089,11 @@ impl ModInstaller {
     /// `handle_modrim_shadow(patch, output_container_path)`: warn when a
     /// patch into a RIM/ERF is overshadowed by an existing `.mod`.
     fn handle_modrim_shadow(&mut self, patch: &ModBase, output_container_path: &Path) {
-        let mod_name = format!("{}.mod", get_module_root(&file_name_of(output_container_path))).to_lowercase();
+        let mod_name = format!(
+            "{}.mod",
+            get_module_root(&file_name_of(output_container_path))
+        )
+        .to_lowercase();
         let mod_path = output_container_path.with_file_name(&mod_name);
         let existing_mod_path = Self::find_case_insensitive_file(&mod_path);
         if output_container_path != mod_path && existing_mod_path.is_some() {
@@ -982,12 +1112,16 @@ impl ModInstaller {
             return Ok(());
         }
 
-        let override_dir = Self::resolve_relative_folder_within(&self.game_path, "override", "Override folder")?;
-        let Some(override_resource_path) = Self::find_case_insensitive_file(&override_dir.join(&patch.saveas)) else {
+        let override_dir =
+            Self::resolve_relative_folder_within(&self.game_path, "override", "Override folder")?;
+        let Some(override_resource_path) =
+            Self::find_case_insensitive_file(&override_dir.join(&patch.saveas))
+        else {
             return Ok(());
         };
         if override_type == OverrideType::RENAME {
-            let mut renamed_file_path = override_dir.join(format!("old_{}", patch.saveas).to_lowercase());
+            let mut renamed_file_path =
+                override_dir.join(format!("old_{}", patch.saveas).to_lowercase());
             let mut i = 2;
             let filestem = renamed_file_path
                 .file_stem()
@@ -995,12 +1129,14 @@ impl ModInstaller {
                 .unwrap_or_default();
             let suffix = pure_suffix(&file_name_of(&renamed_file_path));
             while Self::find_case_insensitive_file(&renamed_file_path).is_some() {
-                renamed_file_path = override_dir.join(format!("{filestem} ({i}){suffix}").to_lowercase());
+                renamed_file_path =
+                    override_dir.join(format!("{filestem} ({i}){suffix}").to_lowercase());
                 i += 1;
             }
             if let Err(err) = std::fs::rename(&override_resource_path, &renamed_file_path) {
                 // Handle exceptions such as permission errors or file in use.
-                let exc = PatchException::from_io(&err, Some(&override_resource_path.to_string_lossy()));
+                let exc =
+                    PatchException::from_io(&err, Some(&override_resource_path.to_string_lossy()));
                 self.log.add_error(format!(
                     "Could not rename '{}' to '{}' in the Override folder: {}",
                     patch.saveas,
@@ -1024,7 +1160,11 @@ impl ModInstaller {
     fn should_patch(&mut self, patch: &Patch, exists: bool, capsule: Option<&Capsule>) -> bool {
         let base = patch.base();
         let local_folder = self.local_folder_name(&base.destination);
-        let container_type = if capsule.is_none() { "folder" } else { "archive" };
+        let container_type = if capsule.is_none() {
+            "folder"
+        } else {
+            "archive"
+        };
         let action = &base.action[..base.action.len().saturating_sub(1)];
         let same_name = base.saveas.to_lowercase() == base.sourcefile.to_lowercase();
 
@@ -1080,7 +1220,11 @@ impl ModInstaller {
             }
         }
 
-        let save_type = if capsule.is_some() && same_name { "adding" } else { "saving" };
+        let save_type = if capsule.is_some() && same_name {
+            "adding"
+        } else {
+            "saving"
+        };
         let saving_as_str = if !same_name {
             format!("as '{}' in", base.saveas)
         } else {
@@ -1164,7 +1308,14 @@ impl ModInstaller {
 
             let mut target: Option<PatchTarget> = None;
             let errors_before = self.log.errors().len();
-            let outcome = match self.install_one(&mut patches_list, patch_index, &mut memory, &mut state, &mut target, errors_before) {
+            let outcome = match self.install_one(
+                &mut patches_list,
+                patch_index,
+                &mut memory,
+                &mut state,
+                &mut target,
+                errors_before,
+            ) {
                 Ok(outcome) => outcome,
                 Err(exc) => {
                     let (exc_type, exc_msg) = exc.simplify();
@@ -1217,8 +1368,16 @@ impl ModInstaller {
 
         let warning_count = self.log.warnings().len() - installation_warnings_before;
         let error_count = self.log.errors().len() - installation_errors_before;
-        let operation_label = if self.log.patches_configured == 1 { "operation" } else { "operations" };
-        let warning_label = if warning_count == 1 { "warning" } else { "warnings" };
+        let operation_label = if self.log.patches_configured == 1 {
+            "operation"
+        } else {
+            "operations"
+        };
+        let warning_label = if warning_count == 1 {
+            "warning"
+        } else {
+            "warnings"
+        };
         let error_label = if error_count == 1 { "error" } else { "errors" };
         let summary = format!(
             "Processed {} {operation_label}: {} completed, {} skipped, {} failed, {warning_count} {warning_label}, {error_count} {error_label}.",
@@ -1228,11 +1387,14 @@ impl ModInstaller {
             self.log.patches_failed
         );
         if cancelled {
-            self.log.add_warning(format!("Installation cancelled. {summary}"));
+            self.log
+                .add_warning(format!("Installation cancelled. {summary}"));
         } else if self.log.patches_failed > 0 || error_count > 0 {
-            self.log.add_error(format!("Installation completed with errors. {summary}"));
+            self.log
+                .add_error(format!("Installation completed with errors. {summary}"));
         } else {
-            self.log.add_note(format!("Successfully completed installation. {summary}"));
+            self.log
+                .add_note(format!("Successfully completed installation. {summary}"));
         }
         Ok(())
     }
@@ -1272,8 +1434,10 @@ impl ModInstaller {
 
         {
             let base = patches[index].base();
-            if base.skip_if_not_replace && !base.replace_file && !is_capsule_file(&base.destination) {
-                let (_, output_path) = self.resolve_patch_output_paths(patches[index].base_mut())?;
+            if base.skip_if_not_replace && !base.replace_file && !is_capsule_file(&base.destination)
+            {
+                let (_, output_path) =
+                    self.resolve_patch_output_paths(patches[index].base_mut())?;
                 if Self::find_case_insensitive_file(&output_path).is_some() {
                     let patch = patches[index].clone();
                     self.should_patch(&patch, true, None);
@@ -1299,7 +1463,8 @@ impl ModInstaller {
         }
         let mut output_container_path = self.prepare_output_path(patches[index].base_mut())?;
         let base_snapshot = patches[index].base().clone();
-        *target_slot = Some(self.handle_capsule_and_backup(&base_snapshot, &output_container_path)?);
+        *target_slot =
+            Some(self.handle_capsule_and_backup(&base_snapshot, &output_container_path)?);
         let target = target_slot.as_mut().expect("set above");
         let should = {
             let patch = patches[index].clone();
@@ -1330,16 +1495,17 @@ impl ModInstaller {
             ));
         }
 
-        let patched_data = match patches[index].patch_resource(&data_to_patch, memory, &mut self.log, game)? {
-            PatchOutput::Skip => {
-                self.log.add_note(format!(
-                    "Skipping '{}' - patch_resource determined that this file can be skipped.",
-                    base_snapshot.sourcefile
-                ));
-                return Ok(Outcome::Skipped);
-            }
-            PatchOutput::Bytes(bytes) => bytes,
-        };
+        let patched_data =
+            match patches[index].patch_resource(&data_to_patch, memory, &mut self.log, game)? {
+                PatchOutput::Skip => {
+                    self.log.add_note(format!(
+                        "Skipping '{}' - patch_resource determined that this file can be skipped.",
+                        base_snapshot.sourcefile
+                    ));
+                    return Ok(Outcome::Skipped);
+                }
+                PatchOutput::Bytes(bytes) => bytes,
+            };
         let base = patches[index].base().clone();
 
         if target.capsule.is_some() {
@@ -1357,7 +1523,10 @@ impl ModInstaller {
                 }
             }
             if target.staged_capsule_path.is_none() {
-                let parent = output_container_path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+                let parent = output_container_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .to_path_buf();
                 let backup_subdirectory = relpath(&parent, &self.game_path);
                 self.backup_file(&output_container_path, &backup_subdirectory, false)?;
             }
@@ -1372,11 +1541,11 @@ impl ModInstaller {
             self.handle_modrim_shadow(&base, &output_container_path);
             let identifier = ResourceIdentifier::from_path(&base.saveas);
             let (resname, restype) = identifier.unpack();
-            target
-                .capsule
-                .as_mut()
-                .expect("capsule target")
-                .add(resname, restype, &patched_data)?;
+            target.capsule.as_mut().expect("capsule target").add(
+                resname,
+                restype,
+                &patched_data,
+            )?;
             if let Some(staged) = target.staged_capsule_path.clone() {
                 self.commit_staged_capsule(&staged, &output_container_path)?;
             }
@@ -1454,7 +1623,11 @@ impl ModInstaller {
 
     /// `_install_tlk_pair(patch, memory)`: stage both tables; a failed commit
     /// restores the pair and publishes no tokens.
-    fn install_tlk_pair(&mut self, patch: &mut ModificationsTLK, memory: &mut PatcherMemory) -> PResult<()> {
+    fn install_tlk_pair(
+        &mut self,
+        patch: &mut ModificationsTLK,
+        memory: &mut PatcherMemory,
+    ) -> PResult<()> {
         let game = self.game.expect("checked by install()");
         let Some(female) = patch.female.clone() else {
             return Err(PatchException::value("Missing female TLK operation."));
@@ -1464,7 +1637,9 @@ impl ModInstaller {
         let mut members: [ModBase; 2] = [patch.base.clone(), female.base.clone()];
         for member in members.iter_mut() {
             if is_capsule_file(&member.destination) {
-                return Err(PatchException::value("Paired dialog TLKs must be loose files."));
+                return Err(PatchException::value(
+                    "Paired dialog TLKs must be loose files.",
+                ));
             }
             let (folder, requested) = self.resolve_patch_output_paths(member)?;
             let existing = Self::find_case_insensitive_file(&requested);
@@ -1495,7 +1670,13 @@ impl ModInstaller {
             members[0].saveas, members[1].saveas
         ));
         let mut pending_memory = memory.clone();
-        let (output_m, output_f) = patch.patch_pair(&inputs[0], &inputs[1], &mut pending_memory, &mut self.log, game)?;
+        let (output_m, output_f) = patch.patch_pair(
+            &inputs[0],
+            &inputs[1],
+            &mut pending_memory,
+            &mut self.log,
+            game,
+        )?;
         let outputs = [output_m, output_f];
 
         let mut stages: Vec<PathBuf> = Vec::new();
@@ -1504,23 +1685,32 @@ impl ModInstaller {
         let attempt = (|| -> PResult<()> {
             // No original is renamed or overwritten until both serializations and backups succeed.
             for ((requested, existing), output) in paths.iter().zip(outputs.iter()) {
-                let parent = requested.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+                let parent = requested
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .to_path_buf();
                 std::fs::create_dir_all(&parent)?;
                 let stage = mkdtemp(&parent, ".holopatcher_tlk_")?;
                 stages.push(stage.clone());
                 std::fs::write(stage.join("new.tlk"), output)?;
                 if let Some(existing) = existing {
-                    std::fs::copy(existing, stage.join("original.tlk"))
-                        .map_err(|e| PatchException::from_io(&e, Some(&existing.to_string_lossy())))?;
+                    std::fs::copy(existing, stage.join("original.tlk")).map_err(|e| {
+                        PatchException::from_io(&e, Some(&existing.to_string_lossy()))
+                    })?;
                 }
                 let subdirectory = relpath(&parent, &self.game_path);
-                self.backup_file(existing.as_deref().unwrap_or(requested), &subdirectory, false)?;
+                self.backup_file(
+                    existing.as_deref().unwrap_or(requested),
+                    &subdirectory,
+                    false,
+                )?;
             }
             for ((requested, existing), stage) in paths.iter().zip(stages.iter()) {
                 committed.push((requested.clone(), existing.clone(), stage.clone()));
                 let output_path = Self::lowercase_file_path(requested)?;
-                std::fs::rename(stage.join("new.tlk"), &output_path)
-                    .map_err(|e| PatchException::from_io(&e, Some(&output_path.to_string_lossy())))?;
+                std::fs::rename(stage.join("new.tlk"), &output_path).map_err(|e| {
+                    PatchException::from_io(&e, Some(&output_path.to_string_lossy()))
+                })?;
             }
             Ok(())
         })();
@@ -1570,14 +1760,19 @@ impl ModInstaller {
     /// `get_tlk_patches(config)`: the `[TLKList]` operation with its source
     /// paths resolved, paired with a `dialogf.tlk` companion when one exists
     /// beside the output. Empty when the list has no modifiers.
-    pub fn get_tlk_patches(&self, mut patches_tlk: ModificationsTLK) -> PResult<Vec<ModificationsTLK>> {
+    pub fn get_tlk_patches(
+        &self,
+        mut patches_tlk: ModificationsTLK,
+    ) -> PResult<Vec<ModificationsTLK>> {
         patches_tlk.female = None;
         if patches_tlk.modifiers.is_empty() {
             return Ok(Vec::new());
         }
         for modifier in patches_tlk.modifiers.iter_mut() {
             if let Some(tlk_filepath) = modifier.tlk_filepath().cloned() {
-                modifier.set_tlk_filepath(self.resolve_source_file_path(&tlk_filepath, "TLK source file")?);
+                modifier.set_tlk_filepath(
+                    self.resolve_source_file_path(&tlk_filepath, "TLK source file")?,
+                );
             }
             if let TlkModifier::Merge(merge) = modifier {
                 merge.tlk_filepath_f = None;
@@ -1590,7 +1785,8 @@ impl ModInstaller {
         }
         let mut probe = patches_tlk.base.clone();
         let (folder, _) = self.resolve_patch_output_paths(&mut probe)?;
-        let female_dialog = Self::resolve_relative_file_within(&folder, "dialogf.tlk", "female dialog TLK")?;
+        let female_dialog =
+            Self::resolve_relative_file_within(&folder, "dialogf.tlk", "female dialog TLK")?;
         if !safe_isfile(&female_dialog) {
             return Ok(vec![patches_tlk]);
         }
@@ -1598,9 +1794,18 @@ impl ModInstaller {
         female.base.saveas = "dialogf.tlk".to_string();
         female.store_memory = false;
         female.modifiers = Vec::new();
-        let source_folder = self.resolve_source_folder(&patches_tlk.base.sourcefolder, "female TLK source folder")?;
-        let source_parts = Self::relative_path_parts(&patches_tlk.sourcefile_f, "female TLK source file", false, true)?;
-        let source_f = self.resolve_source_file_path(&join_parts(&source_folder, &source_parts), "female TLK source file")?;
+        let source_folder =
+            self.resolve_source_folder(&patches_tlk.base.sourcefolder, "female TLK source folder")?;
+        let source_parts = Self::relative_path_parts(
+            &patches_tlk.sourcefile_f,
+            "female TLK source file",
+            false,
+            true,
+        )?;
+        let source_f = self.resolve_source_file_path(
+            &join_parts(&source_folder, &source_parts),
+            "female TLK source file",
+        )?;
         let mut has_pair = false;
         for modifier in patches_tlk.modifiers.iter_mut() {
             match modifier {
@@ -1632,7 +1837,11 @@ fn windows_parts(text: &str) -> Vec<String> {
 /// `PureWindowsPath(text)` is absolute, or has a drive or a root.
 fn windows_is_absolute(text: &str) -> bool {
     let bytes = text.as_bytes();
-    if bytes.first().map(|b| *b == b'/' || *b == b'\\').unwrap_or(false) {
+    if bytes
+        .first()
+        .map(|b| *b == b'/' || *b == b'\\')
+        .unwrap_or(false)
+    {
         return true;
     }
     bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
@@ -1698,15 +1907,28 @@ mod tests {
 
     #[test]
     fn relpath_matches_os_path_relpath() {
-        assert_eq!(relpath(Path::new("/a/b/c"), Path::new("/a")), PathBuf::from("b/c"));
-        assert_eq!(relpath(Path::new("/a"), Path::new("/a")), PathBuf::from("."));
-        assert_eq!(relpath(Path::new("/a/b"), Path::new("/a/c/d")), PathBuf::from("../../b"));
+        assert_eq!(
+            relpath(Path::new("/a/b/c"), Path::new("/a")),
+            PathBuf::from("b/c")
+        );
+        assert_eq!(
+            relpath(Path::new("/a"), Path::new("/a")),
+            PathBuf::from(".")
+        );
+        assert_eq!(
+            relpath(Path::new("/a/b"), Path::new("/a/c/d")),
+            PathBuf::from("../../b")
+        );
     }
 
     #[test]
     fn relative_path_parts_rejects_what_python_rejects() {
-        let parts = |p: &str| ModInstaller::relative_path_parts(p, "patch destination", true, false);
-        assert_eq!(parts("Modules\\danm13.mod").unwrap(), vec!["Modules", "danm13.mod"]);
+        let parts =
+            |p: &str| ModInstaller::relative_path_parts(p, "patch destination", true, false);
+        assert_eq!(
+            parts("Modules\\danm13.mod").unwrap(),
+            vec!["Modules", "danm13.mod"]
+        );
         assert_eq!(parts("./override/").unwrap(), vec!["override"]);
         assert!(parts("").unwrap().is_empty());
         assert_eq!(
@@ -1744,7 +1966,9 @@ mod tests {
             "Invalid output filename: a path value is required."
         );
         assert_eq!(
-            ModInstaller::relative_path_parts("a\0", "x", true, false).unwrap_err().message,
+            ModInstaller::relative_path_parts("a\0", "x", true, false)
+                .unwrap_err()
+                .message,
             "Invalid x: paths cannot contain null bytes."
         );
         assert!(ModInstaller::relative_path_parts("../shared", "x", true, true).is_ok());
@@ -1761,8 +1985,14 @@ mod tests {
         assert_eq!(installer.game, Some(Game::K1));
         assert_eq!(installer.mod_path, package);
         assert_eq!(installer.patch_data_path, package.join("tslpatchdata"));
-        assert_eq!(installer.tslpatchdata_path, Some(package.join("tslpatchdata")));
-        assert_eq!(installer.changes_ini_path, package.join("tslpatchdata").join("changes.ini"));
+        assert_eq!(
+            installer.tslpatchdata_path,
+            Some(package.join("tslpatchdata"))
+        );
+        assert_eq!(
+            installer.changes_ini_path,
+            package.join("tslpatchdata").join("changes.ini")
+        );
 
         // Case-insensitive lookups and a tslpatchdata mod path collapse to the package root.
         let by_data = ModInstaller::new(
@@ -1774,9 +2004,14 @@ mod tests {
         .unwrap();
         assert_eq!(by_data.mod_path, package);
 
-        let missing = ModInstaller::new(&package, &game, Path::new("nope.ini"), None).err().expect("missing ini must fail");
+        let missing = ModInstaller::new(&package, &game, Path::new("nope.ini"), None)
+            .err()
+            .expect("missing ini must fail");
         assert_eq!(missing.kind, "FileNotFoundError");
-        assert_eq!(missing.message, "Could not find the changes ini file on disk.");
+        assert_eq!(
+            missing.message,
+            "Could not find the changes ini file on disk."
+        );
         assert_eq!(missing.simplify().1, "Could not find the file: 'nope.ini'");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1788,7 +2023,8 @@ mod tests {
             "required",
             "[Settings]\nRequired=k_needed.ncs\nRequiredMsg=Install the base mod first.\n",
         );
-        let mut installer = ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
+        let mut installer =
+            ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
         let err = installer.config().unwrap_err();
         assert_eq!(err.kind, "ImportError");
         assert_eq!(err.message, "Install the base mod first.");
@@ -1799,7 +2035,8 @@ mod tests {
 
         let not_a_game = dir.join("NotAGame");
         std::fs::create_dir_all(&not_a_game).unwrap();
-        let mut bad = ModInstaller::new(&package, &not_a_game, Path::new("changes.ini"), None).unwrap();
+        let mut bad =
+            ModInstaller::new(&package, &not_a_game, Path::new("changes.ini"), None).unwrap();
         let err = bad.install(None, None).unwrap_err();
         assert_eq!(err.kind, "RuntimeError");
         assert_eq!(
@@ -1812,7 +2049,8 @@ mod tests {
     #[test]
     fn should_patch_reproduces_python_notes() {
         let (dir, game, package) = fixture("notes", "[Settings]\n");
-        let mut installer = ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
+        let mut installer =
+            ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
 
         let mut install = InstallFile::new("a.utc", true);
         install.base.destination = "Override".into();
@@ -1860,7 +2098,11 @@ mod tests {
         let missing_capsule = Capsule::new(&game.join("Modules").join("nope.mod")).unwrap();
         let mut into_capsule = InstallFile::new("a.utc", false);
         into_capsule.base.destination = "Modules\\nope.mod".into();
-        assert!(!installer.should_patch(&Patch::Install(into_capsule.clone()), false, Some(&missing_capsule)));
+        assert!(!installer.should_patch(
+            &Patch::Install(into_capsule.clone()),
+            false,
+            Some(&missing_capsule)
+        ));
         assert_eq!(
             installer.log.all_logs.last().unwrap().message,
             "The capsule 'Modules\\nope.mod' did not exist when attempting to copy 'a.utc'. Skipping file..."
@@ -1868,7 +2110,11 @@ mod tests {
         assert_eq!(installer.log.errors().len(), 1);
 
         std::fs::write(game.join("Modules").join("nope.mod"), b"").unwrap();
-        assert!(installer.should_patch(&Patch::Install(into_capsule), false, Some(&missing_capsule)));
+        assert!(installer.should_patch(
+            &Patch::Install(into_capsule),
+            false,
+            Some(&missing_capsule)
+        ));
         assert_eq!(
             installer.log.all_logs.last().unwrap().message,
             "Copying 'a.utc' and adding to the 'Modules\\nope.mod' archive"
@@ -1889,31 +2135,57 @@ mod tests {
         std::fs::write(game.join("Override").join("SPELLS.2DA"), b"old-table").unwrap();
         std::fs::write(game.join("Override").join("exists.utc"), b"game-copy").unwrap();
 
-        let mut installer = ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
+        let mut installer =
+            ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
         let mut ticks = 0usize;
         let mut progress = || ticks += 1;
         installer.install(None, Some(&mut progress)).unwrap();
         assert_eq!(ticks, 3);
 
-        assert_eq!(std::fs::read(game.join("Override").join("spells.2da")).unwrap(), b"new-table");
+        assert_eq!(
+            std::fs::read(game.join("Override").join("spells.2da")).unwrap(),
+            b"new-table"
+        );
         assert!(!game.join("Override").join("SPELLS.2DA").exists() || cfg!(windows));
-        assert_eq!(std::fs::read(game.join("Override").join("new.utc")).unwrap(), b"new-utc");
-        assert_eq!(std::fs::read(game.join("Override").join("exists.utc")).unwrap(), b"game-copy");
+        assert_eq!(
+            std::fs::read(game.join("Override").join("new.utc")).unwrap(),
+            b"new-utc"
+        );
+        assert_eq!(
+            std::fs::read(game.join("Override").join("exists.utc")).unwrap(),
+            b"game-copy"
+        );
 
         let backup_root = package.join("backup");
-        let stamped = std::fs::read_dir(&backup_root).unwrap().next().unwrap().unwrap().path();
+        let stamped = std::fs::read_dir(&backup_root)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
         assert_eq!(
             std::fs::read(stamped.join("Override").join("spells.2da")).unwrap(),
             b"old-table"
         );
         let manifest = std::fs::read_to_string(stamped.join("remove these files.txt")).unwrap();
-        assert_eq!(manifest, game.join("Override").join("new.utc").display().to_string());
+        assert_eq!(
+            manifest,
+            game.join("Override").join("new.utc").display().to_string()
+        );
         assert!(package.join("uninstall").join("uninstall.sh").is_file());
 
-        let messages: Vec<&str> = installer.log.all_logs.iter().map(|l| l.message.as_str()).collect();
+        let messages: Vec<&str> = installer
+            .log
+            .all_logs
+            .iter()
+            .map(|l| l.message.as_str())
+            .collect();
         // saveas.casefold() == sourcefile.casefold(), so patcher.py:775 uses the bare "in" form.
-        assert!(messages.contains(&"Copying 'Spells.2da' and replacing existing file in the 'Override' folder"));
-        assert!(messages.contains(&"'exists.utc' already exists in the 'Override' folder. Skipping file..."));
+        assert!(messages.contains(
+            &"Copying 'Spells.2da' and replacing existing file in the 'Override' folder"
+        ));
+        assert!(messages
+            .contains(&"'exists.utc' already exists in the 'Override' folder. Skipping file..."));
         assert_eq!(
             messages.last().copied().unwrap(),
             "Successfully completed installation. Processed 3 operations: 2 completed, 1 skipped, 0 failed, 0 warnings, 0 errors."
@@ -1930,9 +2202,15 @@ mod tests {
             "[Settings]\n\n[InstallList]\ninstall_folder0=Override\n\n[install_folder0]\nFile0=missing.utc\nFile1=other.utc\n",
         );
         std::fs::write(package.join("tslpatchdata").join("other.utc"), b"ok").unwrap();
-        let mut installer = ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
+        let mut installer =
+            ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
         installer.install(None, None).unwrap();
-        let messages: Vec<&str> = installer.log.all_logs.iter().map(|l| l.message.as_str()).collect();
+        let messages: Vec<&str> = installer
+            .log
+            .all_logs
+            .iter()
+            .map(|l| l.message.as_str())
+            .collect();
         assert!(messages.iter().any(|m| m.starts_with("Could not load source file to copy:\n('FileNotFoundError', \"Could not find the file: '")));
         assert!(messages.contains(&"Could not locate resource to copy: 'missing.utc'"));
         assert_eq!(
@@ -1944,7 +2222,12 @@ mod tests {
         let mut again = ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
         let cancel = || true;
         again.install(Some(&cancel), None).unwrap();
-        let messages: Vec<&str> = again.log.all_logs.iter().map(|l| l.message.as_str()).collect();
+        let messages: Vec<&str> = again
+            .log
+            .all_logs
+            .iter()
+            .map(|l| l.message.as_str())
+            .collect();
         assert!(messages.contains(&"Installation cancelled with 2 operations remaining."));
         assert_eq!(
             messages.last().copied().unwrap(),
@@ -1964,22 +2247,39 @@ mod tests {
         let modules = game.join("Modules");
         let seed = dir.join("seed.uti");
         std::fs::write(&seed, b"seed").unwrap();
-        let mut rim = ErfFile::create(&modules.join("danm13.rim").to_string_lossy(), ArchiveKind::Rim);
-        rim.add_resource(&seed.to_string_lossy(), true, "seed.uti").unwrap();
+        let mut rim = ErfFile::create(
+            &modules.join("danm13.rim").to_string_lossy(),
+            ArchiveKind::Rim,
+        );
+        rim.add_resource(&seed.to_string_lossy(), true, "seed.uti")
+            .unwrap();
         rim.save(None).unwrap();
-        let mut rim14 = ErfFile::create(&modules.join("danm14.rim").to_string_lossy(), ArchiveKind::Rim);
-        rim14.add_resource(&seed.to_string_lossy(), true, "seed.uti").unwrap();
+        let mut rim14 = ErfFile::create(
+            &modules.join("danm14.rim").to_string_lossy(),
+            ArchiveKind::Rim,
+        );
+        rim14
+            .add_resource(&seed.to_string_lossy(), true, "seed.uti")
+            .unwrap();
         rim14.save(None).unwrap();
 
-        let mut installer = ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
+        let mut installer =
+            ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
         installer.install(None, None).unwrap();
-        let messages: Vec<&str> = installer.log.all_logs.iter().map(|l| l.message.as_str()).collect();
+        let messages: Vec<&str> = installer
+            .log
+            .all_logs
+            .iter()
+            .map(|l| l.message.as_str())
+            .collect();
         assert!(messages.contains(&format!(
             "IMPORTANT! The module at path '{}' did not exist, staging one from:\n    Modules/danm13.rim\n    Modules/danm13_s.rim",
             modules.join("danm13.mod").display()
         ).as_str()));
         assert!(messages.contains(&"This mod is patching RIM file Modules/danm14.rim!\nPatching RIMs is highly incompatible, not recommended, and widely considered bad practice. Please request the mod developer to fix this."));
-        assert!(messages.contains(&"Copying 'a.utc' and adding to the 'Modules\\danm13.mod' archive"));
+        assert!(
+            messages.contains(&"Copying 'a.utc' and adding to the 'Modules\\danm13.mod' archive")
+        );
         assert_eq!(
             messages.last().copied().unwrap(),
             "Successfully completed installation. Processed 2 operations: 2 completed, 0 skipped, 0 failed, 1 warning, 0 errors."
@@ -1990,9 +2290,18 @@ mod tests {
         assert!(built.contains("seed", "uti").unwrap());
         let patched_rim = Capsule::new(&modules.join("danm14.rim")).unwrap();
         assert!(patched_rim.contains("a", "utc").unwrap());
-        assert!(std::fs::read_dir(&modules).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().starts_with(".holopatcher_")));
+        assert!(std::fs::read_dir(&modules).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".holopatcher_")));
 
-        let stamped = std::fs::read_dir(package.join("backup")).unwrap().next().unwrap().unwrap().path();
+        let stamped = std::fs::read_dir(package.join("backup"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
         let manifest = std::fs::read_to_string(stamped.join("remove these files.txt")).unwrap();
         assert_eq!(manifest, modules.join("danm13.mod").display().to_string());
         assert!(stamped.join("Modules").join("danm14.rim").is_file());
@@ -2002,7 +2311,8 @@ mod tests {
     #[test]
     fn override_type_renames_with_increments_and_warns() {
         let (dir, game, package) = fixture("override", "[Settings]\n");
-        let mut installer = ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
+        let mut installer =
+            ModInstaller::new(&package, &game, Path::new("changes.ini"), None).unwrap();
         let override_dir = game.join("Override");
         std::fs::write(override_dir.join("A.utc"), b"1").unwrap();
         std::fs::write(override_dir.join("old_a.utc"), b"0").unwrap();

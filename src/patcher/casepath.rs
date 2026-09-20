@@ -171,7 +171,10 @@ mod tests {
 
         let resolved = case_sensitive_path(&dir.join("override").join("SPELLS.2DA"));
         if cfg!(windows) {
-            assert!(resolved.ends_with("override/SPELLS.2DA") || resolved.ends_with("override\\SPELLS.2DA"));
+            assert!(
+                resolved.ends_with("override/SPELLS.2DA")
+                    || resolved.ends_with("override\\SPELLS.2DA")
+            );
         } else {
             assert_eq!(resolved, dir.join("Override").join("Spells.2da"));
             let missing = case_sensitive_path(&dir.join("override").join("nothere").join("x.txt"));

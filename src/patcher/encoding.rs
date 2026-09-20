@@ -59,9 +59,15 @@ mod tests {
 
     #[test]
     fn utf8_is_strict_and_the_fallback_drops_bad_bytes() {
-        assert_eq!(decode_bytes_with_fallbacks("caf\u{e9}".as_bytes()).unwrap(), "caf\u{e9}");
+        assert_eq!(
+            decode_bytes_with_fallbacks("caf\u{e9}".as_bytes()).unwrap(),
+            "caf\u{e9}"
+        );
         assert!(decode_bytes_with_fallbacks(b"caf\xe9").is_err());
         assert_eq!(decode_utf8_ignoring_errors(b"caf\xe9!"), "caf!");
-        assert_eq!(decode_ini_text(b"\xEF\xBB\xBF[S]"), ("[S]".to_string(), false));
+        assert_eq!(
+            decode_ini_text(b"\xEF\xBB\xBF[S]"),
+            ("[S]".to_string(), false)
+        );
     }
 }

@@ -12,9 +12,9 @@ use crate::formats::gff::GffStruct;
 use crate::patcher::error::{PResult, PatchException};
 use crate::patcher::ini::{CaseInsensitiveDict, ConfigParser};
 use crate::patcher::mods::gff::{
-    base64_decode, decode_hex, exception_str, AddFieldGFF, AddFieldGFFReference, AddStructToListGFF, FieldValueKind,
-    GffFieldType, GffPath, GffValue, LocalizedStringDelta, Memory2DAModifierGFF, ModificationsGFF, ModifyFieldGFF,
-    ModifyGFF,
+    base64_decode, decode_hex, exception_str, AddFieldGFF, AddFieldGFFReference,
+    AddStructToListGFF, FieldValueKind, GffFieldType, GffPath, GffValue, LocalizedStringDelta,
+    Memory2DAModifierGFF, ModificationsGFF, ModifyFieldGFF, ModifyGFF,
 };
 use crate::patcher::mods::template::DEFAULT_DESTINATION;
 use crate::patcher::mods::PatcherModifications;
@@ -100,7 +100,8 @@ impl ConfigReader<'_> {
 
         self.log.add_note("Loading [GFFList] patches from ini...");
         let mut gff_section_dict = self.section_dict(&gff_list_section);
-        let default_destination = gff_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
+        let default_destination =
+            gff_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
         let default_source_folder = gff_section_dict.pop_or("!DefaultSourceFolder", ".");
         let mut shared_ini: Option<Arc<ConfigParser>> = None;
 
@@ -139,7 +140,11 @@ impl ConfigReader<'_> {
                     Ok(modifier) => self.config.patches_gff[index].modifiers.push(modifier),
                     Err(exc) if matches!(exc.kind, "KeyError" | "TypeError" | "ValueError") => {
                         // A bare key prints as Python's `None`.
-                        let shown_value = match self.ini.section(&file_section_name).and_then(|s| s.get(&key)) {
+                        let shown_value = match self
+                            .ini
+                            .section(&file_section_name)
+                            .and_then(|s| s.get(&key))
+                        {
                             Some(None) => "None".to_string(),
                             _ => value.clone(),
                         };
@@ -227,12 +232,17 @@ impl ConfigReader<'_> {
                 if is_ascii_digits(substring) {
                     let substring_id = token_id(substring);
                     let mut locstring = LocalizedStringDelta::new(None);
-                    let field_value = Self::deferred_gff_value(str_value, Some(GffFieldType::String));
+                    let field_value =
+                        Self::deferred_gff_value(str_value, Some(GffFieldType::String));
                     if Self::requires_runtime_gff_resolution(str_value) {
                         locstring.set_field_value(substring_id, field_value);
                     } else {
                         let (language, gender) = LocalizedStringDelta::substring_pair(substring_id);
-                        locstring.set_data(language, gender, &Self::normalize_tslpatcher_crlf(str_value));
+                        locstring.set_data(
+                            language,
+                            gender,
+                            &Self::normalize_tslpatcher_crlf(str_value),
+                        );
                     }
                     value = FieldValueKind::constant(GffValue::LocDelta(locstring));
                     key = key[..selector].to_string();
@@ -299,10 +309,16 @@ impl ConfigReader<'_> {
 
         // A bare `FieldType` line is `None` in Python, which is "not set".
         let bare_field_type = matches!(
-            self.ini.section(identifier).and_then(|s| s.get("FieldType")),
+            self.ini
+                .section(identifier)
+                .and_then(|s| s.get("FieldType")),
             Some(None)
         ) && ini_data.get("FieldType") == Some("");
-        let raw_field_type = if bare_field_type { None } else { ini_data.get("FieldType") };
+        let raw_field_type = if bare_field_type {
+            None
+        } else {
+            ini_data.get("FieldType")
+        };
         let Some(raw_field_type) = raw_field_type else {
             return Err(PatchException::value(format!(
                 "FieldType must be set in [{identifier}]."
@@ -417,7 +433,9 @@ impl ConfigReader<'_> {
         _identifier: &str,
     ) -> FieldValueKind {
         match field_type {
-            GffFieldType::LocalizedString => Self::field_value_from_localized_string(ini_section_dict),
+            GffFieldType::LocalizedString => {
+                Self::field_value_from_localized_string(ini_section_dict)
+            }
             GffFieldType::List => FieldValueKind::constant(GffValue::List(Vec::new())),
             GffFieldType::Struct => {
                 let raw_type_id = match ini_section_dict.get("TypeId") {
@@ -435,19 +453,28 @@ impl ConfigReader<'_> {
                 };
                 FieldValueKind::raw_with_preview(raw_type_id, GffValue::Struct(preview))
             }
-            _ if ini_section_dict.contains("Value") => {
-                Self::deferred_gff_value(ini_section_dict.get("Value").unwrap_or(""), Some(field_type))
+            _ if ini_section_dict.contains("Value") => Self::deferred_gff_value(
+                ini_section_dict.get("Value").unwrap_or(""),
+                Some(field_type),
+            ),
+            GffFieldType::ResRef => {
+                FieldValueKind::raw_with_preview("", GffValue::ResRef(String::new()))
             }
-            GffFieldType::ResRef => FieldValueKind::raw_with_preview("", GffValue::ResRef(String::new())),
-            GffFieldType::String => FieldValueKind::raw_with_preview("", GffValue::Str(String::new())),
-            GffFieldType::Binary => FieldValueKind::raw_with_preview("", GffValue::Bytes(Vec::new())),
+            GffFieldType::String => {
+                FieldValueKind::raw_with_preview("", GffValue::Str(String::new()))
+            }
+            GffFieldType::Binary => {
+                FieldValueKind::raw_with_preview("", GffValue::Bytes(Vec::new()))
+            }
             _ => FieldValueKind::raw(""),
         }
     }
 
     /// `field_value_from_localized_string(ini_section_dict)`: a
     /// localized-string delta with token substitution deferred to apply time.
-    pub fn field_value_from_localized_string(ini_section_dict: &CaseInsensitiveDict) -> FieldValueKind {
+    pub fn field_value_from_localized_string(
+        ini_section_dict: &CaseInsensitiveDict,
+    ) -> FieldValueKind {
         let raw_stringref = match ini_section_dict.get("StrRef") {
             Some("") | None => "-1",
             Some(text) => text,
@@ -466,7 +493,10 @@ impl ConfigReader<'_> {
             }
             let substring_id = token_id(suffix);
             if Self::requires_runtime_gff_resolution(text) {
-                delta.set_field_value(substring_id, Self::deferred_gff_value(text, Some(GffFieldType::String)));
+                delta.set_field_value(
+                    substring_id,
+                    Self::deferred_gff_value(text, Some(GffFieldType::String)),
+                );
             } else {
                 let (language, gender) = LocalizedStringDelta::substring_pair(substring_id);
                 delta.set_data(language, gender, &Self::normalize_tslpatcher_crlf(text));
@@ -502,7 +532,9 @@ impl ConfigReader<'_> {
 
         // Int
         if let Ok(int_value) = python_int(raw_value) {
-            return Ok(FieldValueKind::constant(GffValue::Int(i128::from(int_value))));
+            return Ok(FieldValueKind::constant(GffValue::Int(i128::from(
+                int_value,
+            ))));
         }
 
         // Float
@@ -566,7 +598,10 @@ impl ConfigReader<'_> {
 
     /// `field_value_from_type(raw_value, field_type)`: parse an INI value for
     /// a known type; `Ok(None)` for the container and localized types.
-    pub fn field_value_from_type(raw_value: &str, field_type: GffFieldType) -> PResult<Option<FieldValueKind>> {
+    pub fn field_value_from_type(
+        raw_value: &str,
+        field_type: GffFieldType,
+    ) -> PResult<Option<FieldValueKind>> {
         if let Some(field_value_memory) = Self::field_value_from_memory(raw_value) {
             return Ok(Some(field_value_memory));
         }
@@ -581,12 +616,17 @@ impl ConfigReader<'_> {
         };
 
         let value = match field_type {
-            GffFieldType::ResRef => GffValue::ResRef(crate::patcher::mods::gff::make_resref(raw_value)?),
+            GffFieldType::ResRef => {
+                GffValue::ResRef(crate::patcher::mods::gff::make_resref(raw_value)?)
+            }
             GffFieldType::String => GffValue::Str(Self::normalize_tslpatcher_crlf(raw_value)),
             ft if ft.is_integer() => GffValue::Int(i128::from(python_int(raw_value)?)),
             ft if ft.is_float() => GffValue::Float(float_of(raw_value)?),
             GffFieldType::Vector3 => {
-                let components = raw_value.split('|').map(float_of).collect::<PResult<Vec<f64>>>()?;
+                let components = raw_value
+                    .split('|')
+                    .map(float_of)
+                    .collect::<PResult<Vec<f64>>>()?;
                 if components.len() != 3 {
                     return Err(PatchException::new(
                         "TypeError",
@@ -599,7 +639,10 @@ impl ConfigReader<'_> {
                 GffValue::Vector3([components[0], components[1], components[2]])
             }
             GffFieldType::Vector4 => {
-                let components = raw_value.split('|').map(float_of).collect::<PResult<Vec<f64>>>()?;
+                let components = raw_value
+                    .split('|')
+                    .map(float_of)
+                    .collect::<PResult<Vec<f64>>>()?;
                 if components.len() != 4 {
                     return Err(PatchException::new(
                         "TypeError",
@@ -624,7 +667,9 @@ impl ConfigReader<'_> {
                                 .ok_or_else(|| {
                                     PatchException::value(format!(
                                         "invalid literal for int() with base 2: {}",
-                                        crate::patcher::mods::gff::python_str_repr(&String::from_utf8_lossy(chunk))
+                                        crate::patcher::mods::gff::python_str_repr(
+                                            &String::from_utf8_lossy(chunk)
+                                        )
                                     ))
                                 })
                         })
@@ -784,40 +829,87 @@ Value=1
             .collect();
         assert_eq!(
             kinds,
-            vec!["modify", "modify", "modify", "modify", "memory", "memory", "modify", "add", "reference"]
+            vec![
+                "modify",
+                "modify",
+                "modify",
+                "modify",
+                "memory",
+                "memory",
+                "modify",
+                "add",
+                "reference"
+            ]
         );
 
-        let ModifyGFF::ModifyField(strref) = &patch.modifiers[1] else { panic!() };
+        let ModifyGFF::ModifyField(strref) = &patch.modifiers[1] else {
+            panic!()
+        };
         assert_eq!(strref.path, GffPath::new("Name"));
-        let FieldValueKind::Constant(GffValue::LocDelta(delta)) = &strref.value else { panic!() };
-        assert_eq!(delta.stringref.as_deref(), Some(&FieldValueKind::MemoryTLK(3)));
+        let FieldValueKind::Constant(GffValue::LocDelta(delta)) = &strref.value else {
+            panic!()
+        };
+        assert_eq!(
+            delta.stringref.as_deref(),
+            Some(&FieldValueKind::MemoryTLK(3))
+        );
 
-        let ModifyGFF::ModifyField(lang) = &patch.modifiers[2] else { panic!() };
-        let FieldValueKind::Constant(GffValue::LocDelta(delta)) = &lang.value else { panic!() };
+        let ModifyGFF::ModifyField(lang) = &patch.modifiers[2] else {
+            panic!()
+        };
+        let FieldValueKind::Constant(GffValue::LocDelta(delta)) = &lang.value else {
+            panic!()
+        };
         assert_eq!(delta.substrings(), &[(0, "x\n".to_string())]);
 
-        let ModifyGFF::ModifyField(list_path) = &patch.modifiers[3] else { panic!() };
+        let ModifyGFF::ModifyField(list_path) = &patch.modifiers[3] else {
+            panic!()
+        };
         assert_eq!(list_path.path.to_string(), "ClassList\\0\\Class");
         assert_eq!(list_path.value, FieldValueKind::Memory2DA(1));
 
-        let ModifyGFF::Memory2DA(copy) = &patch.modifiers[5] else { panic!() };
-        assert_eq!((copy.dest_token_id, copy.src_token_id, copy.relative_path), (6, Some(5), false));
+        let ModifyGFF::Memory2DA(copy) = &patch.modifiers[5] else {
+            panic!()
+        };
+        assert_eq!(
+            (copy.dest_token_id, copy.src_token_id, copy.relative_path),
+            (6, Some(5), false)
+        );
 
-        let ModifyGFF::ModifyField(token_path) = &patch.modifiers[6] else { panic!() };
+        let ModifyGFF::ModifyField(token_path) = &patch.modifiers[6] else {
+            panic!()
+        };
         assert_eq!(token_path.path_token_id, Some(7));
         assert_eq!(token_path.path, GffPath::root());
 
-        let ModifyGFF::AddField(add) = &patch.modifiers[7] else { panic!() };
-        assert_eq!((add.label.as_str(), add.field_type, add.relative_path), ("Count", GffFieldType::Int32, false));
-        assert_eq!(add.value, FieldValueKind::raw_with_preview("-3", GffValue::Int(-3)));
+        let ModifyGFF::AddField(add) = &patch.modifiers[7] else {
+            panic!()
+        };
+        assert_eq!(
+            (add.label.as_str(), add.field_type, add.relative_path),
+            ("Count", GffFieldType::Int32, false)
+        );
+        assert_eq!(
+            add.value,
+            FieldValueKind::raw_with_preview("-3", GffValue::Int(-3))
+        );
         assert_eq!(add.modifiers.len(), 2);
-        let ModifyGFF::Memory2DA(capture) = &add.modifiers[0] else { panic!() };
+        let ModifyGFF::Memory2DA(capture) = &add.modifiers[0] else {
+            panic!()
+        };
         assert!(capture.relative_path && !capture.store_list_index);
-        let ModifyGFF::AddField(inner) = &add.modifiers[1] else { panic!() };
+        let ModifyGFF::AddField(inner) = &add.modifiers[1] else {
+            panic!()
+        };
         assert!(!inner.relative_path, "an explicit empty Path means root");
-        let ModifyGFF::AddField(list) = &inner.modifiers[0] else { panic!() };
+        let ModifyGFF::AddField(list) = &inner.modifiers[0] else {
+            panic!()
+        };
         assert!(list.relative_path);
-        assert_eq!(list.value, FieldValueKind::constant(GffValue::List(Vec::new())));
+        assert_eq!(
+            list.value,
+            FieldValueKind::constant(GffValue::List(Vec::new()))
+        );
 
         assert_eq!(
             messages(&logger),
@@ -838,10 +930,16 @@ Value=1
         let mut logger = PatchLogger::new();
         let mut r = reader("[Settings]\n", &mut logger);
         r.load_gff_list().unwrap();
-        assert_eq!(messages(&logger), vec!["[GFFList] section missing from ini."]);
+        assert_eq!(
+            messages(&logger),
+            vec!["[GFFList] section missing from ini."]
+        );
 
         let mut logger = PatchLogger::new();
-        let mut r = reader("[GFFList]\nFile0=a.utc\n[a.utc]\nAddField0=s\n[s]\nFieldType\nLabel=X\n", &mut logger);
+        let mut r = reader(
+            "[GFFList]\nFile0=a.utc\n[a.utc]\nAddField0=s\n[s]\nFieldType\nLabel=X\n",
+            &mut logger,
+        );
         r.load_gff_list().unwrap();
         assert_eq!(
             messages(&logger)[1],
@@ -852,7 +950,10 @@ Value=1
     #[test]
     fn self_referencing_addfield_raises_recursion_error() {
         let mut logger = PatchLogger::new();
-        let mut r = reader("[GFFList]\nFile0=a.utc\n[a.utc]\nAddField0=s\n[s]\nFieldType=Struct\nAddField0=s\n", &mut logger);
+        let mut r = reader(
+            "[GFFList]\nFile0=a.utc\n[a.utc]\nAddField0=s\n[s]\nFieldType=Struct\nAddField0=s\n",
+            &mut logger,
+        );
         let err = r.load_gff_list().unwrap_err();
         assert_eq!(err.kind, "RecursionError");
     }
@@ -876,7 +977,9 @@ Value=1
             FieldValueKind::constant(GffValue::Str("a|b".into()))
         );
         assert_eq!(
-            ConfigReader::field_value_from_unknown("1|2|3|4|5").unwrap_err().message,
+            ConfigReader::field_value_from_unknown("1|2|3|4|5")
+                .unwrap_err()
+                .message,
             "Cannot determine type/value from '1|2|3|4|5'"
         );
         assert_eq!(
@@ -884,13 +987,24 @@ Value=1
             FieldValueKind::MemoryTLK(7)
         );
         assert_eq!(ConfigReader::field_value_from_memory("2DAMEMORY"), None);
-        assert_eq!(ConfigReader::field_value_from_memory("strref12"), Some(FieldValueKind::MemoryTLK(12)));
+        assert_eq!(
+            ConfigReader::field_value_from_memory("strref12"),
+            Some(FieldValueKind::MemoryTLK(12))
+        );
         assert_eq!(
             ConfigReader::field_value_from_type("0x0aff", GffFieldType::Binary).unwrap(),
             Some(FieldValueKind::constant(GffValue::Bytes(vec![0x0a, 0xff])))
         );
-        assert!(ConfigReader::field_value_from_type("1|2", GffFieldType::Vector3).unwrap_err().kind == "TypeError");
-        assert_eq!(ConfigReader::field_value_from_type("x", GffFieldType::Struct).unwrap(), None);
+        assert!(
+            ConfigReader::field_value_from_type("1|2", GffFieldType::Vector3)
+                .unwrap_err()
+                .kind
+                == "TypeError"
+        );
+        assert_eq!(
+            ConfigReader::field_value_from_type("x", GffFieldType::Struct).unwrap(),
+            None
+        );
         assert_eq!(
             ConfigReader::resolve_tslpatcher_gff_field_type("EXOSTRING").unwrap(),
             GffFieldType::String
@@ -903,7 +1017,10 @@ Value=1
         assert!(ConfigReader::requires_runtime_gff_resolution("2DAMEMORYx"));
         assert!(!ConfigReader::requires_runtime_gff_resolution("StrRefx"));
         let raw = ConfigReader::deferred_gff_value("abc", Some(GffFieldType::Int32));
-        assert_eq!(raw, FieldValueKind::raw_with_preview("abc", GffValue::Str("abc".into())));
+        assert_eq!(
+            raw,
+            FieldValueKind::raw_with_preview("abc", GffValue::Str("abc".into()))
+        );
     }
 
     #[test]
@@ -912,7 +1029,9 @@ Value=1
         assert_eq!(plain.path, GffPath::new("Name(LangX)"));
         let lang = ConfigReader::modify_field_gff("sec", "Name(lang3)", "StrRef2");
         assert_eq!(lang.path, GffPath::new("Name"));
-        let FieldValueKind::Constant(GffValue::LocDelta(delta)) = &lang.value else { panic!() };
+        let FieldValueKind::Constant(GffValue::LocDelta(delta)) = &lang.value else {
+            panic!()
+        };
         assert_eq!(delta.deferred_substrings().len(), 1);
         assert!(delta.stringref.is_none());
         let strref = ConfigReader::modify_field_gff("sec", "Name(STRREF)", "-1");
@@ -937,22 +1056,31 @@ Value=7
         let mut patch = r.config.patches_gff.remove(0);
 
         let mut file = GffFile::new_file("UTC ", "");
-        file.root.add_field(GffField::new("Tag", FieldValue::ExoString("t".into())));
+        file.root
+            .add_field(GffField::new("Tag", FieldValue::ExoString("t".into())));
         let source = file.to_bytes().unwrap();
 
         let mut memory = PatcherMemory::new();
-        memory.memory_2da.insert(1, MemoryValue::Str("sec_a".into()));
+        memory
+            .memory_2da
+            .insert(1, MemoryValue::Str("sec_a".into()));
         let mut apply_logger = PatchLogger::new();
         let output = patch
             .patch_resource(&source, &mut memory, &mut apply_logger, Game::K1)
             .unwrap();
-        let PatchOutput::Bytes(bytes) = output else { panic!() };
+        let PatchOutput::Bytes(bytes) = output else {
+            panic!()
+        };
         let out = GffFile::parse(&bytes, "").unwrap();
         assert_eq!(out.root.field("Picked").unwrap().value, FieldValue::Byte(7));
         assert!(messages(&apply_logger).is_empty());
 
-        memory.memory_2da.insert(1, MemoryValue::Str("sec_missing".into()));
-        patch.patch_resource(&source, &mut memory, &mut apply_logger, Game::K1).unwrap();
+        memory
+            .memory_2da
+            .insert(1, MemoryValue::Str("sec_missing".into()));
+        patch
+            .patch_resource(&source, &mut memory, &mut apply_logger, Game::K1)
+            .unwrap();
         assert_eq!(
             messages(&apply_logger),
             vec!["Unable to apply GFF modifier [a.utc]: 'The [sec_missing] section was not found in the ini'"]

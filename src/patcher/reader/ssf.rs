@@ -34,7 +34,8 @@ impl ConfigReader<'_> {
 
         self.log.add_note("Loading [SSFList] patches from ini...");
         let mut ssf_section_dict = self.section_dict(&ssf_list_section);
-        let default_destination = ssf_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
+        let default_destination =
+            ssf_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
         let default_source_folder = ssf_section_dict.pop_or("!DefaultSourceFolder", ".");
 
         let files: Vec<(String, String)> = ssf_section_dict
@@ -54,8 +55,11 @@ impl ConfigReader<'_> {
                 continue;
             };
 
-            let mut modifications =
-                ModificationsSSF::new(&file, identifier.to_lowercase().starts_with("replace"), Vec::new());
+            let mut modifications = ModificationsSSF::new(
+                &file,
+                identifier.to_lowercase().starts_with("replace"),
+                Vec::new(),
+            );
 
             let mut file_section_dict = self.section_dict(&ssf_file_section);
             modifications.pop_tslpatcher_vars(
@@ -86,7 +90,9 @@ impl ConfigReader<'_> {
                         TokenUsage::literal(raw_value)
                     }
                 };
-                modifications.modifiers.push(ModifySSF::new(sound, stringref));
+                modifications
+                    .modifiers
+                    .push(ModifySSF::new(sound, stringref));
             }
             self.config.patches_ssf.push(modifications);
         }
@@ -120,10 +126,24 @@ mod tests {
 
     #[test]
     fn labels_resolve_case_insensitively() {
-        assert_eq!(ConfigReader::resolve_tslpatcher_ssf_sound("Battlecry 1").unwrap(), 0);
-        assert_eq!(ConfigReader::resolve_tslpatcher_ssf_sound("PICK LOCK DONE").unwrap(), 24);
-        assert_eq!(ConfigReader::resolve_tslpatcher_ssf_sound("unknown(40)").unwrap(), 39);
-        assert_eq!(ConfigReader::resolve_tslpatcher_ssf_sound("Nope").unwrap_err().kind, "KeyError");
+        assert_eq!(
+            ConfigReader::resolve_tslpatcher_ssf_sound("Battlecry 1").unwrap(),
+            0
+        );
+        assert_eq!(
+            ConfigReader::resolve_tslpatcher_ssf_sound("PICK LOCK DONE").unwrap(),
+            24
+        );
+        assert_eq!(
+            ConfigReader::resolve_tslpatcher_ssf_sound("unknown(40)").unwrap(),
+            39
+        );
+        assert_eq!(
+            ConfigReader::resolve_tslpatcher_ssf_sound("Nope")
+                .unwrap_err()
+                .kind,
+            "KeyError"
+        );
     }
 
     #[test]
@@ -141,7 +161,11 @@ mod tests {
         assert!(!a.base.replace_file);
         assert_eq!(a.base.destination, "Override");
         assert_eq!(a.base.sourcefolder, "src");
-        let values: Vec<(u32, TokenUsage)> = a.modifiers.iter().map(|m| (m.sound, m.stringref.clone())).collect();
+        let values: Vec<(u32, TokenUsage)> = a
+            .modifiers
+            .iter()
+            .map(|m| (m.sound, m.stringref.clone()))
+            .collect();
         assert_eq!(
             values,
             vec![
@@ -155,7 +179,10 @@ mod tests {
         );
 
         let b = &r.config.patches_ssf[1];
-        assert!(!b.base.replace_file, "!ReplaceFile in the file section overrides the list key");
+        assert!(
+            !b.base.replace_file,
+            "!ReplaceFile in the file section overrides the list key"
+        );
         assert_eq!(b.base.destination, "Modules");
         assert_eq!(b.base.sourcefolder, "other");
         assert_eq!(b.modifiers.len(), 1);
@@ -169,7 +196,11 @@ mod tests {
                 "Unknown SSF sound label '!Foo' in [a.ssf]; skipping entry.",
             ]
         );
-        let warnings: Vec<&str> = logger.warnings().iter().map(|l| l.message.as_str()).collect();
+        let warnings: Vec<&str> = logger
+            .warnings()
+            .iter()
+            .map(|l| l.message.as_str())
+            .collect();
         assert_eq!(
             warnings,
             vec!["The [c.ssf] section was not found in the ini, referenced by 'File3=c.ssf' in [SSFList]"]
@@ -182,6 +213,9 @@ mod tests {
         let mut r = reader("[Settings]\n", &mut logger);
         r.load_ssf_list().unwrap();
         assert!(r.config.patches_ssf.is_empty());
-        assert_eq!(logger.notes()[0].message, "[SSFList] section missing from ini.");
+        assert_eq!(
+            logger.notes()[0].message,
+            "[SSFList] section missing from ini."
+        );
     }
 }

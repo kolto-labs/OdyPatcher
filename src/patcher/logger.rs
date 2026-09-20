@@ -207,7 +207,9 @@ mod tests {
         let mut logger = PatchLogger::new();
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = seen.clone();
-        logger.add_observer(Box::new(move |log| sink.lock().unwrap().push(log.message.clone())));
+        logger.add_observer(Box::new(move |log| {
+            sink.lock().unwrap().push(log.message.clone())
+        }));
         logger.add_verbose("v");
         logger.add_note("n");
         logger.add_warning("w");
@@ -217,7 +219,9 @@ mod tests {
         assert_eq!(logger.notes().len(), 1);
         assert_eq!(logger.verbose_logs().len(), 1);
         assert_eq!(seen.lock().unwrap().len(), 4);
-        assert!(logger.all_logs[3].formatted_message().starts_with("[Error] ["));
+        assert!(logger.all_logs[3]
+            .formatted_message()
+            .starts_with("[Error] ["));
     }
 
     #[test]

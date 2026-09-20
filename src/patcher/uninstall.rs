@@ -153,7 +153,11 @@ fn parse_backup_timestamp(name: &str) -> Option<(i32, u32, u32, u32, u32, u32)> 
 
 impl ModUninstaller {
     /// `ModUninstaller(backups_location_path, game_path, logger)`.
-    pub fn new(backups_location_path: &Path, game_path: &Path, logger: Option<PatchLogger>) -> Self {
+    pub fn new(
+        backups_location_path: &Path,
+        game_path: &Path,
+        logger: Option<PatchLogger>,
+    ) -> Self {
         Self {
             backups_location_path: backups_location_path.to_path_buf(),
             game_path: game_path.to_path_buf(),
@@ -249,7 +253,9 @@ impl ModUninstaller {
         for filename in listed {
             let target = PathBuf::from(filename);
             if !target.is_absolute() {
-                return Err(PatchException::value(format!("Invalid removal path: {filename}")));
+                return Err(PatchException::value(format!(
+                    "Invalid removal path: {filename}"
+                )));
             }
             relative_to(&resolve(&target), &game)?;
             if target.exists() && !target.is_file() {
@@ -273,15 +279,19 @@ impl ModUninstaller {
             }
             relative_to(&resolve(source), &root)?;
             relative_to(&resolve(destination), &game)?;
-            let parent = destination.parent().map(Path::to_path_buf).unwrap_or_default();
+            let parent = destination
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
             std::fs::create_dir_all(&parent)?;
             let temporary = mkstemp(&parent, ".restore-", ".tmp")?;
             let result = (|| -> PResult<()> {
                 std::fs::copy(source, &temporary)
                     .map_err(|e| PatchException::from_io(&e, Some(&source.to_string_lossy())))?;
                 relative_to(&resolve(destination), &game)?;
-                std::fs::rename(&temporary, destination)
-                    .map_err(|e| PatchException::from_io(&e, Some(&destination.to_string_lossy())))?;
+                std::fs::rename(&temporary, destination).map_err(|e| {
+                    PatchException::from_io(&e, Some(&destination.to_string_lossy()))
+                })?;
                 Ok(())
             })();
             let _ = std::fs::remove_file(&temporary);
@@ -302,7 +312,12 @@ impl ModUninstaller {
             match std::fs::remove_file(target) {
                 Ok(()) => {}
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(PatchException::from_io(&err, Some(&target.to_string_lossy()))),
+                Err(err) => {
+                    return Err(PatchException::from_io(
+                        &err,
+                        Some(&target.to_string_lossy()),
+                    ))
+                }
             }
             self.logger.add_note(format!(
                 "Removed '{}'.",
@@ -314,9 +329,7 @@ impl ModUninstaller {
 
     /// `get_backup_info()`: `(folder, existing_files, files_in_backup, folder_count)`;
     /// `folder` is `None` when there is no usable backup or the user declined.
-    pub fn get_backup_info(
-        &mut self,
-    ) -> PResult<BackupInfo> {
+    pub fn get_backup_info(&mut self) -> PResult<BackupInfo> {
         let Some(folder) = Self::get_most_recent_backup(&self.backups_location_path) else {
             (self.dialogs.showerror)(
                 "No backups found",
@@ -348,7 +361,9 @@ impl ModUninstaller {
         for name in names {
             let target = PathBuf::from(name);
             if !target.is_absolute() {
-                return Err(PatchException::value(format!("Invalid removal path in backup: {name}")));
+                return Err(PatchException::value(format!(
+                    "Invalid removal path in backup: {name}"
+                )));
             }
             relative_to(&resolve(&target), &game_root)?;
         }
@@ -465,12 +480,16 @@ impl ModUninstaller {
     }
 
     /// The `try` body of `uninstall_selected_mod`.
-    fn try_restore(&mut self, should_cancel: Option<&dyn Fn() -> bool>) -> PResult<Option<PathBuf>> {
+    fn try_restore(
+        &mut self,
+        should_cancel: Option<&dyn Fn() -> bool>,
+    ) -> PResult<Option<PathBuf>> {
         let (folder, existing, files, _folder_count) = self.get_backup_info()?;
         let Some(folder) = folder else {
             return Ok(None);
         };
-        self.logger.add_note(format!("Using backup '{}'.", folder.display()));
+        self.logger
+            .add_note(format!("Using backup '{}'.", folder.display()));
         if should_cancel.map(|f| f()).unwrap_or(false) {
             return Ok(None);
         }
@@ -503,7 +522,11 @@ pub fn uninstall_all_mods(game_path: &Path, game: Game) -> PResult<()> {
     // Remove any TLK changes
     let dialog_tlk_path = case_sensitive_path(&root_path.join("dialog.tlk"));
     let dialog_tlk = crate::formats::tlk::TlkFile::load(&dialog_tlk_path.to_string_lossy())?;
-    let keep = if game.is_k1() { K1_TLK_ENTRIES } else { K2_TLK_ENTRIES };
+    let keep = if game.is_k1() {
+        K1_TLK_ENTRIES
+    } else {
+        K2_TLK_ENTRIES
+    };
     let mut truncated = crate::formats::tlk::TlkFile::new_file();
     for entry in dialog_tlk.entries().iter().take(keep) {
         truncated.add_entry(entry.clone())?;
@@ -545,12 +568,24 @@ mod tests {
 
     #[test]
     fn backup_folder_names_parse_like_strptime() {
-        assert!(ModUninstaller::is_valid_backup_folder(Path::new("2024-01-02_03.04.05")));
-        assert!(ModUninstaller::is_valid_backup_folder(Path::new("2024-1-2_3.4.5")));
-        assert!(!ModUninstaller::is_valid_backup_folder(Path::new("2024-13-02_03.04.05")));
-        assert!(!ModUninstaller::is_valid_backup_folder(Path::new("2024-02-30_03.04.05")));
-        assert!(!ModUninstaller::is_valid_backup_folder(Path::new("2024-01-02_03.04.05.123")));
-        assert!(!ModUninstaller::is_valid_backup_folder(Path::new("uninstall")));
+        assert!(ModUninstaller::is_valid_backup_folder(Path::new(
+            "2024-01-02_03.04.05"
+        )));
+        assert!(ModUninstaller::is_valid_backup_folder(Path::new(
+            "2024-1-2_3.4.5"
+        )));
+        assert!(!ModUninstaller::is_valid_backup_folder(Path::new(
+            "2024-13-02_03.04.05"
+        )));
+        assert!(!ModUninstaller::is_valid_backup_folder(Path::new(
+            "2024-02-30_03.04.05"
+        )));
+        assert!(!ModUninstaller::is_valid_backup_folder(Path::new(
+            "2024-01-02_03.04.05.123"
+        )));
+        assert!(!ModUninstaller::is_valid_backup_folder(Path::new(
+            "uninstall"
+        )));
     }
 
     #[test]
@@ -568,7 +603,10 @@ mod tests {
             ModUninstaller::get_most_recent_backup(&backups),
             Some(backups.join("2024-03-02_03.04.05"))
         );
-        assert_eq!(ModUninstaller::get_most_recent_backup(&dir.join("none")), None);
+        assert_eq!(
+            ModUninstaller::get_most_recent_backup(&dir.join("none")),
+            None
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -614,7 +652,10 @@ mod tests {
             ModUninstaller::new(&package.join("backup"), &game, None).with_dialogs(dialogs);
         assert!(uninstaller.uninstall_selected_mod().unwrap());
 
-        assert_eq!(std::fs::read(override_dir.join("spells.2da")).unwrap(), b"vanilla");
+        assert_eq!(
+            std::fs::read(override_dir.join("spells.2da")).unwrap(),
+            b"vanilla"
+        );
         assert!(!override_dir.join("new.utc").exists());
         assert!(override_dir.join("gone.utc").exists());
         assert!(backup.is_dir(), "declined deletion keeps the backup");
@@ -627,7 +668,12 @@ mod tests {
             ]
         );
         assert!(errors.borrow().is_empty());
-        let notes: Vec<String> = uninstaller.logger.notes().iter().map(|l| l.message.clone()).collect();
+        let notes: Vec<String> = uninstaller
+            .logger
+            .notes()
+            .iter()
+            .map(|l| l.message.clone())
+            .collect();
         assert_eq!(notes[0], format!("Using backup '{}'.", backup.display()));
         assert!(notes.contains(&"Restored 'Override/spells.2da'.".to_string()));
         assert!(notes.contains(&"Removed 'Override/new.utc'.".to_string()));
@@ -642,10 +688,13 @@ mod tests {
         let seen = errors.clone();
         let dialogs = UninstallDialogs {
             askyesno: Box::new(|_, _| true),
-            showerror: Box::new(move |title, message| seen.borrow_mut().push(format!("{title}|{message}"))),
+            showerror: Box::new(move |title, message| {
+                seen.borrow_mut().push(format!("{title}|{message}"))
+            }),
             showwarning: Box::new(|_, _| {}),
         };
-        let mut uninstaller = ModUninstaller::new(&dir.join("backup"), &dir, None).with_dialogs(dialogs);
+        let mut uninstaller =
+            ModUninstaller::new(&dir.join("backup"), &dir, None).with_dialogs(dialogs);
         assert!(!uninstaller.uninstall_selected_mod().unwrap());
         assert_eq!(
             errors.borrow()[0],

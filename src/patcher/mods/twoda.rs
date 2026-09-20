@@ -42,18 +42,31 @@ impl TwoDA {
 
     /// `read_2da(bytes)`: detect the format and load a binary `V2.b` table.
     pub fn read(data: &[u8]) -> PResult<Self> {
-        let first4: String = data.iter().take(4).filter(|b| b.is_ascii()).map(|&b| b as char).collect();
+        let first4: String = data
+            .iter()
+            .take(4)
+            .filter(|b| b.is_ascii())
+            .map(|&b| b as char)
+            .collect();
         if first4 != "2DA " {
             if first4.contains('{') {
-                return Err(PatchException::value("JSON 2DA tables are not supported by this port."));
+                return Err(PatchException::value(
+                    "JSON 2DA tables are not supported by this port.",
+                ));
             }
             if first4.contains(',') {
-                return Err(PatchException::value("CSV 2DA tables are not supported by this port."));
+                return Err(PatchException::value(
+                    "CSV 2DA tables are not supported by this port.",
+                ));
             }
-            return Err(PatchException::value("Failed to determine the format of the 2DA file."));
+            return Err(PatchException::value(
+                "Failed to determine the format of the 2DA file.",
+            ));
         }
         if data.len() >= 8 && &data[..8] == b"2DA V2.0" {
-            return Err(PatchException::value("2DA V2.0 text tables are not supported by this port."));
+            return Err(PatchException::value(
+                "2DA V2.0 text tables are not supported by this port.",
+            ));
         }
         if data.len() < 8 || &data[..8] != b"2DA V2.b" {
             return Err(PatchException::value("Unsupported 2DA version."));
@@ -72,7 +85,9 @@ impl TwoDA {
                 at += 1;
             }
         } else if newline != b'\n' {
-            return Err(PatchException::value("Missing line ending after the binary 2DA header."));
+            return Err(PatchException::value(
+                "Missing line ending after the binary 2DA header.",
+            ));
         }
 
         let read_terminated = |at: &mut usize, terminator: u8| -> PResult<String> {
@@ -141,13 +156,16 @@ impl TwoDA {
             out.push(b'\t');
         }
 
-        let mut offsets: std::collections::HashMap<Vec<u8>, usize> = std::collections::HashMap::new();
+        let mut offsets: std::collections::HashMap<Vec<u8>, usize> =
+            std::collections::HashMap::new();
         let mut data: Vec<u8> = Vec::new();
         for row in &self.rows {
             for cell in row {
                 let value = latin1_encode(cell)?;
                 if value.contains(&0) {
-                    return Err(PatchException::value("A binary 2DA cell cannot contain a null byte."));
+                    return Err(PatchException::value(
+                        "A binary 2DA cell cannot contain a null byte.",
+                    ));
                 }
                 let offset = match offsets.get(&value) {
                     Some(offset) => *offset,
@@ -198,7 +216,9 @@ impl TwoDA {
         self.labels
             .get(row_index)
             .map(String::as_str)
-            .ok_or_else(|| PatchException::index(format!("Row index {row_index} not found in the 2DA.")))
+            .ok_or_else(|| {
+                PatchException::index(format!("Row index {row_index} not found in the 2DA."))
+            })
     }
 
     /// `set_label(row_index, value)`.
@@ -220,7 +240,9 @@ impl TwoDA {
     /// (the lookup `TwoDARow.get_string` / `TwoDA.get_column` perform).
     pub fn find_header_ci(&self, header: &str) -> Option<usize> {
         let lowered = header.to_lowercase();
-        self.headers.iter().position(|h| h.to_lowercase() == lowered)
+        self.headers
+            .iter()
+            .position(|h| h.to_lowercase() == lowered)
     }
 
     /// `get_column(header)`, case-insensitive; `KeyError` when absent.
@@ -234,7 +256,9 @@ impl TwoDA {
     /// `add_column(header)`: exact-case duplicate check, blank cells.
     pub fn add_column(&mut self, header: &str) -> PResult<()> {
         if self.headers.iter().any(|h| h == header) {
-            return Err(PatchException::key(format!("The header '{header}' already exists.")));
+            return Err(PatchException::key(format!(
+                "The header '{header}' already exists."
+            )));
         }
         self.headers.push(header.to_string());
         for row in self.rows.iter_mut() {
@@ -246,7 +270,9 @@ impl TwoDA {
     /// `find_row(row_label)`: index of the first row whose label matches ignoring case.
     pub fn find_row(&self, row_label: &str) -> Option<usize> {
         let lowered = row_label.to_lowercase();
-        self.labels.iter().position(|label| label.to_lowercase() == lowered)
+        self.labels
+            .iter()
+            .position(|label| label.to_lowercase() == lowered)
     }
 
     /// `add_row(row_label, cells)`: appends a row and returns its index.
@@ -263,18 +289,23 @@ impl TwoDA {
             row.push(value);
         }
         self.rows.push(row);
-        let label = row_label.map(str::to_string).unwrap_or_else(|| self.rows.len().to_string());
+        let label = row_label
+            .map(str::to_string)
+            .unwrap_or_else(|| self.rows.len().to_string());
         self.labels.push(label);
         self.rows.len() - 1
     }
 
     /// `copy_row(source_row, row_label, override_cells)`.
-    pub fn copy_row(&mut self, source_index: usize, row_label: Option<&str>, override_cells: &[(&str, &str)]) -> PResult<usize> {
-        let source = self
-            .rows
-            .get(source_index)
-            .cloned()
-            .ok_or_else(|| PatchException::index(format!("Row index {source_index} not found in the 2DA.")))?;
+    pub fn copy_row(
+        &mut self,
+        source_index: usize,
+        row_label: Option<&str>,
+        override_cells: &[(&str, &str)],
+    ) -> PResult<usize> {
+        let source = self.rows.get(source_index).cloned().ok_or_else(|| {
+            PatchException::index(format!("Row index {source_index} not found in the 2DA."))
+        })?;
         let mut row = Vec::with_capacity(self.headers.len());
         for (index, header) in self.headers.iter().enumerate() {
             let value = override_cells
@@ -285,7 +316,9 @@ impl TwoDA {
             row.push(value);
         }
         self.rows.push(row);
-        let label = row_label.map(str::to_string).unwrap_or_else(|| self.rows.len().to_string());
+        let label = row_label
+            .map(str::to_string)
+            .unwrap_or_else(|| self.rows.len().to_string());
         self.labels.push(label);
         Ok(self.rows.len() - 1)
     }
@@ -304,10 +337,9 @@ impl TwoDA {
 
     /// `TwoDARow.get_string(header)`: case-insensitive header lookup.
     pub fn get_string(&self, row_index: usize, header: &str) -> PResult<&str> {
-        let row = self
-            .rows
-            .get(row_index)
-            .ok_or_else(|| PatchException::index(format!("Row index {row_index} not found in the 2DA.")))?;
+        let row = self.rows.get(row_index).ok_or_else(|| {
+            PatchException::index(format!("Row index {row_index} not found in the 2DA."))
+        })?;
         let index = self
             .find_header_ci(header)
             .ok_or_else(|| PatchException::key(format!("The header '{header}' does not exist.")))?;
@@ -319,10 +351,9 @@ impl TwoDA {
         let index = self
             .find_header_ci(header)
             .ok_or_else(|| PatchException::key(format!("The header '{header}' does not exist.")))?;
-        let row = self
-            .rows
-            .get_mut(row_index)
-            .ok_or_else(|| PatchException::index(format!("Row index {row_index} not found in the 2DA.")))?;
+        let row = self.rows.get_mut(row_index).ok_or_else(|| {
+            PatchException::index(format!("Row index {row_index} not found in the 2DA."))
+        })?;
         row[index] = value.to_string();
         Ok(())
     }
@@ -407,8 +438,12 @@ impl TargetValue {
         Ok(match self {
             TargetValue::Str(text) => text.clone(),
             TargetValue::Int(value) => value.to_string(),
-            TargetValue::TwoDAMemory(token_id) => RowValue::TwoDAMemory(*token_id).value(memory, &TwoDA::default(), None)?,
-            TargetValue::TlkMemory(token_id) => RowValue::TlkMemory(*token_id).value(memory, &TwoDA::default(), None)?,
+            TargetValue::TwoDAMemory(token_id) => {
+                RowValue::TwoDAMemory(*token_id).value(memory, &TwoDA::default(), None)?
+            }
+            TargetValue::TlkMemory(token_id) => {
+                RowValue::TlkMemory(*token_id).value(memory, &TwoDA::default(), None)?
+            }
         })
     }
 }
@@ -426,7 +461,9 @@ impl Target {
     /// `Target(target_type, value)`; a string value with `ROW_INDEX` is a `ValueError`.
     pub fn new(target_type: TargetType, value: TargetValue) -> PResult<Self> {
         if target_type == TargetType::RowIndex && matches!(value, TargetValue::Str(_)) {
-            return Err(PatchException::value("Target value must be int if type is row index."));
+            return Err(PatchException::value(
+                "Target value must be int if type is row index.",
+            ));
         }
         Ok(Self { target_type, value })
     }
@@ -496,12 +533,19 @@ pub enum RowValue {
 
 impl RowValue {
     /// `value(memory, twoda, row)`.
-    pub fn value(&self, memory: &PatcherMemory, twoda: &TwoDA, row: Option<usize>) -> PResult<String> {
+    pub fn value(
+        &self,
+        memory: &PatcherMemory,
+        twoda: &TwoDA,
+        row: Option<usize>,
+    ) -> PResult<String> {
         Ok(match self {
             RowValue::Constant(string) => string.clone(),
             RowValue::TwoDAMemory(token_id) => match memory.memory_2da.get(token_id) {
                 None => {
-                    return Err(PatchException::key(format!("2DAMEMORY{token_id} was not defined before use.")));
+                    return Err(PatchException::key(format!(
+                        "2DAMEMORY{token_id} was not defined before use."
+                    )));
                 }
                 Some(MemoryValue::FieldPath(path)) => {
                     return Err(PatchException::new(
@@ -513,7 +557,9 @@ impl RowValue {
             },
             RowValue::TlkMemory(token_id) => match memory.memory_str.get(token_id) {
                 None => {
-                    return Err(PatchException::key(format!("StrRef{token_id} was not defined before use.")));
+                    return Err(PatchException::key(format!(
+                        "StrRef{token_id} was not defined before use."
+                    )));
                 }
                 Some(value) => value.to_string(),
             },
@@ -580,7 +626,9 @@ pub fn target_to_entry(target: &Target) -> Entry {
 
 /// `Modify2DA._find_header(twoda, header)`: the stored spelling, ignoring case.
 pub fn find_header(twoda: &TwoDA, header: &str) -> Option<String> {
-    twoda.find_header_ci(header).map(|index| twoda.headers[index].clone())
+    twoda
+        .find_header_ci(header)
+        .map(|index| twoda.headers[index].clone())
 }
 
 /// `Modify2DA._find_row_index(twoda, row_label)`: first label match, ignoring case.
@@ -603,7 +651,12 @@ pub fn resolve_2da_memory(value: &str, memory: &PatcherMemory) -> PResult<String
         return Ok(value.to_string());
     }
 
-    let highest_slot: i64 = slots.keys().copied().filter(|id| *id > 0).max().unwrap_or(0) as i64;
+    let highest_slot: i64 = slots
+        .keys()
+        .copied()
+        .filter(|id| *id > 0)
+        .max()
+        .unwrap_or(0) as i64;
     let token_id: i64 = if is_unsigned_decimal(suffix) {
         let parsed = suffix.parse::<i64>().unwrap_or(i64::MAX);
         if parsed < 1 || parsed > highest_slot {
@@ -633,7 +686,10 @@ pub fn resolve_strref(value: &str, memory: &PatcherMemory) -> String {
         _ => return value.to_string(),
     };
     if value.len() > 6 && prefix.to_lowercase() == "strref" && is_unsigned_decimal(suffix) {
-        let token_id = suffix.parse::<i64>().ok().and_then(|id| i32::try_from(id).ok());
+        let token_id = suffix
+            .parse::<i64>()
+            .ok()
+            .and_then(|id| i32::try_from(id).ok());
         return token_id
             .and_then(|id| memory.memory_str.get(&id))
             .copied()
@@ -731,8 +787,14 @@ pub fn capture_2da(
         if selector == "ColumnLabel" {
             captured = Some(column_header.to_string());
         } else if !selector.is_empty() {
-            let first = selector.chars().next().unwrap_or_default().to_lowercase().to_string();
-            let row_selector = &selector[selector.chars().next().map(char::len_utf8).unwrap_or(0)..];
+            let first = selector
+                .chars()
+                .next()
+                .unwrap_or_default()
+                .to_lowercase()
+                .to_string();
+            let row_selector =
+                &selector[selector.chars().next().map(char::len_utf8).unwrap_or(0)..];
             let mut selected_row: Option<usize> = None;
             if first == "i" && is_unsigned_decimal(row_selector) {
                 if let Ok(index) = row_selector.parse::<usize>() {
@@ -787,8 +849,13 @@ pub fn capture_tlk(
     }
 
     if let Some(captured) = captured {
-        let token_id = key[6..].parse::<i64>().ok().and_then(|id| i32::try_from(id).ok());
-        let value = python_int(&captured).ok().and_then(|v| i32::try_from(v).ok());
+        let token_id = key[6..]
+            .parse::<i64>()
+            .ok()
+            .and_then(|id| i32::try_from(id).ok());
+        let value = python_int(&captured)
+            .ok()
+            .and_then(|v| i32::try_from(v).ok());
         if let (Some(token_id), Some(value)) = (token_id, value) {
             memory.memory_str.insert(token_id, value);
         }
@@ -802,7 +869,11 @@ pub fn capture_tlk(
 /// An unknown column means "add unconditionally"; an empty (or missing)
 /// value for the column means "do nothing"; otherwise the first row whose
 /// cell equals the raw value is returned.
-pub fn exclusive_match(twoda: &TwoDA, entries: &[Entry], exclusive_column: &str) -> PResult<(bool, Option<usize>)> {
+pub fn exclusive_match(
+    twoda: &TwoDA,
+    entries: &[Entry],
+    exclusive_column: &str,
+) -> PResult<(bool, Option<usize>)> {
     let Some(header) = find_header(twoda, exclusive_column) else {
         return Ok((true, None));
     };
@@ -844,7 +915,10 @@ pub fn modify_row_fallback(
     for (key, raw_value) in entries {
         let lower_key = key.to_lowercase();
         let lower_value = raw_value.to_lowercase();
-        if matches!(lower_key.as_str(), "rowindex" | "rowlabel" | "newrowlabel" | "exclusivecolumn") {
+        if matches!(
+            lower_key.as_str(),
+            "rowindex" | "rowlabel" | "newrowlabel" | "exclusivecolumn"
+        ) {
             continue;
         }
         if lower_value.starts_with("high()") || lower_value.starts_with("inc(") {
@@ -860,7 +934,11 @@ pub fn modify_row_fallback(
             continue;
         }
 
-        let value = if raw_value.is_empty() { "****" } else { raw_value.as_str() };
+        let value = if raw_value.is_empty() {
+            "****"
+        } else {
+            raw_value.as_str()
+        };
         let value = resolve_tokens(value, memory)?;
         set_cell(twoda, row_index, key, &value)?;
     }
@@ -868,7 +946,12 @@ pub fn modify_row_fallback(
 }
 
 /// `Modify2DA._unpack(cells, memory, twoda, row)`.
-pub fn unpack(cells: &[(String, RowValue)], memory: &PatcherMemory, twoda: &TwoDA, row: usize) -> PResult<Vec<(String, String)>> {
+pub fn unpack(
+    cells: &[(String, RowValue)],
+    memory: &PatcherMemory,
+    twoda: &TwoDA,
+    row: usize,
+) -> PResult<Vec<(String, String)>> {
     cells
         .iter()
         .map(|(column, value)| Ok((column.clone(), value.value(memory, twoda, Some(row))?)))
@@ -934,9 +1017,21 @@ impl ChangeRow2DA {
             if let Some(target) = &target {
                 generated.push(target_to_entry(target));
             }
-            generated.extend(ci_cells.iter().map(|(column, value)| (column.clone(), row_value_to_raw(value))));
-            generated.extend(store_2da.iter().map(|(id, value)| (format!("2DAMEMORY{id}"), row_value_to_raw(value))));
-            generated.extend(store_tlk.iter().map(|(id, value)| (format!("StrRef{id}"), row_value_to_raw(value))));
+            generated.extend(
+                ci_cells
+                    .iter()
+                    .map(|(column, value)| (column.clone(), row_value_to_raw(value))),
+            );
+            generated.extend(
+                store_2da
+                    .iter()
+                    .map(|(id, value)| (format!("2DAMEMORY{id}"), row_value_to_raw(value))),
+            );
+            generated.extend(
+                store_tlk
+                    .iter()
+                    .map(|(id, value)| (format!("StrRef{id}"), row_value_to_raw(value))),
+            );
             generated
         });
         Self {
@@ -952,7 +1047,14 @@ impl ChangeRow2DA {
 
     /// `ChangeRow2DA(identifier, entries=...)`.
     pub fn from_entries(identifier: &str, entries: Vec<Entry>) -> Self {
-        Self::new(identifier, None, Vec::new(), Vec::new(), Vec::new(), Some(entries))
+        Self::new(
+            identifier,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Some(entries),
+        )
     }
 
     /// `apply(twoda, memory)`.
@@ -1017,7 +1119,11 @@ impl ChangeRow2DA {
                 continue;
             };
 
-            let value = if raw_value.is_empty() { "****" } else { raw_value.as_str() };
+            let value = if raw_value.is_empty() {
+                "****"
+            } else {
+                raw_value.as_str()
+            };
             let mut value = resolve_strref(value, memory);
             if value.to_lowercase().starts_with("high()") {
                 value = twoda.column_max(&header)?.to_string();
@@ -1065,7 +1171,9 @@ impl AddRow2DA {
         store_tlk: Vec<(i32, RowValue)>,
         entries: Option<Vec<Entry>>,
     ) -> Self {
-        let exclusive_column = exclusive_column.filter(|c| !c.is_empty()).map(str::to_string);
+        let exclusive_column = exclusive_column
+            .filter(|c| !c.is_empty())
+            .map(str::to_string);
         let mut ci_cells: Vec<(String, RowValue)> = Vec::new();
         for (column, value) in cells {
             ci_dict_set(&mut ci_cells, column, value);
@@ -1078,9 +1186,21 @@ impl AddRow2DA {
             if let Some(label) = &row_label {
                 generated.push(("RowLabel".to_string(), row_value_to_raw(label)));
             }
-            generated.extend(ci_cells.iter().map(|(column, value)| (column.clone(), row_value_to_raw(value))));
-            generated.extend(store_2da.iter().map(|(id, value)| (format!("2DAMEMORY{id}"), row_value_to_raw(value))));
-            generated.extend(store_tlk.iter().map(|(id, value)| (format!("StrRef{id}"), row_value_to_raw(value))));
+            generated.extend(
+                ci_cells
+                    .iter()
+                    .map(|(column, value)| (column.clone(), row_value_to_raw(value))),
+            );
+            generated.extend(
+                store_2da
+                    .iter()
+                    .map(|(id, value)| (format!("2DAMEMORY{id}"), row_value_to_raw(value))),
+            );
+            generated.extend(
+                store_tlk
+                    .iter()
+                    .map(|(id, value)| (format!("StrRef{id}"), row_value_to_raw(value))),
+            );
             generated
         });
         Self {
@@ -1097,7 +1217,15 @@ impl AddRow2DA {
 
     /// `AddRow2DA(identifier, entries=...)`.
     pub fn from_entries(identifier: &str, entries: Vec<Entry>) -> Self {
-        Self::new(identifier, None, None, Vec::new(), Vec::new(), Vec::new(), Some(entries))
+        Self::new(
+            identifier,
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Some(entries),
+        )
     }
 
     /// `apply(twoda, memory)`.
@@ -1108,7 +1236,8 @@ impl AddRow2DA {
             .find(|(key, value)| key.to_lowercase() == "exclusivecolumn" && !value.is_empty())
             .map(|(_, value)| value.clone());
         if let Some(exclusive_column) = exclusive_column {
-            let (should_add, existing_row) = exclusive_match(twoda, &self.entries, &exclusive_column)?;
+            let (should_add, existing_row) =
+                exclusive_match(twoda, &self.entries, &exclusive_column)?;
             if !should_add {
                 modify_row_fallback(twoda, memory, &self.entries, existing_row)?;
                 if existing_row.is_some() {
@@ -1169,7 +1298,11 @@ impl AddRow2DA {
                 continue;
             };
 
-            let value = if raw_value.is_empty() { "****" } else { raw_value.as_str() };
+            let value = if raw_value.is_empty() {
+                "****"
+            } else {
+                raw_value.as_str()
+            };
             let mut value = resolve_strref(value, memory);
             if value.to_lowercase().starts_with("high()") {
                 value = twoda.column_max(&header)?.to_string();
@@ -1221,7 +1354,9 @@ impl CopyRow2DA {
         store_tlk: Vec<(i32, RowValue)>,
         entries: Option<Vec<Entry>>,
     ) -> Self {
-        let exclusive_column = exclusive_column.filter(|c| !c.is_empty()).map(str::to_string);
+        let exclusive_column = exclusive_column
+            .filter(|c| !c.is_empty())
+            .map(str::to_string);
         let mut ci_cells: Vec<(String, RowValue)> = Vec::new();
         for (column, value) in cells {
             ci_dict_set(&mut ci_cells, column, value);
@@ -1237,9 +1372,21 @@ impl CopyRow2DA {
             if let Some(label) = &row_label {
                 generated.push(("NewRowLabel".to_string(), row_value_to_raw(label)));
             }
-            generated.extend(ci_cells.iter().map(|(column, value)| (column.clone(), row_value_to_raw(value))));
-            generated.extend(store_2da.iter().map(|(id, value)| (format!("2DAMEMORY{id}"), row_value_to_raw(value))));
-            generated.extend(store_tlk.iter().map(|(id, value)| (format!("StrRef{id}"), row_value_to_raw(value))));
+            generated.extend(
+                ci_cells
+                    .iter()
+                    .map(|(column, value)| (column.clone(), row_value_to_raw(value))),
+            );
+            generated.extend(
+                store_2da
+                    .iter()
+                    .map(|(id, value)| (format!("2DAMEMORY{id}"), row_value_to_raw(value))),
+            );
+            generated.extend(
+                store_tlk
+                    .iter()
+                    .map(|(id, value)| (format!("StrRef{id}"), row_value_to_raw(value))),
+            );
             generated
         });
         Self {
@@ -1257,7 +1404,16 @@ impl CopyRow2DA {
 
     /// `CopyRow2DA(identifier, entries=...)`.
     pub fn from_entries(identifier: &str, entries: Vec<Entry>) -> Self {
-        Self::new(identifier, None, None, None, Vec::new(), Vec::new(), Vec::new(), Some(entries))
+        Self::new(
+            identifier,
+            None,
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Some(entries),
+        )
     }
 
     /// `apply(twoda, memory)`.
@@ -1268,7 +1424,8 @@ impl CopyRow2DA {
             .find(|(key, value)| key.to_lowercase() == "exclusivecolumn" && !value.is_empty())
             .map(|(_, value)| value.clone());
         if let Some(exclusive_column) = exclusive_column {
-            let (should_copy, existing_row) = exclusive_match(twoda, &self.entries, &exclusive_column)?;
+            let (should_copy, existing_row) =
+                exclusive_match(twoda, &self.entries, &exclusive_column)?;
             if !should_copy {
                 modify_row_fallback(twoda, memory, &self.entries, existing_row)?;
                 if existing_row.is_some() {
@@ -1331,7 +1488,11 @@ impl CopyRow2DA {
                 continue;
             }
 
-            let value = if raw_value.is_empty() { "****" } else { raw_value.as_str() };
+            let value = if raw_value.is_empty() {
+                "****"
+            } else {
+                raw_value.as_str()
+            };
             let mut value = resolve_strref(value, memory);
 
             if !cloned {
@@ -1355,7 +1516,8 @@ impl CopyRow2DA {
                 let closing = value.find(')').unwrap_or(value.len());
                 let increment = &value[4..closing.max(4)];
                 if is_unsigned_decimal(&current_value) && is_unsigned_decimal(increment) {
-                    let sum = current_value.parse::<u128>().unwrap_or(0) + increment.parse::<u128>().unwrap_or(0);
+                    let sum = current_value.parse::<u128>().unwrap_or(0)
+                        + increment.parse::<u128>().unwrap_or(0);
                     value = sum.to_string();
                 } else {
                     value = current_value;
@@ -1410,12 +1572,28 @@ impl AddColumn2DA {
                 ("ColumnLabel".to_string(), header.to_string()),
                 (
                     "DefaultValue".to_string(),
-                    if default.is_empty() { "****".to_string() } else { default.to_string() },
+                    if default.is_empty() {
+                        "****".to_string()
+                    } else {
+                        default.to_string()
+                    },
                 ),
             ];
-            generated.extend(index_insert.iter().map(|(index, value)| (format!("I{index}"), row_value_to_raw(value))));
-            generated.extend(label_insert.iter().map(|(label, value)| (format!("L{label}"), row_value_to_raw(value))));
-            generated.extend(store_2da.iter().map(|(id, selector)| (format!("2DAMEMORY{id}"), selector.clone())));
+            generated.extend(
+                index_insert
+                    .iter()
+                    .map(|(index, value)| (format!("I{index}"), row_value_to_raw(value))),
+            );
+            generated.extend(
+                label_insert
+                    .iter()
+                    .map(|(label, value)| (format!("L{label}"), row_value_to_raw(value))),
+            );
+            generated.extend(
+                store_2da
+                    .iter()
+                    .map(|(id, selector)| (format!("2DAMEMORY{id}"), selector.clone())),
+            );
             generated
         });
         Self {
@@ -1431,7 +1609,15 @@ impl AddColumn2DA {
 
     /// `AddColumn2DA(identifier, entries=...)`.
     pub fn from_entries(identifier: &str, entries: Vec<Entry>) -> Self {
-        Self::new(identifier, "", "", Vec::new(), Vec::new(), Vec::new(), Some(entries))
+        Self::new(
+            identifier,
+            "",
+            "",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Some(entries),
+        )
     }
 
     /// `apply(twoda, memory)`.
@@ -1572,7 +1758,13 @@ impl Modifications2DA {
     /// `apply(twoda, memory, logger, game)`: run every modifier; a
     /// `WarningError` is logged and skipped, any other exception is logged
     /// as an error and stops the remaining modifiers for this file.
-    pub fn apply(&mut self, twoda: &mut TwoDA, memory: &mut PatcherMemory, logger: &mut PatchLogger, _game: Game) {
+    pub fn apply(
+        &mut self,
+        twoda: &mut TwoDA,
+        memory: &mut PatcherMemory,
+        logger: &mut PatchLogger,
+        _game: Game,
+    ) {
         for row in self.modifiers.iter_mut() {
             if let Err(e) = row.apply(twoda, memory) {
                 let msg = format!(
@@ -1600,12 +1792,20 @@ fn simplified_exception_tuple(e: &PatchException) -> String {
     } else {
         message
     };
-    format!("({}, {})", python_str_repr(&name), python_str_repr(&message))
+    format!(
+        "({}, {})",
+        python_str_repr(&name),
+        python_str_repr(&message)
+    )
 }
 
 /// `repr(str)`.
 fn python_str_repr(text: &str) -> String {
-    let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
     let mut out = String::new();
     out.push(quote);
     for ch in text.chars() {
@@ -1618,7 +1818,9 @@ fn python_str_repr(text: &str) -> String {
                 out.push('\\');
                 out.push(c);
             }
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -1663,7 +1865,10 @@ mod tests {
     use crate::formats::twoda::build;
 
     fn entries(pairs: &[(&str, &str)]) -> Vec<Entry> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn sample_bytes() -> Vec<u8> {
@@ -1679,9 +1884,15 @@ mod tests {
         .unwrap()
     }
 
-    fn run(modifiers: Vec<Modify2DA>, memory: &mut PatcherMemory, logger: &mut PatchLogger) -> TwoDA {
+    fn run(
+        modifiers: Vec<Modify2DA>,
+        memory: &mut PatcherMemory,
+        logger: &mut PatchLogger,
+    ) -> TwoDA {
         let mut patch = Modifications2DA::new("test.2da", modifiers);
-        let output = patch.patch_resource(&sample_bytes(), memory, logger, Game::K1).unwrap();
+        let output = patch
+            .patch_resource(&sample_bytes(), memory, logger, Game::K1)
+            .unwrap();
         match output {
             PatchOutput::Bytes(bytes) => TwoDA::read(&bytes).unwrap(),
             PatchOutput::Skip => panic!("2DA patches never skip"),
@@ -1696,14 +1907,27 @@ mod tests {
         table.set_string(0, "col2", "****").unwrap();
         let bytes = table.to_bytes().unwrap();
         let again = TwoDA::read(&bytes).unwrap();
-        assert_eq!(again.get_cell(0, "Col2").unwrap(), "****", "a literal **** written by the model survives");
+        assert_eq!(
+            again.get_cell(0, "Col2").unwrap(),
+            "****",
+            "a literal **** written by the model survives"
+        );
         assert_eq!(again.get_cell(2, "Col1").unwrap(), "");
 
         let empty = TwoDA::new(&["a"]).to_bytes().unwrap();
         assert_eq!(&empty[..9], b"2DA V2.b\n");
         assert!(TwoDA::read(&empty).unwrap().get_height() == 0);
-        assert_eq!(TwoDA::read(b"nope").unwrap_err().message, "Failed to determine the format of the 2DA file.");
-        assert_eq!(TwoDA::read(b"2DA V2.b\r\nlabel\t\0\0\0\0\0\0\0").unwrap().get_headers().to_vec(), vec!["label".to_string()]);
+        assert_eq!(
+            TwoDA::read(b"nope").unwrap_err().message,
+            "Failed to determine the format of the 2DA file."
+        );
+        assert_eq!(
+            TwoDA::read(b"2DA V2.b\r\nlabel\t\0\0\0\0\0\0\0")
+                .unwrap()
+                .get_headers()
+                .to_vec(),
+            vec!["label".to_string()]
+        );
     }
 
     #[test]
@@ -1712,11 +1936,30 @@ mod tests {
         let mut logger = PatchLogger::new();
         let table = run(
             vec![
-                Modify2DA::ChangeRow(ChangeRow2DA::from_entries("a", entries(&[("RowIndex", "1"), ("Col2", "x")]))),
-                Modify2DA::ChangeRow(ChangeRow2DA::from_entries("b", entries(&[("RowLabel", "2"), ("col2", "y")]))),
-                Modify2DA::ChangeRow(ChangeRow2DA::from_entries("c", entries(&[("LabelIndex", "first"), ("Col2", "z"), ("2DAMEMORY1", "RowIndex")]))),
-                Modify2DA::ChangeRow(ChangeRow2DA::from_entries("d", entries(&[("RowIndex", "abc"), ("Col2", "never")]))),
-                Modify2DA::ChangeRow(ChangeRow2DA::from_entries("e", entries(&[("Col2", "never"), ("RowIndex", "0")]))),
+                Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                    "a",
+                    entries(&[("RowIndex", "1"), ("Col2", "x")]),
+                )),
+                Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                    "b",
+                    entries(&[("RowLabel", "2"), ("col2", "y")]),
+                )),
+                Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                    "c",
+                    entries(&[
+                        ("LabelIndex", "first"),
+                        ("Col2", "z"),
+                        ("2DAMEMORY1", "RowIndex"),
+                    ]),
+                )),
+                Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                    "d",
+                    entries(&[("RowIndex", "abc"), ("Col2", "never")]),
+                )),
+                Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                    "e",
+                    entries(&[("Col2", "never"), ("RowIndex", "0")]),
+                )),
             ],
             &mut memory,
             &mut logger,
@@ -1724,7 +1967,10 @@ mod tests {
         assert_eq!(table.get_cell(1, "Col2").unwrap(), "x");
         assert_eq!(table.get_cell(2, "Col2").unwrap(), "y");
         assert_eq!(table.get_cell(0, "Col2").unwrap(), "z");
-        assert_eq!(memory.memory_2da.get(&1), Some(&MemoryValue::Str("0".into())));
+        assert_eq!(
+            memory.memory_2da.get(&1),
+            Some(&MemoryValue::Str("0".into()))
+        );
         assert!(logger.all_logs.is_empty());
     }
 
@@ -1732,12 +1978,21 @@ mod tests {
     fn change_row_high_and_strref_and_memory_values() {
         let mut memory = PatcherMemory::new();
         memory.memory_str.insert(5, 123);
-        memory.memory_2da.insert(2, MemoryValue::Str("stored".into()));
+        memory
+            .memory_2da
+            .insert(2, MemoryValue::Str("stored".into()));
         let mut logger = PatchLogger::new();
         let table = run(
             vec![Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
                 "a",
-                entries(&[("RowIndex", "0"), ("Col1", "high()"), ("Col2", "StrRef5"), ("label", "2DAMEMORY2"), ("StrRef7", "Col2"), ("2DAMEMORY3", "nosuch")]),
+                entries(&[
+                    ("RowIndex", "0"),
+                    ("Col1", "high()"),
+                    ("Col2", "StrRef5"),
+                    ("label", "2DAMEMORY2"),
+                    ("StrRef7", "Col2"),
+                    ("2DAMEMORY3", "nosuch"),
+                ]),
             ))],
             &mut memory,
             &mut logger,
@@ -1752,16 +2007,35 @@ mod tests {
     #[test]
     fn memory_resolution_rules_follow_python() {
         let mut memory = PatcherMemory::new();
-        assert_eq!(resolve_2da_memory("2DAMEMORY1", &memory).unwrap(), "2DAMEMORY1", "empty memory keeps the literal");
-        memory.memory_2da.insert(3, MemoryValue::Str("three".into()));
+        assert_eq!(
+            resolve_2da_memory("2DAMEMORY1", &memory).unwrap(),
+            "2DAMEMORY1",
+            "empty memory keeps the literal"
+        );
+        memory
+            .memory_2da
+            .insert(3, MemoryValue::Str("three".into()));
         assert_eq!(resolve_2da_memory("2DAMEMORY3", &memory).unwrap(), "three");
-        assert_eq!(resolve_2da_memory("2DAMEMORY9", &memory).unwrap(), "", "beyond highest falls back to unset token 1");
+        assert_eq!(
+            resolve_2da_memory("2DAMEMORY9", &memory).unwrap(),
+            "",
+            "beyond highest falls back to unset token 1"
+        );
         assert_eq!(resolve_2da_memory("2DAMEMORYx", &memory).unwrap(), "");
-        assert_eq!(resolve_2da_memory("2damemory3", &memory).unwrap(), "2damemory3", "prefix is case-sensitive");
-        memory.memory_2da.insert(1, MemoryValue::FieldPath("Root\\Field".into()));
+        assert_eq!(
+            resolve_2da_memory("2damemory3", &memory).unwrap(),
+            "2damemory3",
+            "prefix is case-sensitive"
+        );
+        memory
+            .memory_2da
+            .insert(1, MemoryValue::FieldPath("Root\\Field".into()));
         let err = resolve_2da_memory("2DAMEMORY0", &memory).unwrap_err();
         assert_eq!(err.kind, "TypeError");
-        assert_eq!(err.message, "!FieldPath cannot be used in 2DAList patches, got 'Root\\Field'");
+        assert_eq!(
+            err.message,
+            "!FieldPath cannot be used in 2DAList patches, got 'Root\\Field'"
+        );
         assert_eq!(resolve_strref("strref9", &memory), "0");
         assert_eq!(resolve_strref("StrRef", &memory), "StrRef");
     }
@@ -1769,17 +2043,29 @@ mod tests {
     #[test]
     fn field_path_error_stops_the_file_with_python_wording() {
         let mut memory = PatcherMemory::new();
-        memory.memory_2da.insert(1, MemoryValue::FieldPath("Root\\Field".into()));
+        memory
+            .memory_2da
+            .insert(1, MemoryValue::FieldPath("Root\\Field".into()));
         let mut logger = PatchLogger::new();
         let table = run(
             vec![
-                Modify2DA::ChangeRow(ChangeRow2DA::from_entries("a", entries(&[("RowIndex", "0"), ("Col2", "2DAMEMORY1")]))),
-                Modify2DA::ChangeRow(ChangeRow2DA::from_entries("b", entries(&[("RowIndex", "1"), ("Col2", "later")]))),
+                Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                    "a",
+                    entries(&[("RowIndex", "0"), ("Col2", "2DAMEMORY1")]),
+                )),
+                Modify2DA::ChangeRow(ChangeRow2DA::from_entries(
+                    "b",
+                    entries(&[("RowIndex", "1"), ("Col2", "later")]),
+                )),
             ],
             &mut memory,
             &mut logger,
         );
-        assert_eq!(table.get_cell(1, "Col2").unwrap(), "b", "later modifiers are skipped");
+        assert_eq!(
+            table.get_cell(1, "Col2").unwrap(),
+            "b",
+            "later modifiers are skipped"
+        );
         assert_eq!(logger.errors().len(), 1);
         assert_eq!(
             logger.errors()[0].message,
@@ -1795,11 +2081,32 @@ mod tests {
             vec![
                 Modify2DA::AddRow(AddRow2DA::from_entries(
                     "a",
-                    entries(&[("2DAMEMORY1", "RowIndex"), ("RowLabel", "high()"), ("Col1", "high()"), ("Col2", ""), ("2DAMEMORY2", "RowLabel"), ("StrRef1", "Col1")]),
+                    entries(&[
+                        ("2DAMEMORY1", "RowIndex"),
+                        ("RowLabel", "high()"),
+                        ("Col1", "high()"),
+                        ("Col2", ""),
+                        ("2DAMEMORY2", "RowLabel"),
+                        ("StrRef1", "Col1"),
+                    ]),
                 )),
-                Modify2DA::AddRow(AddRow2DA::from_entries("b", entries(&[("ExclusiveColumn", "label")]))),
-                Modify2DA::AddRow(AddRow2DA::from_entries("c", entries(&[("ExclusiveColumn", "Label"), ("label", "second"), ("Col2", "changed"), ("2DAMEMORY3", "RowIndex")]))),
-                Modify2DA::AddRow(AddRow2DA::from_entries("d", entries(&[("ExclusiveColumn", "nosuch"), ("label", "new")]))),
+                Modify2DA::AddRow(AddRow2DA::from_entries(
+                    "b",
+                    entries(&[("ExclusiveColumn", "label")]),
+                )),
+                Modify2DA::AddRow(AddRow2DA::from_entries(
+                    "c",
+                    entries(&[
+                        ("ExclusiveColumn", "Label"),
+                        ("label", "second"),
+                        ("Col2", "changed"),
+                        ("2DAMEMORY3", "RowIndex"),
+                    ]),
+                )),
+                Modify2DA::AddRow(AddRow2DA::from_entries(
+                    "d",
+                    entries(&[("ExclusiveColumn", "nosuch"), ("label", "new")]),
+                )),
             ],
             &mut memory,
             &mut logger,
@@ -1811,12 +2118,18 @@ mod tests {
         assert_eq!(table.get_cell(3, "Col1").unwrap(), "13");
         assert_eq!(table.get_cell(3, "Col2").unwrap(), "");
         assert!(!memory.memory_2da.contains_key(&1));
-        assert_eq!(memory.memory_2da.get(&2), Some(&MemoryValue::Str("4".into())));
+        assert_eq!(
+            memory.memory_2da.get(&2),
+            Some(&MemoryValue::Str("4".into()))
+        );
         assert_eq!(memory.memory_str.get(&1), Some(&13));
         // "b": exclusive column with no value -> nothing.
         // "c": matches existing row 1 and modifies it in place.
         assert_eq!(table.get_cell(1, "Col2").unwrap(), "changed");
-        assert_eq!(memory.memory_2da.get(&3), Some(&MemoryValue::Str("1".into())));
+        assert_eq!(
+            memory.memory_2da.get(&3),
+            Some(&MemoryValue::Str("1".into()))
+        );
         // "d": unknown exclusive column adds unconditionally.
         assert_eq!(table.get_cell(4, "label").unwrap(), "new");
     }
@@ -1830,11 +2143,27 @@ mod tests {
             vec![
                 Modify2DA::CopyRow(CopyRow2DA::from_entries(
                     "a",
-                    entries(&[("RowIndex", "1"), ("2DAMEMORY2", "RowIndex"), ("NewRowLabel", "copy"), ("Col1", "inc(3)"), ("2DAMEMORY3", "RowIndex"), ("Col2", "inc(abc)")]),
+                    entries(&[
+                        ("RowIndex", "1"),
+                        ("2DAMEMORY2", "RowIndex"),
+                        ("NewRowLabel", "copy"),
+                        ("Col1", "inc(3)"),
+                        ("2DAMEMORY3", "RowIndex"),
+                        ("Col2", "inc(abc)"),
+                    ]),
                 )),
-                Modify2DA::CopyRow(CopyRow2DA::from_entries("b", entries(&[("RowIndex", "2DAMEMORY1"), ("Col2", "never")]))),
-                Modify2DA::CopyRow(CopyRow2DA::from_entries("c", entries(&[("RowLabel", "0"), ("NewRowLabel", "")]))),
-                Modify2DA::CopyRow(CopyRow2DA::from_entries("d", entries(&[("RowLabel", "0"), ("NewRowLabel", ""), ("Col1", "RowIndex")]))),
+                Modify2DA::CopyRow(CopyRow2DA::from_entries(
+                    "b",
+                    entries(&[("RowIndex", "2DAMEMORY1"), ("Col2", "never")]),
+                )),
+                Modify2DA::CopyRow(CopyRow2DA::from_entries(
+                    "c",
+                    entries(&[("RowLabel", "0"), ("NewRowLabel", "")]),
+                )),
+                Modify2DA::CopyRow(CopyRow2DA::from_entries(
+                    "d",
+                    entries(&[("RowLabel", "0"), ("NewRowLabel", ""), ("Col1", "RowIndex")]),
+                )),
             ],
             &mut memory,
             &mut logger,
@@ -1842,9 +2171,19 @@ mod tests {
         assert_eq!(table.get_height(), 6);
         assert_eq!(table.get_label(3).unwrap(), "copy");
         assert_eq!(table.get_cell(3, "Col1").unwrap(), "15");
-        assert_eq!(table.get_cell(3, "Col2").unwrap(), "b", "inc(abc) keeps the current cell");
-        assert_eq!(memory.memory_2da.get(&2), Some(&MemoryValue::Str("1".into())));
-        assert_eq!(memory.memory_2da.get(&3), Some(&MemoryValue::Str("3".into())));
+        assert_eq!(
+            table.get_cell(3, "Col2").unwrap(),
+            "b",
+            "inc(abc) keeps the current cell"
+        );
+        assert_eq!(
+            memory.memory_2da.get(&2),
+            Some(&MemoryValue::Str("1".into()))
+        );
+        assert_eq!(
+            memory.memory_2da.get(&3),
+            Some(&MemoryValue::Str("3".into()))
+        );
         // "b": RowIndex=2DAMEMORY1 is not an unsigned decimal, so nothing is copied.
         // "c": an empty NewRowLabel= still counts as a cell key and triggers the clone.
         // "d": copied with an index label and the literal text RowIndex.
@@ -1863,9 +2202,21 @@ mod tests {
             vec![
                 Modify2DA::AddColumn(AddColumn2DA::from_entries(
                     "a",
-                    entries(&[("I0", "early"), ("ColumnLabel", "NewCol"), ("DefaultValue", "d"), ("I1", "StrRef2"), ("L2", ""), ("2DAMEMORY1", "ColumnLabel"), ("2DAMEMORY2", "I1"), ("2DAMEMORY3", "L0")]),
+                    entries(&[
+                        ("I0", "early"),
+                        ("ColumnLabel", "NewCol"),
+                        ("DefaultValue", "d"),
+                        ("I1", "StrRef2"),
+                        ("L2", ""),
+                        ("2DAMEMORY1", "ColumnLabel"),
+                        ("2DAMEMORY2", "I1"),
+                        ("2DAMEMORY3", "L0"),
+                    ]),
                 )),
-                Modify2DA::AddColumn(AddColumn2DA::from_entries("b", entries(&[("ColumnLabel", "Col1"), ("I0", "never")]))),
+                Modify2DA::AddColumn(AddColumn2DA::from_entries(
+                    "b",
+                    entries(&[("ColumnLabel", "Col1"), ("I0", "never")]),
+                )),
             ],
             &mut memory,
             &mut logger,
@@ -1873,11 +2224,28 @@ mod tests {
         assert_eq!(table.get_headers().last().unwrap(), "NewCol");
         assert_eq!(table.get_cell(0, "NewCol").unwrap(), "d");
         assert_eq!(table.get_cell(1, "NewCol").unwrap(), "77");
-        assert_eq!(table.get_cell(2, "NewCol").unwrap(), "d", "empty L value uses the default");
-        assert_eq!(memory.memory_2da.get(&1), Some(&MemoryValue::Str("NewCol".into())));
-        assert_eq!(memory.memory_2da.get(&2), Some(&MemoryValue::Str("77".into())));
-        assert_eq!(memory.memory_2da.get(&3), Some(&MemoryValue::Str("d".into())));
-        assert_eq!(table.get_cell(0, "Col1").unwrap(), "10", "duplicate header stops the modifier");
+        assert_eq!(
+            table.get_cell(2, "NewCol").unwrap(),
+            "d",
+            "empty L value uses the default"
+        );
+        assert_eq!(
+            memory.memory_2da.get(&1),
+            Some(&MemoryValue::Str("NewCol".into()))
+        );
+        assert_eq!(
+            memory.memory_2da.get(&2),
+            Some(&MemoryValue::Str("77".into()))
+        );
+        assert_eq!(
+            memory.memory_2da.get(&3),
+            Some(&MemoryValue::Str("d".into()))
+        );
+        assert_eq!(
+            table.get_cell(0, "Col1").unwrap(),
+            "10",
+            "duplicate header stops the modifier"
+        );
     }
 
     #[test]
@@ -1887,16 +2255,37 @@ mod tests {
         assert!(Target::new(TargetType::RowIndex, TargetValue::Str("1".into())).is_err());
         let target = Target::new(TargetType::RowIndex, TargetValue::Int(1)).unwrap();
         assert_eq!(target.search(&table, &memory).unwrap(), Some(1));
-        let target = Target::new(TargetType::LabelColumn, TargetValue::Str("third".into())).unwrap();
+        let target =
+            Target::new(TargetType::LabelColumn, TargetValue::Str("third".into())).unwrap();
         assert_eq!(target.search(&table, &memory).unwrap(), Some(2));
         let target = Target::new(TargetType::LabelColumn, TargetValue::Str("nope".into())).unwrap();
         let err = target.search(&table, &memory).unwrap_err();
         assert_eq!(err.kind, "WarningError");
-        assert_eq!(err.message, "The value 'nope' could not be found in the twoda's columns");
-        assert_eq!(RowValue::High(None).value(&memory, &table, None).unwrap(), "3");
-        assert_eq!(RowValue::RowCell("col2".into()).value(&memory, &table, Some(2)).unwrap(), "c");
-        assert_eq!(RowValue::TwoDAMemory(4).value(&memory, &table, None).unwrap_err().message, "2DAMEMORY4 was not defined before use.");
-        assert_eq!(target_to_entry(&target), ("LabelIndex".to_string(), "nope".to_string()));
+        assert_eq!(
+            err.message,
+            "The value 'nope' could not be found in the twoda's columns"
+        );
+        assert_eq!(
+            RowValue::High(None).value(&memory, &table, None).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            RowValue::RowCell("col2".into())
+                .value(&memory, &table, Some(2))
+                .unwrap(),
+            "c"
+        );
+        assert_eq!(
+            RowValue::TwoDAMemory(4)
+                .value(&memory, &table, None)
+                .unwrap_err()
+                .message,
+            "2DAMEMORY4 was not defined before use."
+        );
+        assert_eq!(
+            target_to_entry(&target),
+            ("LabelIndex".to_string(), "nope".to_string())
+        );
     }
 
     #[test]
@@ -1912,10 +2301,19 @@ mod tests {
         );
         assert_eq!(
             m.entries,
-            entries(&[("ExclusiveColumn", "label"), ("RowLabel", "high()"), ("Col1", "v"), ("2DAMEMORY1", "RowIndex"), ("StrRef2", "Col1")])
+            entries(&[
+                ("ExclusiveColumn", "label"),
+                ("RowLabel", "high()"),
+                ("Col1", "v"),
+                ("2DAMEMORY1", "RowIndex"),
+                ("StrRef2", "Col1")
+            ])
         );
         let c = AddColumn2DA::new("y", "H", "", Vec::new(), Vec::new(), Vec::new(), None);
-        assert_eq!(c.entries, entries(&[("ColumnLabel", "H"), ("DefaultValue", "****")]));
+        assert_eq!(
+            c.entries,
+            entries(&[("ColumnLabel", "H"), ("DefaultValue", "****")])
+        );
         assert_eq!(python_str_repr("it's"), "\"it's\"");
         assert_eq!(python_str_repr("a\\b"), "'a\\\\b'");
     }

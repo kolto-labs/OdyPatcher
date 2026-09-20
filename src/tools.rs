@@ -130,15 +130,18 @@ pub fn restore_backup(mod_folder: &Path, game_folder: &Path) -> RestoreReport {
     let (m1, m2, m3) = (messages.clone(), messages.clone(), messages.clone());
     let dialogs = UninstallDialogs {
         askyesno: Box::new(move |title, message| {
-            m1.borrow_mut().push((title.to_string(), message.to_string()));
+            m1.borrow_mut()
+                .push((title.to_string(), message.to_string()));
             // Keep the backup once it has been restored.
             title != "Uninstall completed"
         }),
         showerror: Box::new(move |title, message| {
-            m2.borrow_mut().push((title.to_string(), message.to_string()));
+            m2.borrow_mut()
+                .push((title.to_string(), message.to_string()));
         }),
         showwarning: Box::new(move |title, message| {
-            m3.borrow_mut().push((title.to_string(), message.to_string()));
+            m3.borrow_mut()
+                .push((title.to_string(), message.to_string()));
         }),
     };
 
@@ -608,7 +611,9 @@ mod tests {
 
         let findings = validate(&session, None);
         assert!(
-            findings.iter().any(|f| !f.blocking && f.message.contains("[Settings]")),
+            findings
+                .iter()
+                .any(|f| !f.blocking && f.message.contains("[Settings]")),
             "{findings:?}"
         );
         assert!(findings.iter().all(|f| !f.blocking), "{findings:?}");
@@ -619,10 +624,7 @@ mod tests {
     #[test]
     fn a_list_naming_a_missing_section_is_reported() {
         let dir = temp_dir("missingsection");
-        let session = session_with(
-            &dir,
-            b"[Settings]\n\n[2DAList]\nTable0=spells.2da\n",
-        );
+        let session = session_with(&dir, b"[Settings]\n\n[2DAList]\nTable0=spells.2da\n");
 
         let findings = validate(&session, None);
         assert!(
@@ -871,7 +873,10 @@ mod tests {
 
         let report = force_lowercase(&dir.to_string_lossy());
 
-        assert_eq!(report.merged, 0, "nothing should be treated as a duplicate to merge");
+        assert_eq!(
+            report.merged, 0,
+            "nothing should be treated as a duplicate to merge"
+        );
         assert!(dir.join("Spells.2da").exists() || dir.join("spells.2da").exists());
         assert!(
             dir.join("Spells.2da").exists() && dir.join("spells.2da").exists(),

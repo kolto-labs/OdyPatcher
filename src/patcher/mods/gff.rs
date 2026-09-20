@@ -482,10 +482,15 @@ impl GffValue {
             FieldValue::Void(d) => GffValue::Bytes(d.clone()),
             FieldValue::Struct(s) => GffValue::Struct(s.clone()),
             FieldValue::List(l) => GffValue::List(l.clone()),
-            FieldValue::Orientation(v) => {
-                GffValue::Vector4([f64::from(v[0]), f64::from(v[1]), f64::from(v[2]), f64::from(v[3])])
+            FieldValue::Orientation(v) => GffValue::Vector4([
+                f64::from(v[0]),
+                f64::from(v[1]),
+                f64::from(v[2]),
+                f64::from(v[3]),
+            ]),
+            FieldValue::Position(v) => {
+                GffValue::Vector3([f64::from(v[0]), f64::from(v[1]), f64::from(v[2])])
             }
-            FieldValue::Position(v) => GffValue::Vector3([f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]),
             FieldValue::StrRef { value, .. } => GffValue::Int(i128::from(*value)),
         }
     }
@@ -519,8 +524,12 @@ impl GffValue {
             ),
             GffValue::Bytes(b) => python_bytes_repr(b),
             GffValue::Path(p) => p.to_string(),
-            GffValue::Struct(_) => "<pykotor.resource.formats.gff.gff_data.GFFStruct object>".to_string(),
-            GffValue::List(_) => "<pykotor.resource.formats.gff.gff_data.GFFList object>".to_string(),
+            GffValue::Struct(_) => {
+                "<pykotor.resource.formats.gff.gff_data.GFFStruct object>".to_string()
+            }
+            GffValue::List(_) => {
+                "<pykotor.resource.formats.gff.gff_data.GFFList object>".to_string()
+            }
             GffValue::LocString(l) => locstring_str(l),
             GffValue::LocDelta(d) => d.to_string(),
         }
@@ -711,8 +720,16 @@ pub fn base64_decode(text: &str, validate: bool) -> Option<Vec<u8>> {
 }
 
 /// `_parse_vector(value, field_type, existing)`.
-pub fn parse_vector(value: &GffValue, field_type: GffFieldType, existing: Option<&FieldValue>) -> Option<Scalar> {
-    let count = if field_type == GffFieldType::Vector3 { 3 } else { 4 };
+pub fn parse_vector(
+    value: &GffValue,
+    field_type: GffFieldType,
+    existing: Option<&FieldValue>,
+) -> Option<Scalar> {
+    let count = if field_type == GffFieldType::Vector3 {
+        3
+    } else {
+        4
+    };
     match (value, count) {
         (GffValue::Vector3(v), 3) => return Some(Scalar::Vector3(*v)),
         (GffValue::Vector4(v), 4) => return Some(Scalar::Vector4(*v)),
@@ -726,8 +743,12 @@ pub fn parse_vector(value: &GffValue, field_type: GffFieldType, existing: Option
         return None;
     }
     let existing: Option<Vec<f64>> = match existing {
-        Some(FieldValue::Position(v)) if count == 3 => Some(v.iter().map(|x| f64::from(*x)).collect()),
-        Some(FieldValue::Orientation(v)) if count == 4 => Some(v.iter().map(|x| f64::from(*x)).collect()),
+        Some(FieldValue::Position(v)) if count == 3 => {
+            Some(v.iter().map(|x| f64::from(*x)).collect())
+        }
+        Some(FieldValue::Orientation(v)) if count == 4 => {
+            Some(v.iter().map(|x| f64::from(*x)).collect())
+        }
         _ => None,
     };
     let result: Vec<f64> = match existing {
@@ -816,12 +837,14 @@ impl Scalar {
             (Scalar::Str(s), FieldValue::ExoString(x)) => s == x,
             (Scalar::ResRef(s), FieldValue::ResRef(x)) => s.to_lowercase() == x.to_lowercase(),
             (Scalar::Bytes(b), FieldValue::Void(x)) => b == x,
-            (Scalar::Vector3(v), FieldValue::Position(x)) => {
-                v.iter().zip(x.iter()).all(|(a, b)| is_close(*a, f64::from(*b)))
-            }
-            (Scalar::Vector4(v), FieldValue::Orientation(x)) => {
-                v.iter().zip(x.iter()).all(|(a, b)| is_close(*a, f64::from(*b)))
-            }
+            (Scalar::Vector3(v), FieldValue::Position(x)) => v
+                .iter()
+                .zip(x.iter())
+                .all(|(a, b)| is_close(*a, f64::from(*b))),
+            (Scalar::Vector4(v), FieldValue::Orientation(x)) => v
+                .iter()
+                .zip(x.iter())
+                .all(|(a, b)| is_close(*a, f64::from(*b))),
             _ => false,
         }
     }
@@ -842,7 +865,9 @@ impl Scalar {
             (Scalar::Str(s), _) => FieldValue::ExoString(s),
             (Scalar::ResRef(s), _) => FieldValue::ResRef(s),
             (Scalar::Bytes(b), _) => FieldValue::Void(b),
-            (Scalar::Vector3(v), _) => FieldValue::Position([v[0] as f32, v[1] as f32, v[2] as f32]),
+            (Scalar::Vector3(v), _) => {
+                FieldValue::Position([v[0] as f32, v[1] as f32, v[2] as f32])
+            }
             (Scalar::Vector4(v), _) => {
                 FieldValue::Orientation([v[0] as f32, v[1] as f32, v[2] as f32, v[3] as f32])
             }
@@ -860,14 +885,22 @@ pub fn coerce_scalar(
     new_field: bool,
 ) -> PResult<Option<Scalar>> {
     Ok(match field_type {
-        GffFieldType::Int8 => parse_char(value, if new_field { None } else { Some(0) }).map(Scalar::Int),
+        GffFieldType::Int8 => {
+            parse_char(value, if new_field { None } else { Some(0) }).map(Scalar::Int)
+        }
         ft if ft.is_integer() => {
-            let signed_type = matches!(ft, GffFieldType::Int16 | GffFieldType::Int32 | GffFieldType::Int64);
+            let signed_type = matches!(
+                ft,
+                GffFieldType::Int16 | GffFieldType::Int32 | GffFieldType::Int64
+            );
             parse_int(value, ft, new_field && signed_type).map(Scalar::Int)
         }
         ft if ft.is_float() => parse_float(value).map(Scalar::Float),
         GffFieldType::String => Some(Scalar::Str(
-            value.python_str().replace("<#LF#>", "\n").replace("<#CR#>", "\r"),
+            value
+                .python_str()
+                .replace("<#LF#>", "\n")
+                .replace("<#CR#>", "\r"),
         )),
         GffFieldType::ResRef => Some(Scalar::ResRef(match value {
             GffValue::ResRef(r) => r.clone(),
@@ -944,7 +977,9 @@ impl FieldValueKind {
                 if lower_value.starts_with("strref") && is_ascii_digits(&raw_value[6..]) {
                     let token_id = raw_value[6..].parse::<i32>().ok();
                     return GffValue::Int(i128::from(
-                        token_id.and_then(|id| memory.memory_str.get(&id).copied()).unwrap_or(0),
+                        token_id
+                            .and_then(|id| memory.memory_str.get(&id).copied())
+                            .unwrap_or(0),
                     ));
                 }
                 if let Some(suffix) = raw_value.strip_prefix("2DAMEMORY") {
@@ -983,9 +1018,9 @@ impl FieldValueKind {
                     .map(GffValue::from_memory)
                     .unwrap_or(GffValue::Str(token))
             }
-            FieldValueKind::MemoryTLK(token_id) => {
-                GffValue::Int(i128::from(memory.memory_str.get(token_id).copied().unwrap_or(0)))
-            }
+            FieldValueKind::MemoryTLK(token_id) => GffValue::Int(i128::from(
+                memory.memory_str.get(token_id).copied().unwrap_or(0),
+            )),
         }
     }
 
@@ -1002,13 +1037,15 @@ impl FieldValueKind {
                 other => GffValue::ResRef(make_resref(&other.python_str())?),
             }),
             GffFieldType::String => Ok(GffValue::Str(resolved.python_str())),
-            ft if ft.is_integer() => parse_int(&resolved, ft, true).map(GffValue::Int).ok_or_else(|| {
-                PatchException::value(format!(
-                    "Invalid {} value: {}",
-                    ft.name(),
-                    resolved.python_repr()
-                ))
-            }),
+            ft if ft.is_integer() => parse_int(&resolved, ft, true)
+                .map(GffValue::Int)
+                .ok_or_else(|| {
+                    PatchException::value(format!(
+                        "Invalid {} value: {}",
+                        ft.name(),
+                        resolved.python_repr()
+                    ))
+                }),
             ft if ft.is_float() => parse_float(&resolved).map(GffValue::Float).ok_or_else(|| {
                 PatchException::value(format!(
                     "Invalid {} value: {}",
@@ -1063,7 +1100,11 @@ impl LocalizedStringDelta {
 
     /// `set_data` by substring id.
     pub fn set_substring(&mut self, substring_id: i32, text: &str) {
-        match self.substrings.iter_mut().find(|(id, _)| *id == substring_id) {
+        match self
+            .substrings
+            .iter_mut()
+            .find(|(id, _)| *id == substring_id)
+        {
             Some(slot) => slot.1 = text.to_string(),
             None => self.substrings.push((substring_id, text.to_string())),
         }
@@ -1118,7 +1159,10 @@ impl LocalizedStringDelta {
 
         for (substring_id, field_value) in &self.deferred {
             let raw_text = field_value.resolve(memory);
-            let text = raw_text.python_str().replace("<#LF#>", "\n").replace("<#CR#>", "\r");
+            let text = raw_text
+                .python_str()
+                .replace("<#LF#>", "\n")
+                .replace("<#CR#>", "\r");
             if locstring_get(locstring, *substring_id) != Some(text.as_str()) {
                 locstring_set(locstring, *substring_id, &text);
                 changed = true;
@@ -1184,7 +1228,10 @@ pub fn navigate_containers<'a>(root: &'a GffStruct, path: &GffPath) -> Option<Co
 }
 
 /// `_navigate_containers`, mutable.
-pub fn navigate_containers_mut<'a>(root: &'a mut GffStruct, path: &GffPath) -> Option<ContainerMut<'a>> {
+pub fn navigate_containers_mut<'a>(
+    root: &'a mut GffStruct,
+    path: &GffPath,
+) -> Option<ContainerMut<'a>> {
     if path.name().is_empty() {
         return Some(ContainerMut::Struct(root));
     }
@@ -1219,7 +1266,10 @@ pub fn navigate_to_field<'a>(root: &'a GffStruct, path: &GffPath) -> Option<&'a 
 }
 
 /// `_navigate_to_field`, mutable.
-pub fn navigate_to_field_mut<'a>(root: &'a mut GffStruct, path: &GffPath) -> Option<&'a mut GffField> {
+pub fn navigate_to_field_mut<'a>(
+    root: &'a mut GffStruct,
+    path: &GffPath,
+) -> Option<&'a mut GffField> {
     match navigate_containers_mut(root, &path.parent())? {
         ContainerMut::Struct(container) => container.field_mut(path.name()),
         ContainerMut::List(_) => None,
@@ -1230,7 +1280,9 @@ pub fn navigate_to_field_mut<'a>(root: &'a mut GffStruct, path: &GffPath) -> Opt
 /// is replaced by a copy of the field it points to; `None` is `_INVALID`.
 pub fn resolve_field_pointer(root: &GffStruct, value: GffValue) -> Option<GffValue> {
     match value {
-        GffValue::Path(path) => navigate_to_field(root, &path).map(|field| GffValue::from_field_value(&field.value)),
+        GffValue::Path(path) => {
+            navigate_to_field(root, &path).map(|field| GffValue::from_field_value(&field.value))
+        }
         other => Some(other),
     }
 }
@@ -1262,7 +1314,9 @@ fn python_str_or_invalid(value: Option<&GffValue>) -> String {
 /// `int(text)` for an `_ASCII_DIGITS` match used as a struct id.
 fn struct_id_from_digits(text: &str) -> PResult<u32> {
     text.parse::<u32>().map_err(|_| {
-        PatchException::value(format!("Struct id '{text}' does not fit in an unsigned 32-bit integer."))
+        PatchException::value(format!(
+            "Struct id '{text}' does not fit in an unsigned 32-bit integer."
+        ))
     })
 }
 
@@ -1404,7 +1458,9 @@ pub struct AddFieldGFFReference {
 
 impl PartialEq for AddFieldGFFReference {
     fn eq(&self, other: &Self) -> bool {
-        self.identifier == other.identifier && self.section == other.section && Arc::ptr_eq(&self.ini, &other.ini)
+        self.identifier == other.identifier
+            && self.section == other.section
+            && Arc::ptr_eq(&self.ini, &other.ini)
     }
 }
 
@@ -1537,14 +1593,23 @@ impl AddStructToListGFF {
             _ => return Ok(false),
         };
         if let Some(token) = self.index_to_token {
-            memory.memory_2da.insert(token, MemoryValue::Str(list_index.to_string()));
+            memory
+                .memory_2da
+                .insert(token, MemoryValue::Str(list_index.to_string()));
         }
 
         let child_context = GffModifierContext {
             path: path.join_str(&list_index.to_string()),
             list_index: Some(list_index),
         };
-        apply_modifiers(&self.modifiers, root, memory, logger, &child_context, result);
+        apply_modifiers(
+            &self.modifiers,
+            root,
+            memory,
+            logger,
+            &child_context,
+            result,
+        );
         Ok(true)
     }
 }
@@ -1637,7 +1702,9 @@ impl AddFieldGFF {
         }
 
         let existing_value: Option<FieldValue> = match navigate_containers(root, &path) {
-            Some(Container::Struct(container)) => container.field(&self.label).map(|f| f.value.clone()),
+            Some(Container::Struct(container)) => {
+                container.field(&self.label).map(|f| f.value.clone())
+            }
             _ => None,
         };
         if let Some(existing) = &existing_value {
@@ -1665,7 +1732,11 @@ impl AddFieldGFF {
                         Some(GffValue::List(items)) => items,
                         _ => Vec::new(),
                     };
-                    set_field(self.struct_mut(root, &path), &self.label, FieldValue::List(value));
+                    set_field(
+                        self.struct_mut(root, &path),
+                        &self.label,
+                        FieldValue::List(value),
+                    );
                     changed = true;
                 }
             }
@@ -1687,7 +1758,11 @@ impl AddFieldGFF {
                                 value
                             }
                         };
-                        set_field(self.struct_mut(root, &path), &self.label, FieldValue::Struct(value));
+                        set_field(
+                            self.struct_mut(root, &path),
+                            &self.label,
+                            FieldValue::Struct(value),
+                        );
                         changed = true;
                     }
                     Some(FieldValue::Struct(existing_struct)) => {
@@ -1704,7 +1779,8 @@ impl AddFieldGFF {
                             }
                         };
                         if existing_struct.type_id != type_id {
-                            if let Some(field) = self.struct_mut(root, &path).field_mut(&self.label) {
+                            if let Some(field) = self.struct_mut(root, &path).field_mut(&self.label)
+                            {
                                 if let FieldValue::Struct(target) = &mut field.value {
                                     target.type_id = type_id;
                                 }
@@ -1718,20 +1794,31 @@ impl AddFieldGFF {
             GffFieldType::LocalizedString => {
                 let raw_value = self.value.resolve(memory);
                 let GffValue::LocDelta(delta) = raw_value else {
-                    logger.add_error(format!("Invalid localized-string value in [{}].", self.identifier));
+                    logger.add_error(format!(
+                        "Invalid localized-string value in [{}].",
+                        self.identifier
+                    ));
                     return Ok(false);
                 };
                 match existing_value {
                     None => {
                         let mut value = ExoLocString::new(u32::MAX);
                         delta.apply(&mut value, memory, Some(-1));
-                        set_field(self.struct_mut(root, &path), &self.label, FieldValue::ExoLocString(value));
+                        set_field(
+                            self.struct_mut(root, &path),
+                            &self.label,
+                            FieldValue::ExoLocString(value),
+                        );
                         changed = true;
                     }
                     Some(FieldValue::ExoLocString(original)) => {
                         let mut patched = original.clone();
                         if delta.apply(&mut patched, memory, Some(-1)) {
-                            set_field(self.struct_mut(root, &path), &self.label, FieldValue::ExoLocString(patched));
+                            set_field(
+                                self.struct_mut(root, &path),
+                                &self.label,
+                                FieldValue::ExoLocString(patched),
+                            );
                             changed = true;
                         }
                     }
@@ -1739,7 +1826,8 @@ impl AddFieldGFF {
                 }
             }
             _ => {
-                let Some(raw_value) = resolve_field_pointer(root, self.value.resolve(memory)) else {
+                let Some(raw_value) = resolve_field_pointer(root, self.value.resolve(memory))
+                else {
                     return Ok(false);
                 };
                 let parsed_value = coerce_scalar(
@@ -1776,7 +1864,14 @@ impl AddFieldGFF {
             path: field_path,
             list_index: context.list_index,
         };
-        Ok(apply_modifiers(&self.modifiers, root, memory, logger, &child_context, result) || changed)
+        Ok(apply_modifiers(
+            &self.modifiers,
+            root,
+            memory,
+            logger,
+            &child_context,
+            result,
+        ) || changed)
     }
 
     /// The struct at `path`, which the checks above proved exists.
@@ -1858,11 +1953,15 @@ impl Memory2DAModifierGFF {
         };
 
         let Some(source) = memory.memory_2da.get(&src_token_id).cloned() else {
-            logger.add_error(format!("2DAMEMORY{src_token_id} was not defined before use."));
+            logger.add_error(format!(
+                "2DAMEMORY{src_token_id} was not defined before use."
+            ));
             return Ok(false);
         };
 
-        if let Some(MemoryValue::FieldPath(destination)) = memory.memory_2da.get(&self.dest_token_id).cloned() {
+        if let Some(MemoryValue::FieldPath(destination)) =
+            memory.memory_2da.get(&self.dest_token_id).cloned()
+        {
             let destination_path = GffPath::new(&destination);
             let Some(field) = navigate_to_field(root, &destination_path) else {
                 logger.add_error(format!(
@@ -1872,10 +1971,13 @@ impl Memory2DAModifierGFF {
             };
             let field_type = GffFieldType::of(&field.value);
             let existing = field.value.clone();
-            let Some(source_value) = resolve_field_pointer(root, GffValue::from_memory(&source)) else {
+            let Some(source_value) = resolve_field_pointer(root, GffValue::from_memory(&source))
+            else {
                 return Ok(false);
             };
-            let Some(parsed_value) = coerce_scalar(&source_value, field_type, Some(&existing), false)? else {
+            let Some(parsed_value) =
+                coerce_scalar(&source_value, field_type, Some(&existing), false)?
+            else {
                 return Ok(false);
             };
             result.applied = true;
@@ -2025,9 +2127,10 @@ impl ModifyFieldGFF {
 
 /// `GFFContent` values: the four-character types PyKotor's reader accepts.
 const GFF_CONTENT_TYPES: &[&[u8; 4]] = &[
-    b"GFF ", b"BIC ", b"BTC ", b"BTD ", b"BTE ", b"BTI ", b"BTP ", b"BTM ", b"BTT ", b"UTC ", b"UTD ", b"UTE ",
-    b"UTI ", b"UTP ", b"UTS ", b"UTM ", b"UTT ", b"UTW ", b"ARE ", b"DLG ", b"FAC ", b"GIT ", b"GUI ", b"IFO ",
-    b"ITP ", b"JRL ", b"PTH ", b"NFO ", b"PT  ", b"GVT ", b"INV ",
+    b"GFF ", b"BIC ", b"BTC ", b"BTD ", b"BTE ", b"BTI ", b"BTP ", b"BTM ", b"BTT ", b"UTC ",
+    b"UTD ", b"UTE ", b"UTI ", b"UTP ", b"UTS ", b"UTM ", b"UTT ", b"UTW ", b"ARE ", b"DLG ",
+    b"FAC ", b"GIT ", b"GUI ", b"IFO ", b"ITP ", b"JRL ", b"PTH ", b"NFO ", b"PT  ", b"GVT ",
+    b"INV ",
 ];
 
 /// `GFFBinaryReader(source).load()`: PyKotor's header checks, then the
@@ -2038,7 +2141,9 @@ pub fn read_gff(source: &[u8]) -> PResult<GffFile> {
         return Err(PatchException::value("Not a valid binary GFF file."));
     }
     if source.get(4..8) != Some(b"V3.2") {
-        return Err(PatchException::value("The GFF version of the file is unsupported."));
+        return Err(PatchException::value(
+            "The GFF version of the file is unsupported.",
+        ));
     }
     Ok(GffFile::parse(source, "")?)
 }
@@ -2066,7 +2171,13 @@ impl ModificationsGFF {
 
     /// `apply(gff, memory, logger, game)`: run every modifier, log the ones
     /// that raise, and report whether the data changed.
-    pub fn apply(&mut self, gff: &mut GffFile, memory: &mut PatcherMemory, logger: &mut PatchLogger, _game: Game) -> bool {
+    pub fn apply(
+        &mut self,
+        gff: &mut GffFile,
+        memory: &mut PatcherMemory,
+        logger: &mut PatchLogger,
+        _game: Game,
+    ) -> bool {
         self.result = GffPatchResult::default();
         let context = GffModifierContext::default();
         for modifier in &self.modifiers {
@@ -2125,27 +2236,43 @@ mod tests {
 
     fn base_file() -> GffFile {
         let mut file = GffFile::new_file("UTC ", "");
-        file.root.add_field(GffField::new("Tag", FieldValue::ExoString("old".into())));
-        file.root.add_field(GffField::new("Hp", FieldValue::Byte(5)));
-        file.root.add_field(GffField::new("Flag", FieldValue::Int(3)));
-        file.root.add_field(GffField::new("Name", FieldValue::ResRef("MyItem".into())));
-        file.root.add_field(GffField::new("Ch", FieldValue::Char(0)));
+        file.root
+            .add_field(GffField::new("Tag", FieldValue::ExoString("old".into())));
+        file.root
+            .add_field(GffField::new("Hp", FieldValue::Byte(5)));
+        file.root
+            .add_field(GffField::new("Flag", FieldValue::Int(3)));
+        file.root
+            .add_field(GffField::new("Name", FieldValue::ResRef("MyItem".into())));
+        file.root
+            .add_field(GffField::new("Ch", FieldValue::Char(0)));
         let mut item = GffStruct::new();
         item.type_id = 1;
         item.add_field(GffField::new("Class", FieldValue::Int(1)));
-        file.root.add_field(GffField::new("ClassList", FieldValue::List(vec![item])));
+        file.root
+            .add_field(GffField::new("ClassList", FieldValue::List(vec![item])));
         file
     }
 
-    fn run(file: &GffFile, modifiers: Vec<ModifyGFF>, memory: &mut PatcherMemory) -> (GffFile, PatchLogger, GffPatchResult) {
+    fn run(
+        file: &GffFile,
+        modifiers: Vec<ModifyGFF>,
+        memory: &mut PatcherMemory,
+    ) -> (GffFile, PatchLogger, GffPatchResult) {
         let mut logger = PatchLogger::new();
         let mut patch = ModificationsGFF::new("x.utc", None, modifiers);
         let source = file.to_bytes().unwrap();
-        let output = patch.patch_resource(&source, memory, &mut logger, Game::K2).unwrap();
+        let output = patch
+            .patch_resource(&source, memory, &mut logger, Game::K2)
+            .unwrap();
         let PatchOutput::Bytes(bytes) = output else {
             panic!("gff never skips")
         };
-        (GffFile::parse(&bytes, "").unwrap(), logger, patch.result.clone())
+        (
+            GffFile::parse(&bytes, "").unwrap(),
+            logger,
+            patch.result.clone(),
+        )
     }
 
     fn messages(logger: &PatchLogger) -> Vec<String> {
@@ -2153,7 +2280,13 @@ mod tests {
     }
 
     fn modify(path: &str, value: &str) -> ModifyGFF {
-        ModifyGFF::ModifyField(ModifyFieldGFF::new(GffPath::new(path), constant_str(value), "x.utc", None, false))
+        ModifyGFF::ModifyField(ModifyFieldGFF::new(
+            GffPath::new(path),
+            constant_str(value),
+            "x.utc",
+            None,
+            false,
+        ))
     }
 
     #[test]
@@ -2163,10 +2296,16 @@ mod tests {
         assert_eq!(GffPath::new("A\\B").parent().to_string(), "A");
         assert_eq!(GffPath::new("A").parent().to_string(), ".");
         assert_eq!(GffPath::new("A").parent().name(), "");
-        assert_eq!(GffPath::root().join_str("L").join_str("3").to_string(), "L\\3");
+        assert_eq!(
+            GffPath::root().join_str("L").join_str("3").to_string(),
+            "L\\3"
+        );
         assert_eq!(GffPath::new("\\A").to_string(), "\\A");
         assert!(GffPath::new("\\A").is_anchored());
-        assert_eq!(GffPath::new("A").join(&GffPath::new("\\B")).to_string(), "\\B");
+        assert_eq!(
+            GffPath::new("A").join(&GffPath::new("\\B")).to_string(),
+            "\\B"
+        );
     }
 
     #[test]
@@ -2186,11 +2325,21 @@ mod tests {
             ],
             &mut memory,
         );
-        assert_eq!(out.root.field("Tag").unwrap().value, FieldValue::ExoString("new\nline".into()));
+        assert_eq!(
+            out.root.field("Tag").unwrap().value,
+            FieldValue::ExoString("new\nline".into())
+        );
         assert_eq!(out.root.field("Hp").unwrap().value, FieldValue::Byte(5));
         assert_eq!(out.root.field("Flag").unwrap().value, FieldValue::Int(7));
-        assert_eq!(out.root.field("Name").unwrap().value, FieldValue::ResRef("MyItem".into()), "case-only change is a no-op");
-        assert_eq!(out.root.field("Ch").unwrap().value, FieldValue::Char((-23i8) as u8));
+        assert_eq!(
+            out.root.field("Name").unwrap().value,
+            FieldValue::ResRef("MyItem".into()),
+            "case-only change is a no-op"
+        );
+        assert_eq!(
+            out.root.field("Ch").unwrap().value,
+            FieldValue::Char((-23i8) as u8)
+        );
         let FieldValue::List(items) = &out.root.field("ClassList").unwrap().value else {
             panic!()
         };
@@ -2205,7 +2354,11 @@ mod tests {
         let mut memory = PatcherMemory::new();
         let (_, logger, result) = run(
             &file,
-            vec![modify("Missing", "1"), modify("ClassList\\0", "1"), modify("Nope\\Deep", "1")],
+            vec![
+                modify("Missing", "1"),
+                modify("ClassList\\0", "1"),
+                modify("Nope\\Deep", "1"),
+            ],
             &mut memory,
         );
         assert_eq!(
@@ -2227,7 +2380,9 @@ mod tests {
         let mut logger = PatchLogger::new();
         let mut patch = ModificationsGFF::new("x.utc", None, vec![modify("Hp", "5")]);
         let source = file.to_bytes().unwrap();
-        let output = patch.patch_resource(&source, &mut memory, &mut logger, Game::K1).unwrap();
+        let output = patch
+            .patch_resource(&source, &mut memory, &mut logger, Game::K1)
+            .unwrap();
         assert_eq!(output, PatchOutput::Bytes(source));
         assert!(patch.result.applied);
         assert!(!patch.result.changed);
@@ -2238,7 +2393,15 @@ mod tests {
         let file = base_file();
         let mut memory = PatcherMemory::new();
         let add = |label: &str, ft: GffFieldType, value: &str, path: &str| {
-            ModifyGFF::AddField(AddFieldGFF::new("sec", label, ft, FieldValueKind::raw(value), GffPath::new(path), vec![], false))
+            ModifyGFF::AddField(AddFieldGFF::new(
+                "sec",
+                label,
+                ft,
+                FieldValueKind::raw(value),
+                GffPath::new(path),
+                vec![],
+                false,
+            ))
         };
         let (out, logger, _) = run(
             &file,
@@ -2258,8 +2421,14 @@ mod tests {
         );
         assert_eq!(out.root.field("NewInt").unwrap().value, FieldValue::Int(-4));
         assert_eq!(out.root.field("Hp").unwrap().value, FieldValue::Byte(9));
-        assert_eq!(out.root.field("Vec").unwrap().value, FieldValue::Position([1.0, 2.5, 3.0]));
-        assert_eq!(out.root.field("Bin").unwrap().value, FieldValue::Void(vec![0x0a, 0xff]));
+        assert_eq!(
+            out.root.field("Vec").unwrap().value,
+            FieldValue::Position([1.0, 2.5, 3.0])
+        );
+        assert_eq!(
+            out.root.field("Bin").unwrap().value,
+            FieldValue::Void(vec![0x0a, 0xff])
+        );
         assert!(out.root.field("Bad").is_none());
         assert!(out.root.field("Ch2").is_none());
         assert_eq!(
@@ -2287,7 +2456,14 @@ mod tests {
             GffFieldType::UInt8,
             FieldValueKind::raw("2"),
             GffPath::root(),
-            vec![ModifyGFF::Memory2DA(Memory2DAModifierGFF::new("child", GffPath::root(), 4, None, true, true))],
+            vec![ModifyGFF::Memory2DA(Memory2DAModifierGFF::new(
+                "child",
+                GffPath::root(),
+                4,
+                None,
+                true,
+                true,
+            ))],
             true,
         ));
         let add_struct = ModifyGFF::AddStructToList(AddStructToListGFF::new(
@@ -2296,12 +2472,26 @@ mod tests {
             GffPath::new("ClassList"),
             None,
             vec![
-                ModifyGFF::Memory2DA(Memory2DAModifierGFF::new("sec", GffPath::root(), 5, None, true, false)),
+                ModifyGFF::Memory2DA(Memory2DAModifierGFF::new(
+                    "sec",
+                    GffPath::root(),
+                    5,
+                    None,
+                    true,
+                    false,
+                )),
                 nested_byte,
             ],
             false,
         ));
-        let top_level_index = ModifyGFF::Memory2DA(Memory2DAModifierGFF::new("sec", GffPath::root(), 6, None, true, true));
+        let top_level_index = ModifyGFF::Memory2DA(Memory2DAModifierGFF::new(
+            "sec",
+            GffPath::root(),
+            6,
+            None,
+            true,
+            true,
+        ));
         let (out, logger, _) = run(&file, vec![add_struct, top_level_index], &mut memory);
         let FieldValue::List(items) = &out.root.field("ClassList").unwrap().value else {
             panic!()
@@ -2309,9 +2499,18 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[1].type_id, 1);
         assert_eq!(items[1].field("Lvl").unwrap().value, FieldValue::Byte(2));
-        assert_eq!(memory.memory_2da.get(&4), Some(&MemoryValue::Str("1".into())));
-        assert_eq!(memory.memory_2da.get(&5), Some(&MemoryValue::FieldPath("ClassList\\1".into())));
-        assert_eq!(messages(&logger), vec!["Cannot assign 2DAMEMORY6=ListIndex outside a list item."]);
+        assert_eq!(
+            memory.memory_2da.get(&4),
+            Some(&MemoryValue::Str("1".into()))
+        );
+        assert_eq!(
+            memory.memory_2da.get(&5),
+            Some(&MemoryValue::FieldPath("ClassList\\1".into()))
+        );
+        assert_eq!(
+            messages(&logger),
+            vec!["Cannot assign 2DAMEMORY6=ListIndex outside a list item."]
+        );
     }
 
     #[test]
@@ -2320,7 +2519,9 @@ mod tests {
         let mut memory = PatcherMemory::new();
         memory.memory_2da.insert(1, MemoryValue::Str("42".into()));
         // 2DAMEMORY7=!FieldPath at file level captures the root; then Hp=2DAMEMORY8 where 8 points at Flag.
-        memory.memory_2da.insert(8, MemoryValue::FieldPath("Flag".into()));
+        memory
+            .memory_2da
+            .insert(8, MemoryValue::FieldPath("Flag".into()));
         let copy_field = ModifyGFF::ModifyField(ModifyFieldGFF::new(
             GffPath::new("Hp"),
             FieldValueKind::Memory2DA(8),
@@ -2329,12 +2530,33 @@ mod tests {
             false,
         ));
         // 2DAMEMORY8=2DAMEMORY1 writes token 1's text into the captured field (Flag).
-        let write_through = ModifyGFF::Memory2DA(Memory2DAModifierGFF::new("x.utc", GffPath::root(), 8, Some(1), false, false));
-        let missing_source = ModifyGFF::Memory2DA(Memory2DAModifierGFF::new("x.utc", GffPath::root(), 8, Some(99), false, false));
-        let (out, logger, _) = run(&file, vec![copy_field, write_through, missing_source], &mut memory);
+        let write_through = ModifyGFF::Memory2DA(Memory2DAModifierGFF::new(
+            "x.utc",
+            GffPath::root(),
+            8,
+            Some(1),
+            false,
+            false,
+        ));
+        let missing_source = ModifyGFF::Memory2DA(Memory2DAModifierGFF::new(
+            "x.utc",
+            GffPath::root(),
+            8,
+            Some(99),
+            false,
+            false,
+        ));
+        let (out, logger, _) = run(
+            &file,
+            vec![copy_field, write_through, missing_source],
+            &mut memory,
+        );
         assert_eq!(out.root.field("Hp").unwrap().value, FieldValue::Byte(3));
         assert_eq!(out.root.field("Flag").unwrap().value, FieldValue::Int(42));
-        assert_eq!(messages(&logger), vec!["2DAMEMORY99 was not defined before use."]);
+        assert_eq!(
+            messages(&logger),
+            vec!["2DAMEMORY99 was not defined before use."]
+        );
     }
 
     #[test]
@@ -2342,7 +2564,8 @@ mod tests {
         let mut file = base_file();
         let mut loc = ExoLocString::new(5);
         locstring_set(&mut loc, 0, "hello");
-        file.root.add_field(GffField::new("Desc", FieldValue::ExoLocString(loc)));
+        file.root
+            .add_field(GffField::new("Desc", FieldValue::ExoLocString(loc)));
         let mut memory = PatcherMemory::new();
         memory.memory_str.insert(2, 777);
 
@@ -2377,7 +2600,11 @@ mod tests {
         let FieldValue::ExoLocString(desc2) = &out.root.field("Desc2").unwrap().value else {
             panic!()
         };
-        assert_eq!(desc2.strref, u32::MAX, "invalid StrRef on AddField defaults to -1");
+        assert_eq!(
+            desc2.strref,
+            u32::MAX,
+            "invalid StrRef on AddField defaults to -1"
+        );
         assert_eq!(locstring_get(desc2, 0), Some("n"));
         assert!(messages(&logger).is_empty());
     }
@@ -2385,15 +2612,38 @@ mod tests {
     #[test]
     fn raw_values_resolve_memory_tokens_like_pykotor() {
         let mut memory = PatcherMemory::new();
-        assert_eq!(FieldValueKind::raw("2DAMEMORY3").resolve(&memory), GffValue::Str("2DAMEMORY3".into()));
-        assert_eq!(FieldValueKind::raw("StrRef9").resolve(&memory), GffValue::Int(0));
+        assert_eq!(
+            FieldValueKind::raw("2DAMEMORY3").resolve(&memory),
+            GffValue::Str("2DAMEMORY3".into())
+        );
+        assert_eq!(
+            FieldValueKind::raw("StrRef9").resolve(&memory),
+            GffValue::Int(0)
+        );
         memory.memory_2da.insert(1, MemoryValue::Str("one".into()));
-        assert_eq!(FieldValueKind::raw("2DAMEMORY3").resolve(&memory), GffValue::Str("one".into()));
-        assert_eq!(FieldValueKind::Memory2DA(3).resolve(&memory), GffValue::Str("one".into()));
-        memory.memory_2da.insert(3, MemoryValue::Str("three".into()));
-        assert_eq!(FieldValueKind::raw("2DAMEMORY3").resolve(&memory), GffValue::Str("three".into()));
-        assert_eq!(FieldValueKind::raw("strref9").resolve(&memory), GffValue::Int(0));
-        assert_eq!(FieldValueKind::raw("plain").resolve(&memory), GffValue::Str("plain".into()));
+        assert_eq!(
+            FieldValueKind::raw("2DAMEMORY3").resolve(&memory),
+            GffValue::Str("one".into())
+        );
+        assert_eq!(
+            FieldValueKind::Memory2DA(3).resolve(&memory),
+            GffValue::Str("one".into())
+        );
+        memory
+            .memory_2da
+            .insert(3, MemoryValue::Str("three".into()));
+        assert_eq!(
+            FieldValueKind::raw("2DAMEMORY3").resolve(&memory),
+            GffValue::Str("three".into())
+        );
+        assert_eq!(
+            FieldValueKind::raw("strref9").resolve(&memory),
+            GffValue::Int(0)
+        );
+        assert_eq!(
+            FieldValueKind::raw("plain").resolve(&memory),
+            GffValue::Str("plain".into())
+        );
     }
 
     #[test]
@@ -2403,11 +2653,18 @@ mod tests {
         assert_eq!(parse_int(&s("-1"), GffFieldType::Int32, false), None);
         assert_eq!(parse_int(&s("-1"), GffFieldType::Int32, true), Some(-1));
         assert_eq!(parse_int(&s("256"), GffFieldType::UInt8, true), None);
-        assert_eq!(parse_int(&s("4294967295"), GffFieldType::UInt32, true), Some(4294967295));
+        assert_eq!(
+            parse_int(&s("4294967295"), GffFieldType::UInt32, true),
+            Some(4294967295)
+        );
         assert_eq!(parse_float(&s("1,5")), Some(1.5));
         assert_eq!(parse_float(&s("1e5")), None);
         assert_eq!(parse_float(&s("1.2.3")), None);
-        assert_eq!(parse_binary(&s("0101")), Some(vec![0xd3, 0x5d, 0x35]), "four bits is base64");
+        assert_eq!(
+            parse_binary(&s("0101")),
+            Some(vec![0xd3, 0x5d, 0x35]),
+            "four bits is base64"
+        );
         assert_eq!(parse_binary(&s("abc")), None);
         assert_eq!(parse_binary(&s("00000101")), Some(vec![5]));
         assert_eq!(parse_binary(&s("")), Some(vec![]));
@@ -2415,12 +2672,20 @@ mod tests {
         assert_eq!(parse_char(&s(""), Some(0)), Some(0));
         assert_eq!(parse_char(&GffValue::Int(-5), None), Some(-5));
         assert!(make_resref("héllo").is_err());
-        assert_eq!(make_resref(" abcdefghijklmnopq ").unwrap(), "abcdefghijklmno");
+        assert_eq!(
+            make_resref(" abcdefghijklmnopq ").unwrap(),
+            "abcdefghijklmno"
+        );
         assert_eq!(python_float_repr(1.0), "1.0");
         assert_eq!(python_float_repr(1e16), "1e+16");
         assert_eq!(python_float_repr(0.00001), "1e-05");
         assert_eq!(python_float_repr(0.5), "0.5");
-        assert_eq!(exception_str(&PatchException::key("The [x] section was not found in the ini")), "'The [x] section was not found in the ini'");
+        assert_eq!(
+            exception_str(&PatchException::key(
+                "The [x] section was not found in the ini"
+            )),
+            "'The [x] section was not found in the ini'"
+        );
     }
 
     #[test]
@@ -2428,9 +2693,13 @@ mod tests {
         let mut memory = PatcherMemory::new();
         let mut logger = PatchLogger::new();
         let mut patch = ModificationsGFF::new("x.utc", None, vec![]);
-        let err = patch.patch_resource(b"XXX V3.2........", &mut memory, &mut logger, Game::K1).unwrap_err();
+        let err = patch
+            .patch_resource(b"XXX V3.2........", &mut memory, &mut logger, Game::K1)
+            .unwrap_err();
         assert_eq!(err.message, "Not a valid binary GFF file.");
-        let err = patch.patch_resource(b"UTC V3.3........", &mut memory, &mut logger, Game::K1).unwrap_err();
+        let err = patch
+            .patch_resource(b"UTC V3.3........", &mut memory, &mut logger, Game::K1)
+            .unwrap_err();
         assert_eq!(err.message, "The GFF version of the file is unsupported.");
     }
 
@@ -2438,11 +2707,21 @@ mod tests {
     fn resref_encoding_error_is_logged_per_modifier() {
         let file = base_file();
         let mut memory = PatcherMemory::new();
-        let (out, logger, _) = run(&file, vec![modify("Name", "héllo"), modify("Hp", "6")], &mut memory);
+        let (out, logger, _) = run(
+            &file,
+            vec![modify("Name", "héllo"), modify("Hp", "6")],
+            &mut memory,
+        );
         assert_eq!(
             messages(&logger),
-            vec!["Unable to apply GFF modifier [x.utc]: 'héllo' must only contain ASCII characters."]
+            vec![
+                "Unable to apply GFF modifier [x.utc]: 'héllo' must only contain ASCII characters."
+            ]
         );
-        assert_eq!(out.root.field("Hp").unwrap().value, FieldValue::Byte(6), "later modifiers still run");
+        assert_eq!(
+            out.root.field("Hp").unwrap().value,
+            FieldValue::Byte(6),
+            "later modifiers still run"
+        );
     }
 }

@@ -71,7 +71,9 @@ pub fn create_backup(
     if !processed_files.contains(&uninstall_str_lower) {
         match std::fs::create_dir(&uninstall_folder) {
             Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists && uninstall_folder.is_dir() => {}
+            Err(err)
+                if err.kind() == std::io::ErrorKind::AlreadyExists && uninstall_folder.is_dir() => {
+            }
             Err(err) => {
                 return Err(PatchException::from_io(
                     &err,
@@ -102,7 +104,10 @@ pub fn create_backup(
             .extension()
             .map(|e| format!(".{}", e.to_string_lossy()))
             .unwrap_or_default();
-        let backup_parent = backup_filepath.parent().map(Path::to_path_buf).unwrap_or_default();
+        let backup_parent = backup_filepath
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
         while safe_exists(&backup_filepath) {
             backup_filepath = backup_parent.join(format!("{filestem} ({i}){suffix}"));
             i += 1;
@@ -125,7 +130,11 @@ pub fn create_backup(
         let removal_files_txt = backup_folderpath.join("remove these files.txt");
         let line = format!(
             "{}{destination_file_str}",
-            if removal_files_txt.is_file() { "\n" } else { "" }
+            if removal_files_txt.is_file() {
+                "\n"
+            } else {
+                ""
+            }
         );
         let mut file = std::fs::OpenOptions::new()
             .append(true)
@@ -422,7 +431,6 @@ read -rp "Press enter to continue..."
 
     "###;
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,14 +484,34 @@ mod tests {
         assert!(package.join("uninstall").join("uninstall.ps1").is_file());
         assert!(package.join("uninstall").join("uninstall.sh").is_file());
         let ps1 = std::fs::read_to_string(package.join("uninstall").join("uninstall.ps1")).unwrap();
-        assert!(ps1.contains(&format!("$mostRecentBackupFolder = \"{}\"", backup_dir.display())));
-        assert!(ps1.contains(&format!("Join-Path \"{}\" -ChildPath $relativePath", game.display())));
+        assert!(ps1.contains(&format!(
+            "$mostRecentBackupFolder = \"{}\"",
+            backup_dir.display()
+        )));
+        assert!(ps1.contains(&format!(
+            "Join-Path \"{}\" -ChildPath $relativePath",
+            game.display()
+        )));
         assert!(!ps1.contains("{{"));
         let sh = std::fs::read_to_string(package.join("uninstall").join("uninstall.sh")).unwrap();
-        assert!(sh.contains(&format!("destinationPath=\"{}/$relativePath\"", game.display())));
+        assert!(sh.contains(&format!(
+            "destinationPath=\"{}/$relativePath\"",
+            game.display()
+        )));
         assert!(sh.contains("^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}$"));
-        assert_eq!(log.notes()[0].message, format!("Backing up '{}'...", override_dir.join("Spells.2da").display()));
-        assert!(processed.contains(&override_dir.join("Spells.2da").to_string_lossy().to_lowercase()));
+        assert_eq!(
+            log.notes()[0].message,
+            format!(
+                "Backing up '{}'...",
+                override_dir.join("Spells.2da").display()
+            )
+        );
+        assert!(processed.contains(
+            &override_dir
+                .join("Spells.2da")
+                .to_string_lossy()
+                .to_lowercase()
+        ));
         assert!(processed.contains(&package.join("uninstall").to_string_lossy().to_lowercase()));
 
         // A second call for the same file is a no-op.
@@ -543,10 +571,17 @@ mod tests {
         // No subdirectory: flat in the backup folder.
         let mut flat = HashSet::new();
         std::fs::write(game.join("dialog.tlk"), b"tlk").unwrap();
-        create_backup(&mut log, &game.join("dialog.tlk"), &backup_dir, &mut flat, None, false).unwrap();
+        create_backup(
+            &mut log,
+            &game.join("dialog.tlk"),
+            &backup_dir,
+            &mut flat,
+            None,
+            false,
+        )
+        .unwrap();
         assert!(backup_dir.join("dialog.tlk").is_file());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
-

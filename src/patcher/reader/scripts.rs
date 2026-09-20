@@ -25,9 +25,11 @@ impl ConfigReader<'_> {
             return Ok(());
         };
 
-        self.log.add_note("Loading [CompileList] patches from ini...");
+        self.log
+            .add_note("Loading [CompileList] patches from ini...");
         let mut compilelist_section_dict = self.section_dict(&compilelist_section);
-        let default_destination = compilelist_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
+        let default_destination =
+            compilelist_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
         let default_source_folder = compilelist_section_dict.pop_or("!DefaultSourceFolder", ".");
 
         let mut nwnnsscomp_exepath = Some(case_sensitive_path(
@@ -36,7 +38,11 @@ impl ConfigReader<'_> {
                 .join(&default_source_folder)
                 .join("nwnnsscomp.exe"),
         ));
-        if !nwnnsscomp_exepath.as_deref().map(safe_isfile).unwrap_or(false) {
+        if !nwnnsscomp_exepath
+            .as_deref()
+            .map(safe_isfile)
+            .unwrap_or(false)
+        {
             // TSLPatcher default
             nwnnsscomp_exepath = self
                 .tslpatchdata_path
@@ -87,7 +93,8 @@ impl ConfigReader<'_> {
 
         self.log.add_note("Loading [HACKList] patches from ini...");
         let mut hacklist_section_dict = self.section_dict(&hacklist_section);
-        let default_destination = hacklist_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
+        let default_destination =
+            hacklist_section_dict.pop_or("!DefaultDestination", DEFAULT_DESTINATION);
         let default_source_folder = hacklist_section_dict.pop_or("!DefaultSourceFolder", ".");
 
         let entries: Vec<(String, String)> = hacklist_section_dict
@@ -147,7 +154,9 @@ impl ConfigReader<'_> {
                         continue;
                     }
                     let token_id: i32 = token_id.trim_start_matches('0').parse().unwrap_or(0);
-                    modifications.hackdata.push(HackData::new("StrRef", offset, token_id));
+                    modifications
+                        .hackdata
+                        .push(HackData::new("StrRef", offset, token_id));
                 } else if let Some(token_id) = raw_value.strip_prefix("2DAMEMORY") {
                     if is_ascii_digits(token_id) {
                         if exceeds_i32(token_id) {
@@ -157,9 +166,13 @@ impl ConfigReader<'_> {
                             continue;
                         }
                         let token_id: i32 = token_id.trim_start_matches('0').parse().unwrap_or(0);
-                        modifications.hackdata.push(HackData::new("2DAMEMORY", offset, token_id));
+                        modifications
+                            .hackdata
+                            .push(HackData::new("2DAMEMORY", offset, token_id));
                     } else {
-                        modifications.hackdata.push(HackData::new("2DAMEMORY", offset, 0));
+                        modifications
+                            .hackdata
+                            .push(HackData::new("2DAMEMORY", offset, 0));
                     }
                 } else {
                     if !is_ascii_digits(raw_value) || exceeds_i32(raw_value) {
@@ -169,7 +182,9 @@ impl ConfigReader<'_> {
                         continue;
                     }
                     let value: i32 = raw_value.trim_start_matches('0').parse().unwrap_or(0);
-                    modifications.hackdata.push(HackData::new("VALUE", offset, value));
+                    modifications
+                        .hackdata
+                        .push(HackData::new("VALUE", offset, value));
                 }
             }
 
@@ -194,7 +209,10 @@ mod tests {
     }
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("odypatcher-reader-scripts-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "odypatcher-reader-scripts-{tag}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -229,7 +247,11 @@ mod tests {
             errors,
             vec!["The [missing.ncs] section was not found in the ini, referenced by 'File2=missing.ncs' in [HACKList]"]
         );
-        let warnings: Vec<_> = logger.warnings().iter().map(|l| l.message.clone()).collect();
+        let warnings: Vec<_> = logger
+            .warnings()
+            .iter()
+            .map(|l| l.message.clone())
+            .collect();
         assert_eq!(
             warnings,
             vec![
@@ -249,7 +271,10 @@ mod tests {
         let mut logger = PatchLogger::new();
         let mut r = reader("[Settings]\n", Path::new("."), &mut logger);
         r.load_hack_list().unwrap();
-        assert_eq!(logger.notes()[0].message, "[HACKList] section missing from ini.");
+        assert_eq!(
+            logger.notes()[0].message,
+            "[HACKList] section missing from ini."
+        );
 
         let mut logger = PatchLogger::new();
         let mut r = reader(
@@ -259,7 +284,10 @@ mod tests {
         );
         r.load_hack_list().unwrap();
         assert!(!r.config.patches_ncs[0].base.replace_file);
-        assert_eq!(r.config.patches_ncs[0].hackdata, vec![HackData::new("VALUE", 4, 1)]);
+        assert_eq!(
+            r.config.patches_ncs[0].hackdata,
+            vec![HackData::new("VALUE", 4, 1)]
+        );
     }
 
     #[test]
@@ -293,20 +321,28 @@ mod tests {
         assert_eq!(a.nwnnsscomp_path, Some(expected_exe));
         assert_eq!(a.nwscript_search_folders.len(), 2);
         let b = &r.config.patches_nss[1];
-        assert!(b.base.replace_file, "!ReplaceFile is discarded; the Replace key wins");
+        assert!(
+            b.base.replace_file,
+            "!ReplaceFile is discarded; the Replace key wins"
+        );
         assert_eq!(b.base.saveas, "sub\\c.ncs");
         assert_eq!(b.base.destination, "Override");
 
         // Without a compiler beside the sources, tslpatchdata is the fallback.
         std::fs::remove_file(src.join("NWNNSSCOMP.EXE")).unwrap();
         let mut logger = PatchLogger::new();
-        let ini = ConfigParser::read_string("[CompileList]\nFile0=a.nss\n", OptionXform::Identity).unwrap();
+        let ini = ConfigParser::read_string("[CompileList]\nFile0=a.nss\n", OptionXform::Identity)
+            .unwrap();
         let mut r = ConfigReader::new(ini, &dir, &mut logger, Some(&dir));
         r.load_compile_list().unwrap();
-        assert_eq!(r.config.patches_nss[0].nwnnsscomp_path, Some(dir.join("nwnnsscomp.exe")));
+        assert_eq!(
+            r.config.patches_nss[0].nwnnsscomp_path,
+            Some(dir.join("nwnnsscomp.exe"))
+        );
 
         let mut logger = PatchLogger::new();
-        let ini = ConfigParser::read_string("[CompileList]\nFile0=a.nss\n", OptionXform::Identity).unwrap();
+        let ini = ConfigParser::read_string("[CompileList]\nFile0=a.nss\n", OptionXform::Identity)
+            .unwrap();
         let mut r = ConfigReader::new(ini, &dir, &mut logger, None);
         r.load_compile_list().unwrap();
         assert_eq!(r.config.patches_nss[0].nwnnsscomp_path, None);
@@ -314,7 +350,10 @@ mod tests {
         let mut logger = PatchLogger::new();
         let mut r = reader("[Settings]\n", &dir, &mut logger);
         r.load_compile_list().unwrap();
-        assert_eq!(logger.notes()[0].message, "[CompileList] section missing from ini.");
+        assert_eq!(
+            logger.notes()[0].message,
+            "[CompileList] section missing from ini."
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

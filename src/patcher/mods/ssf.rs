@@ -104,8 +104,13 @@ impl Ssf {
 
     /// `ssf.get(sound)` as PyKotor's signed value.
     pub fn get_signed(&self, sound: u32) -> Option<i64> {
-        self.get(sound)
-            .map(|value| if value == u32::MAX { -1 } else { i64::from(value) })
+        self.get(sound).map(|value| {
+            if value == u32::MAX {
+                -1
+            } else {
+                i64::from(value)
+            }
+        })
     }
 
     /// `ssf.set_data(sound, stringref)`.
@@ -132,10 +137,14 @@ impl Ssf {
             ));
         }
         if &bytes[0..4] != b"SSF " {
-            return Err(PatchException::value("Attempted to load an invalid SSF was loaded."));
+            return Err(PatchException::value(
+                "Attempted to load an invalid SSF was loaded.",
+            ));
         }
         if &bytes[4..8] != b"V1.1" {
-            return Err(PatchException::value("The supplied SSF file version is not supported."));
+            return Err(PatchException::value(
+                "The supplied SSF file version is not supported.",
+            ));
         }
         let sounds_offset = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
         if sounds_offset < 12 || sounds_offset + SSF_ENGINE_ENTRY_COUNT * 4 > size {
@@ -148,7 +157,8 @@ impl Ssf {
         let entry_count = SSF_SOUND_COUNT.min((size - sounds_offset) / 4);
         for index in 0..entry_count {
             let at = sounds_offset + index * 4;
-            let value = u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+            let value =
+                u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
             ssf.set_data(index as u32, value);
         }
         ssf.trailing_data = bytes[sounds_offset + entry_count * 4..].to_vec();
@@ -157,7 +167,9 @@ impl Ssf {
 
     /// `bytes_ssf(ssf)`: `SSFBinaryWriter(ssf).write()` to memory.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(12 + self.padding.len() + self.entry_count * 4 + self.trailing_data.len());
+        let mut out = Vec::with_capacity(
+            12 + self.padding.len() + self.entry_count * 4 + self.trailing_data.len(),
+        );
         out.extend_from_slice(b"SSF ");
         out.extend_from_slice(b"V1.1");
         out.extend_from_slice(&((12 + self.padding.len()) as u32).to_le_bytes());
@@ -233,11 +245,12 @@ impl ModifySSF {
                     if memory.memory_2da.is_empty() {
                         return Ok(raw_value);
                     }
-                    let token_id = if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
-                        suffix.parse::<i32>().ok()
-                    } else {
-                        Some(1)
-                    };
+                    let token_id =
+                        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
+                            suffix.parse::<i32>().ok()
+                        } else {
+                            Some(1)
+                        };
                     return Ok(lookup_2da(memory, token_id));
                 }
                 Ok(raw_value)
@@ -305,7 +318,13 @@ impl ModificationsSSF {
     }
 
     /// `apply(ssf, memory, logger, game)`: true when any entry changed.
-    pub fn apply(&self, ssf: &mut Ssf, memory: &PatcherMemory, logger: &mut PatchLogger, _game: Game) -> bool {
+    pub fn apply(
+        &self,
+        ssf: &mut Ssf,
+        memory: &PatcherMemory,
+        logger: &mut PatchLogger,
+        _game: Game,
+    ) -> bool {
         let mut changed = false;
         for modifier in &self.modifiers {
             changed = modifier.apply(ssf, memory, logger) || changed;
@@ -356,7 +375,9 @@ mod tests {
 
     #[test]
     fn reader_and_writer_preserve_layout() {
-        let values: Vec<u32> = (0..28).map(|i| if i == 3 { u32::MAX } else { i * 10 }).collect();
+        let values: Vec<u32> = (0..28)
+            .map(|i| if i == 3 { u32::MAX } else { i * 10 })
+            .collect();
         let bytes = ssf_bytes(&values);
         let ssf = Ssf::from_bytes(&bytes).unwrap();
         assert_eq!(ssf.entry_count(), 28);
@@ -384,9 +405,15 @@ mod tests {
         let err = Ssf::from_bytes(b"XXX V1.1\x0c\0\0\0").unwrap_err();
         assert_eq!(err.message, "Attempted to load an invalid SSF was loaded.");
         let err = Ssf::from_bytes(b"SSF V2.0\x0c\0\0\0").unwrap_err();
-        assert_eq!(err.message, "The supplied SSF file version is not supported.");
+        assert_eq!(
+            err.message,
+            "The supplied SSF file version is not supported."
+        );
         let err = Ssf::from_bytes(&ssf_bytes(&values[..10])).unwrap_err();
-        assert_eq!(err.message, "The SSF data offset must address all 28 sound entries.");
+        assert_eq!(
+            err.message,
+            "The SSF data offset must address all 28 sound entries."
+        );
     }
 
     #[test]
@@ -410,7 +437,9 @@ mod tests {
         let mut memory = PatcherMemory::new();
         memory.memory_str.insert(5, 123_456);
         memory.memory_2da.insert(1, MemoryValue::Str("77".into()));
-        memory.memory_2da.insert(3, MemoryValue::FieldPath("A\\B".into()));
+        memory
+            .memory_2da
+            .insert(3, MemoryValue::FieldPath("A\\B".into()));
         let mut logger = PatchLogger::new();
         let mut ssf = Ssf::new();
 
@@ -427,34 +456,66 @@ mod tests {
         assert!(ModifySSF::new(3, TokenUsage::TwoDA(50)).apply(&mut ssf, &memory, &mut logger));
         assert_eq!(ssf.get(3), Some(77));
         assert!(!ModifySSF::new(4, TokenUsage::TwoDA(2)).apply(&mut ssf, &memory, &mut logger));
-        assert_eq!(logger.warnings().last().unwrap().message, "Invalid SSF value for BATTLE_CRY_5; skipping entry.");
+        assert_eq!(
+            logger.warnings().last().unwrap().message,
+            "Invalid SSF value for BATTLE_CRY_5; skipping entry."
+        );
         // A field path is not an integer.
         assert!(!ModifySSF::new(5, TokenUsage::TwoDA(3)).apply(&mut ssf, &memory, &mut logger));
-        assert_eq!(logger.warnings().last().unwrap().message, "Invalid SSF value for BATTLE_CRY_6; skipping entry.");
+        assert_eq!(
+            logger.warnings().last().unwrap().message,
+            "Invalid SSF value for BATTLE_CRY_6; skipping entry."
+        );
 
-        assert!(ModifySSF::new(6, TokenUsage::literal("$1F")).apply(&mut ssf, &memory, &mut logger));
+        assert!(ModifySSF::new(6, TokenUsage::literal("$1F")).apply(
+            &mut ssf,
+            &memory,
+            &mut logger
+        ));
         assert_eq!(ssf.get(6), Some(31));
-        assert!(ModifySSF::new(7, TokenUsage::literal("2DAMEMORYx")).apply(&mut ssf, &memory, &mut logger));
+        assert!(ModifySSF::new(7, TokenUsage::literal("2DAMEMORYx")).apply(
+            &mut ssf,
+            &memory,
+            &mut logger
+        ));
         assert_eq!(ssf.get(7), Some(77));
         // Same value again: no change reported.
-        assert!(!ModifySSF::new(7, TokenUsage::literal("77")).apply(&mut ssf, &memory, &mut logger));
-        assert!(!ModifySSF::new(8, TokenUsage::literal("nope")).apply(&mut ssf, &memory, &mut logger));
-        assert_eq!(logger.warnings().last().unwrap().message, "Invalid SSF value for SELECT_3; skipping entry.");
+        assert!(!ModifySSF::new(7, TokenUsage::literal("77")).apply(
+            &mut ssf,
+            &memory,
+            &mut logger
+        ));
+        assert!(!ModifySSF::new(8, TokenUsage::literal("nope")).apply(
+            &mut ssf,
+            &memory,
+            &mut logger
+        ));
+        assert_eq!(
+            logger.warnings().last().unwrap().message,
+            "Invalid SSF value for SELECT_3; skipping entry."
+        );
 
         // Without any 2DA memory the raw token text is what gets parsed.
         let empty = PatcherMemory::new();
         assert!(!ModifySSF::new(9, TokenUsage::TwoDA(1)).apply(&mut ssf, &empty, &mut logger));
-        assert_eq!(logger.warnings().last().unwrap().message, "Invalid SSF value for ATTACK_GRUNT_1; skipping entry.");
+        assert_eq!(
+            logger.warnings().last().unwrap().message,
+            "Invalid SSF value for ATTACK_GRUNT_1; skipping entry."
+        );
         assert_eq!(logger.warnings().len(), 4);
     }
 
     #[test]
     fn patch_resource_always_returns_bytes() {
         let values: Vec<u32> = vec![u32::MAX; 28];
-        let mut mods = ModificationsSSF::new("p_hk47.ssf", false, vec![
-            ModifySSF::new(15, TokenUsage::literal("4294967295")),
-            ModifySSF::new(14, TokenUsage::literal("42")),
-        ]);
+        let mut mods = ModificationsSSF::new(
+            "p_hk47.ssf",
+            false,
+            vec![
+                ModifySSF::new(15, TokenUsage::literal("4294967295")),
+                ModifySSF::new(14, TokenUsage::literal("42")),
+            ],
+        );
         assert!(!mods.base.replace_file);
         assert_eq!(mods.base.destination, "Override");
         let mut memory = PatcherMemory::new();
@@ -462,7 +523,9 @@ mod tests {
         let output = mods
             .patch_resource(&ssf_bytes(&values), &mut memory, &mut logger, Game::K1)
             .unwrap();
-        let PatchOutput::Bytes(bytes) = output else { panic!("expected bytes") };
+        let PatchOutput::Bytes(bytes) = output else {
+            panic!("expected bytes")
+        };
         let ssf = Ssf::from_bytes(&bytes).unwrap();
         assert_eq!(ssf.get(14), Some(42));
         assert_eq!(ssf.get_signed(15), Some(-1));

@@ -72,13 +72,11 @@ impl TokenUsage {
     pub fn value(&self, memory: &PatcherMemory) -> PResult<MemoryValue> {
         match self {
             TokenUsage::NoToken(stored) => Ok(MemoryValue::Str(stored.clone())),
-            TokenUsage::TwoDA(token_id) => memory
-                .memory_2da
-                .get(token_id)
-                .cloned()
-                .ok_or_else(|| {
+            TokenUsage::TwoDA(token_id) => {
+                memory.memory_2da.get(token_id).cloned().ok_or_else(|| {
                     PatchException::key(format!("2DAMEMORY{token_id} was not defined before use"))
-                }),
+                })
+            }
             TokenUsage::Tlk(token_id) => memory
                 .memory_str
                 .get(token_id)
@@ -110,7 +108,10 @@ mod tests {
         memory.memory_2da.insert(0, MemoryValue::Str("7".into()));
         memory.memory_str.insert(0, 123_456);
         assert_eq!(TokenUsage::TwoDA(0).value(&memory).unwrap().as_str(), "7");
-        assert_eq!(TokenUsage::Tlk(0).value(&memory).unwrap().as_str(), "123456");
+        assert_eq!(
+            TokenUsage::Tlk(0).value(&memory).unwrap().as_str(),
+            "123456"
+        );
         assert_eq!(TokenUsage::literal(5).value(&memory).unwrap().as_str(), "5");
     }
 }

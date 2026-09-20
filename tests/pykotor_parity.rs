@@ -11,7 +11,9 @@ use odypatcher::formats::erf::ArchiveKind;
 use odypatcher::formats::gff::{ExoLocString, FieldValue};
 use odypatcher::patcher::logger::LogType;
 use odypatcher::patcher::memory::{MemoryValue, PatcherMemory, TokenUsage};
-use odypatcher::patcher::mods::gff::{FieldValueKind, GffFieldType, GffValue, LocalizedStringDelta, ModifyGFF};
+use odypatcher::patcher::mods::gff::{
+    FieldValueKind, GffFieldType, GffValue, LocalizedStringDelta, ModifyGFF,
+};
 use odypatcher::patcher::mods::tlk::TlkModifier;
 use odypatcher::patcher::mods::twoda::Modify2DA;
 use odypatcher::patcher::uninstall::{ModUninstaller, UninstallDialogs};
@@ -51,7 +53,9 @@ fn entries(m: &Modify2DA) -> Vec<(String, String)> {
 }
 
 fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
-    list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    list.iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 fn raw_preview(kind: &FieldValueKind) -> &GffValue {
@@ -86,7 +90,9 @@ fn reader_tlk_appendfile_builds_one_modify_per_line() {
     let mods = &config.patches_tlk.modifiers;
     assert_eq!(mods.len(), 3);
     for (i, expected_mod_index) in [(0, 4), (1, 5), (2, 6)] {
-        let TlkModifier::Modify(m) = &mods[i] else { panic!("expected ModifyTLK") };
+        let TlkModifier::Modify(m) = &mods[i] else {
+            panic!("expected ModifyTLK")
+        };
         assert_eq!(m.token_id, i as i32);
         assert_eq!(m.mod_index, expected_mod_index);
         assert!(!m.is_replacement);
@@ -109,10 +115,16 @@ fn reader_tlk_strref_keys_build_a_single_merge() {
     let (config, _) = config_of(&ini(&["[TLKList]", "StrRef7=0", "StrRef8=1", "StrRef9=2"]));
     let mods = &config.patches_tlk.modifiers;
     assert_eq!(mods.len(), 1);
-    let TlkModifier::Merge(merge) = &mods[0] else { panic!("expected MergeTLK") };
+    let TlkModifier::Merge(merge) = &mods[0] else {
+        panic!("expected MergeTLK")
+    };
     assert!(merge.tlk_filepath.ends_with("append.tlk"));
     assert_eq!(
-        merge.strref_mappings.iter().map(|(k, v)| (*k, *v)).collect::<Vec<_>>(),
+        merge
+            .strref_mappings
+            .iter()
+            .map(|(k, v)| (*k, *v))
+            .collect::<Vec<_>>(),
         vec![(7, 0), (8, 1), (9, 2)]
     );
     assert_eq!(merge.patch_count(), 3);
@@ -168,7 +180,11 @@ fn reader_tlk_complex_changes_merge_plus_replacements() {
             }
             TlkModifier::Modify(modify) => {
                 assert!(modify.is_replacement);
-                assert!(modify.tlk_filepath.as_ref().unwrap().ends_with("complex.tlk"));
+                assert!(modify
+                    .tlk_filepath
+                    .as_ref()
+                    .unwrap()
+                    .ends_with("complex.tlk"));
                 replacements.push((modify.token_id, modify.mod_index));
             }
         }
@@ -195,7 +211,9 @@ fn reader_tlk_any_key_starting_with_replace_is_a_replacement() {
     let mods = &config.patches_tlk.modifiers;
     assert_eq!(mods.len(), 5);
     for (i, m) in mods.iter().enumerate() {
-        let TlkModifier::Modify(m) = m else { panic!("expected ModifyTLK") };
+        let TlkModifier::Modify(m) = m else {
+            panic!("expected ModifyTLK")
+        };
         assert!(m.is_replacement);
         assert_eq!(m.token_id, i as i32);
         assert_eq!(m.mod_index, i as i32 + 2);
@@ -207,12 +225,16 @@ fn reader_tlk_inline_text_and_sound_and_syntax_errors() {
     let (config, _) = config_of(&ini(&["[TLKList]", "3\\Text=hello", "3\\Sound=vo_hi"]));
     let mods = &config.patches_tlk.modifiers;
     assert_eq!(mods.len(), 2);
-    let TlkModifier::Modify(text) = &mods[0] else { panic!() };
+    let TlkModifier::Modify(text) = &mods[0] else {
+        panic!()
+    };
     assert!(text.is_replacement);
     assert_eq!(text.token_id, 3);
     assert_eq!(text.text(), "hello");
     assert!(text.text_is_set());
-    let TlkModifier::Modify(sound) = &mods[1] else { panic!() };
+    let TlkModifier::Modify(sound) = &mods[1] else {
+        panic!()
+    };
     assert_eq!(sound.sound(), "vo_hi");
     assert!(sound.sound_is_set());
 
@@ -220,11 +242,21 @@ fn reader_tlk_inline_text_and_sound_and_syntax_errors() {
     let (result, _) = load_config(&ini(&["[TLKList]", "Bogus=1"]), &dir);
     let err = result.unwrap_err();
     assert_eq!(err.kind, "ValueError");
-    assert!(err.message.starts_with("Invalid syntax found in [TLKList] 'Bogus=1'!"), "{}", err.message);
+    assert!(
+        err.message
+            .starts_with("Invalid syntax found in [TLKList] 'Bogus=1'!"),
+        "{}",
+        err.message
+    );
 
     let (result, _) = load_config(&ini(&["[TLKList]", "3\\Pitch=1"]), &dir);
     let err = result.unwrap_err();
-    assert!(err.message.starts_with("Invalid [TLKList] syntax: '3\\Pitch=1'!"), "{}", err.message);
+    assert!(
+        err.message
+            .starts_with("Invalid [TLKList] syntax: '3\\Pitch=1'!"),
+        "{}",
+        err.message
+    );
 
     let (result, _) = load_config(&ini(&["[TLKList]", "ReplaceFile0=nope.tlk"]), &dir);
     let err = result.unwrap_err();
@@ -286,7 +318,9 @@ fn reader_2da_changerow_store_and_cells() {
         "dialog=StrRef4",
         "appearance=2DAMEMORY5",
     ]));
-    let Modify2DA::ChangeRow(m) = &config.patches_2da[0].modifiers[0] else { panic!() };
+    let Modify2DA::ChangeRow(m) = &config.patches_2da[0].modifiers[0] else {
+        panic!()
+    };
     assert_eq!(
         m.entries,
         pairs(&[
@@ -380,7 +414,9 @@ fn reader_2da_copyrow_high_and_targets() {
     ]));
     let mods = &config.patches_2da[0].modifiers;
     assert_eq!(mods.len(), 3);
-    let Modify2DA::CopyRow(m) = &mods[0] else { panic!("expected CopyRow") };
+    let Modify2DA::CopyRow(m) = &mods[0] else {
+        panic!("expected CopyRow")
+    };
     assert_eq!(m.identifier, "spells_forcestrike");
     assert_eq!(
         m.entries,
@@ -433,7 +469,9 @@ fn reader_2da_addcolumn_entries_and_unknown_keys_warn() {
     ]));
     let mods = &config.patches_2da[0].modifiers;
     assert_eq!(mods.len(), 2);
-    let Modify2DA::AddColumn(m) = &mods[0] else { panic!("expected AddColumn") };
+    let Modify2DA::AddColumn(m) = &mods[0] else {
+        panic!("expected AddColumn")
+    };
     assert_eq!(
         m.entries,
         pairs(&[
@@ -448,9 +486,15 @@ fn reader_2da_addcolumn_entries_and_unknown_keys_warn() {
             ("L2", "StrRef5"),
         ])
     );
-    let Modify2DA::AddColumn(m1) = &mods[1] else { panic!() };
+    let Modify2DA::AddColumn(m1) = &mods[1] else {
+        panic!()
+    };
     assert_eq!(m1.entries[1], ("DefaultValue".to_string(), "0".to_string()));
-    let warnings: Vec<String> = logger.warnings().iter().map(|l| l.message.clone()).collect();
+    let warnings: Vec<String> = logger
+        .warnings()
+        .iter()
+        .map(|l| l.message.clone())
+        .collect();
     assert!(warnings.contains(
         &"Could not parse key 'Bogus2=x', expecting one of ['AddRow', 'ChangeRow', 'AddColumn', 'CopyRow']".to_string()
     ));
@@ -458,7 +502,10 @@ fn reader_2da_addcolumn_entries_and_unknown_keys_warn() {
 
 #[test]
 fn reader_2da_missing_table_section_is_a_key_error() {
-    let (result, _) = load_config(&ini(&["[2DAList]", "Table0=nope.2da"]), &std::env::temp_dir());
+    let (result, _) = load_config(
+        &ini(&["[2DAList]", "Table0=nope.2da"]),
+        &std::env::temp_dir(),
+    );
     let err = result.unwrap_err();
     assert_eq!(err.kind, "KeyError");
     assert_eq!(
@@ -504,13 +551,41 @@ fn reader_ssf_replace_flag_and_token_kinds() {
 #[test]
 fn reader_ssf_every_sound_label_maps_to_its_slot() {
     let labels = [
-        "Battlecry 1", "Battlecry 2", "Battlecry 3", "Battlecry 4", "Battlecry 5", "Battlecry 6",
-        "Selected 1", "Selected 2", "Selected 3", "Attack 1", "Attack 2", "Attack 3", "Pain 1",
-        "Pain 2", "Low health", "Death", "Critical hit", "Target immune", "Place mine",
-        "Disarm mine", "Stealth on", "Search", "Pick lock start", "Pick lock fail",
-        "Pick lock done", "Leave party", "Rejoin party", "Poisoned",
+        "Battlecry 1",
+        "Battlecry 2",
+        "Battlecry 3",
+        "Battlecry 4",
+        "Battlecry 5",
+        "Battlecry 6",
+        "Selected 1",
+        "Selected 2",
+        "Selected 3",
+        "Attack 1",
+        "Attack 2",
+        "Attack 3",
+        "Pain 1",
+        "Pain 2",
+        "Low health",
+        "Death",
+        "Critical hit",
+        "Target immune",
+        "Place mine",
+        "Disarm mine",
+        "Stealth on",
+        "Search",
+        "Pick lock start",
+        "Pick lock fail",
+        "Pick lock done",
+        "Leave party",
+        "Rejoin party",
+        "Poisoned",
     ];
-    let mut lines = vec!["[SSFList]".to_string(), "File0=test.ssf".to_string(), String::new(), "[test.ssf]".to_string()];
+    let mut lines = vec![
+        "[SSFList]".to_string(),
+        "File0=test.ssf".to_string(),
+        String::new(),
+        "[test.ssf]".to_string(),
+    ];
     for (i, label) in labels.iter().enumerate() {
         lines.push(format!("{label}={}", i + 1));
     }
@@ -545,19 +620,32 @@ fn reader_gff_modify_pathing_and_scalar_previews() {
         "SomeVector4=1|2|3|4",
     ]);
     assert_eq!(mods.len(), 5);
-    let ModifyGFF::ModifyField(m) = &mods[0] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[0] else {
+        panic!()
+    };
     assert_eq!(m.path.to_string(), "ClassList\\0\\Class");
     assert_eq!(raw_preview(&m.value), &GffValue::Int(123));
-    let ModifyGFF::ModifyField(m) = &mods[1] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[1] else {
+        panic!()
+    };
     assert_eq!(m.path.to_string(), "SomeInt");
     assert_eq!(raw_preview(&m.value), &GffValue::Int(123));
-    let ModifyGFF::ModifyField(m) = &mods[2] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[2] else {
+        panic!()
+    };
     assert_eq!(m.path.to_string(), "SomeString");
     assert_eq!(raw_preview(&m.value), &GffValue::Str("abc".into()));
-    let ModifyGFF::ModifyField(m) = &mods[3] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[3] else {
+        panic!()
+    };
     assert_eq!(raw_preview(&m.value), &GffValue::Vector3([1.0, 2.0, 3.0]));
-    let ModifyGFF::ModifyField(m) = &mods[4] else { panic!() };
-    assert_eq!(raw_preview(&m.value), &GffValue::Vector4([1.0, 2.0, 3.0, 4.0]));
+    let ModifyGFF::ModifyField(m) = &mods[4] else {
+        panic!()
+    };
+    assert_eq!(
+        raw_preview(&m.value),
+        &GffValue::Vector4([1.0, 2.0, 3.0, 4.0])
+    );
 }
 
 #[test]
@@ -570,29 +658,47 @@ fn reader_gff_modify_locstring_pieces_and_memory_tokens() {
         "SomeField=StrRef2",
         "Other=2DAMEMORY12",
     ]);
-    let ModifyGFF::ModifyField(m) = &mods[0] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[0] else {
+        panic!()
+    };
     assert_eq!(m.path.to_string(), "LocString");
     let delta = constant_delta(&m.value);
-    assert_eq!(raw_preview(delta.stringref.as_deref().unwrap()), &GffValue::Int(5));
+    assert_eq!(
+        raw_preview(delta.stringref.as_deref().unwrap()),
+        &GffValue::Int(5)
+    );
     assert!(delta.substrings().is_empty());
 
-    let ModifyGFF::ModifyField(m) = &mods[1] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[1] else {
+        panic!()
+    };
     let delta = constant_delta(&m.value);
     assert!(delta.stringref.is_none());
     assert_eq!(delta.substrings(), &[(0, "hello".to_string())]);
 
-    let ModifyGFF::ModifyField(m) = &mods[2] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[2] else {
+        panic!()
+    };
     let delta = constant_delta(&m.value);
     assert_eq!(delta.substrings(), &[(3, "world".to_string())]);
     assert_eq!(LocalizedStringDelta::substring_pair(3), (1, 1)); // French, female
 
-    let ModifyGFF::ModifyField(m) = &mods[3] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[3] else {
+        panic!()
+    };
     let delta = constant_delta(&m.value);
-    assert_eq!(delta.stringref.as_deref(), Some(&FieldValueKind::MemoryTLK(5)));
+    assert_eq!(
+        delta.stringref.as_deref(),
+        Some(&FieldValueKind::MemoryTLK(5))
+    );
 
-    let ModifyGFF::ModifyField(m) = &mods[4] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[4] else {
+        panic!()
+    };
     assert_eq!(m.value, FieldValueKind::MemoryTLK(2));
-    let ModifyGFF::ModifyField(m) = &mods[5] else { panic!() };
+    let ModifyGFF::ModifyField(m) = &mods[5] else {
+        panic!()
+    };
     assert_eq!(m.value, FieldValueKind::Memory2DA(12));
 }
 
@@ -611,7 +717,12 @@ fn reader_gff_add_ints_floats_string_vectors_resref() {
         ("Int", GffFieldType::Int32),
         ("Int64", GffFieldType::Int64),
     ];
-    let mut lines: Vec<String> = vec!["[GFFList]".into(), "File0=test.gff".into(), String::new(), "[test.gff]".into()];
+    let mut lines: Vec<String> = vec![
+        "[GFFList]".into(),
+        "File0=test.gff".into(),
+        String::new(),
+        "[test.gff]".into(),
+    ];
     for (i, _) in types.iter().enumerate() {
         lines.push(format!("AddField{i}=add_{i}"));
     }
@@ -647,7 +758,9 @@ fn reader_gff_add_ints_floats_string_vectors_resref() {
     let mods = &config.patches_gff[0].modifiers;
     assert_eq!(mods.len(), 13);
     for (i, (_, expected_type)) in types.iter().enumerate() {
-        let ModifyGFF::AddField(m) = &mods[i] else { panic!("AddField expected at {i}") };
+        let ModifyGFF::AddField(m) = &mods[i] else {
+            panic!("AddField expected at {i}")
+        };
         assert_eq!(m.path.to_string(), "SomeList");
         assert_eq!(m.label, "SomeField");
         assert_eq!(m.field_type, *expected_type);
@@ -655,19 +768,26 @@ fn reader_gff_add_ints_floats_string_vectors_resref() {
         assert_eq!(raw_preview(&m.value), &GffValue::Int(123));
         assert!(!m.relative_path);
     }
-    let previews: Vec<GffValue> = mods[7..].iter().map(|m| match m {
-        ModifyGFF::AddField(m) => raw_preview(&m.value).clone(),
-        _ => panic!(),
-    }).collect();
+    let previews: Vec<GffValue> = mods[7..]
+        .iter()
+        .map(|m| match m {
+            ModifyGFF::AddField(m) => raw_preview(&m.value).clone(),
+            _ => panic!(),
+        })
+        .collect();
     assert_eq!(previews[0], GffValue::Float(1.23));
     assert_eq!(previews[1], GffValue::Float(1.23));
     assert_eq!(previews[2], GffValue::Str("abc".into()));
     assert_eq!(previews[3], GffValue::Vector3([1.0, 2.0, 3.0]));
     assert_eq!(previews[4], GffValue::Vector4([1.0, 2.0, 3.0, 4.0]));
     assert_eq!(previews[5], GffValue::ResRef("abc".into()));
-    let ModifyGFF::AddField(m) = &mods[7] else { panic!() };
+    let ModifyGFF::AddField(m) = &mods[7] else {
+        panic!()
+    };
     assert_eq!(m.field_type, GffFieldType::Single);
-    let ModifyGFF::AddField(m) = &mods[8] else { panic!() };
+    let ModifyGFF::AddField(m) = &mods[8] else {
+        panic!()
+    };
     assert_eq!(m.field_type, GffFieldType::Double);
 }
 
@@ -691,17 +811,30 @@ fn reader_gff_add_locstring() {
         "Label=SomeField2",
         "StrRef=StrRef8",
     ]);
-    let ModifyGFF::AddField(m) = &mods[0] else { panic!() };
+    let ModifyGFF::AddField(m) = &mods[0] else {
+        panic!()
+    };
     assert_eq!(m.path.to_string(), "SomeList");
     assert_eq!(m.label, "SomeField");
     assert_eq!(m.field_type, GffFieldType::LocalizedString);
     let delta = constant_delta(&m.value);
-    assert_eq!(raw_preview(delta.stringref.as_deref().unwrap()), &GffValue::Int(123));
-    assert_eq!(delta.substrings(), &[(0, "abc".to_string()), (3, "lmnop".to_string())]);
+    assert_eq!(
+        raw_preview(delta.stringref.as_deref().unwrap()),
+        &GffValue::Int(123)
+    );
+    assert_eq!(
+        delta.substrings(),
+        &[(0, "abc".to_string()), (3, "lmnop".to_string())]
+    );
 
-    let ModifyGFF::AddField(m) = &mods[1] else { panic!() };
+    let ModifyGFF::AddField(m) = &mods[1] else {
+        panic!()
+    };
     let delta = constant_delta(&m.value);
-    assert_eq!(delta.stringref.as_deref(), Some(&FieldValueKind::MemoryTLK(8)));
+    assert_eq!(
+        delta.stringref.as_deref(),
+        Some(&FieldValueKind::MemoryTLK(8))
+    );
 }
 
 #[test]
@@ -738,7 +871,9 @@ fn reader_gff_add_inside_struct_and_list() {
         "TypeId=111",
         "2DAMEMORY5=ListIndex",
     ]);
-    let ModifyGFF::AddField(m) = &mods[0] else { panic!() };
+    let ModifyGFF::AddField(m) = &mods[0] else {
+        panic!()
+    };
     assert_eq!(m.label, "SomeStruct");
     assert_eq!(m.field_type, GffFieldType::Struct);
     assert_eq!(m.path.name(), "");
@@ -746,22 +881,34 @@ fn reader_gff_add_inside_struct_and_list() {
         GffValue::Struct(s) => assert_eq!(s.type_id, 321),
         other => panic!("expected struct preview, got {other:?}"),
     }
-    let ModifyGFF::AddField(inner) = &m.modifiers[0] else { panic!() };
+    let ModifyGFF::AddField(inner) = &m.modifiers[0] else {
+        panic!()
+    };
     assert_eq!(inner.label, "InsideStruct");
     assert_eq!(inner.path.name(), "");
     assert!(!inner.relative_path, "explicit Path= is not relative");
     assert_eq!(raw_preview(&inner.value), &GffValue::Int(123));
 
-    let ModifyGFF::AddField(m) = &mods[1] else { panic!() };
+    let ModifyGFF::AddField(m) = &mods[1] else {
+        panic!()
+    };
     assert_eq!(m.label, "SomeList");
     assert_eq!(m.field_type, GffFieldType::List);
-    assert_eq!(m.value, FieldValueKind::Constant(GffValue::List(Vec::new())));
-    let ModifyGFF::AddStructToList(inner) = &m.modifiers[0] else { panic!("expected AddStructToListGFF") };
+    assert_eq!(
+        m.value,
+        FieldValueKind::Constant(GffValue::List(Vec::new()))
+    );
+    let ModifyGFF::AddStructToList(inner) = &m.modifiers[0] else {
+        panic!("expected AddStructToListGFF")
+    };
     match raw_preview(&inner.value) {
         GffValue::Struct(s) => assert_eq!(s.type_id, 111),
         other => panic!("expected struct preview, got {other:?}"),
     }
-    assert!(inner.relative_path, "no Path key means relative to the parent");
+    assert!(
+        inner.relative_path,
+        "no Path key means relative to the parent"
+    );
     assert_eq!(inner.index_to_token(), Some(5));
     assert_eq!(inner.modifiers.len(), 1);
     assert!(inner.modifiers[0].is_memory_modifier());
@@ -769,7 +916,13 @@ fn reader_gff_add_inside_struct_and_list() {
 
 #[test]
 fn reader_gff_bad_operations_log_errors_and_continue() {
-    let mut lines = vec!["[GFFList]", "File0=test.gff", "File1=missing.gff", "", "[test.gff]"];
+    let mut lines = vec![
+        "[GFFList]",
+        "File0=test.gff",
+        "File1=missing.gff",
+        "",
+        "[test.gff]",
+    ];
     lines.extend_from_slice(&[
         "AddField0=badtype",
         "AddField1=nolabel",
@@ -789,10 +942,18 @@ fn reader_gff_bad_operations_log_errors_and_continue() {
     assert_eq!(config.patches_gff[0].modifiers.len(), 1);
     let errors: Vec<String> = logger.errors().iter().map(|l| l.message.clone()).collect();
     assert_eq!(errors.len(), 4, "{errors:?}");
-    assert!(errors.iter().any(|e| e.contains("referenced by 'File1=missing.gff' in [GFFList]")));
-    assert!(errors.iter().any(|e| e.starts_with("Unable to parse GFF operation 'AddField0=badtype' in [test.gff]")));
-    assert!(errors.iter().any(|e| e.contains("Label must be set for FieldType=UInt8 in [nolabel].")));
-    assert!(errors.iter().any(|e| e.contains("The [nowhere] section was not found in the ini")));
+    assert!(errors
+        .iter()
+        .any(|e| e.contains("referenced by 'File1=missing.gff' in [GFFList]")));
+    assert!(errors
+        .iter()
+        .any(|e| e.starts_with("Unable to parse GFF operation 'AddField0=badtype' in [test.gff]")));
+    assert!(errors
+        .iter()
+        .any(|e| e.contains("Label must be set for FieldType=UInt8 in [nolabel].")));
+    assert!(errors
+        .iter()
+        .any(|e| e.contains("The [nowhere] section was not found in the ini")));
 }
 
 // ===========================================================================
@@ -815,10 +976,16 @@ fn reader_logs_section_progress_and_orphans() {
         "The ConfigReader finished loading the INI",
         "There are some orphaned ini sections found in the changes:\nUnused",
     ] {
-        assert!(notes.contains(&expected.to_string()), "missing note {expected:?} in {notes:?}");
+        assert!(
+            notes.contains(&expected.to_string()),
+            "missing note {expected:?} in {notes:?}"
+        );
     }
     let (_, logger) = config_of(&ini(&["[GFFList]"]));
-    assert_eq!(logger.warnings()[0].message, "[Settings] section missing from ini.");
+    assert_eq!(
+        logger.warnings()[0].message,
+        "[Settings] section missing from ini."
+    );
 }
 
 #[test]
@@ -857,20 +1024,59 @@ fn reader_install_hack_and_compile_lists() {
     ]));
     let install = &config.install_list;
     assert_eq!(install.len(), 3);
-    assert_eq!((install[0].base.sourcefile.as_str(), install[0].base.replace_file, install[0].base.destination.as_str()), ("a.utc", false, "Override"));
-    assert_eq!((install[1].base.saveas.as_str(), install[1].base.replace_file), ("d.utc", true));
+    assert_eq!(
+        (
+            install[0].base.sourcefile.as_str(),
+            install[0].base.replace_file,
+            install[0].base.destination.as_str()
+        ),
+        ("a.utc", false, "Override")
+    );
+    assert_eq!(
+        (
+            install[1].base.saveas.as_str(),
+            install[1].base.replace_file
+        ),
+        ("d.utc", true)
+    );
     assert_eq!(install[2].base.destination, "Modules\\danm13.mod");
     assert!(install[0].base.skip_if_not_replace);
     assert_eq!(install[0].base.action, "Copy ");
 
     let hack = &config.patches_ncs[0];
     assert_eq!(hack.hackdata.len(), 3);
-    assert_eq!((hack.hackdata[0].token_type.as_str(), hack.hackdata[0].offset, hack.hackdata[0].token_id_or_value), ("StrRef", 8, 3));
-    assert_eq!((hack.hackdata[1].token_type.as_str(), hack.hackdata[1].offset, hack.hackdata[1].token_id_or_value), ("2DAMEMORY", 12, 4));
-    assert_eq!((hack.hackdata[2].token_type.as_str(), hack.hackdata[2].offset, hack.hackdata[2].token_id_or_value), ("VALUE", 16, 77));
-    let warnings: Vec<String> = logger.warnings().iter().map(|l| l.message.clone()).collect();
+    assert_eq!(
+        (
+            hack.hackdata[0].token_type.as_str(),
+            hack.hackdata[0].offset,
+            hack.hackdata[0].token_id_or_value
+        ),
+        ("StrRef", 8, 3)
+    );
+    assert_eq!(
+        (
+            hack.hackdata[1].token_type.as_str(),
+            hack.hackdata[1].offset,
+            hack.hackdata[1].token_id_or_value
+        ),
+        ("2DAMEMORY", 12, 4)
+    );
+    assert_eq!(
+        (
+            hack.hackdata[2].token_type.as_str(),
+            hack.hackdata[2].offset,
+            hack.hackdata[2].token_id_or_value
+        ),
+        ("VALUE", 16, 77)
+    );
+    let warnings: Vec<String> = logger
+        .warnings()
+        .iter()
+        .map(|l| l.message.clone())
+        .collect();
     assert!(warnings.contains(&"Ignoring invalid HACKList offset 'abc' in [s.ncs].".to_string()));
-    assert!(warnings.contains(&"Ignoring invalid HACKList value 'xyz' at offset 20 in [s.ncs].".to_string()));
+    assert!(warnings
+        .contains(&"Ignoring invalid HACKList value 'xyz' at offset 20 in [s.ncs].".to_string()));
 
     let nss = &config.patches_nss;
     assert_eq!(nss.len(), 2);
@@ -901,7 +1107,8 @@ fn memory_delta_stringref_from_2damemory_tlkmemory_and_constant() {
     assert_eq!(loc.strref, 123);
 
     let mut loc = ExoLocString::new(0);
-    LocalizedStringDelta::new(Some(FieldValueKind::constant(GffValue::Int(123)))).apply(&mut loc, &memory, None);
+    LocalizedStringDelta::new(Some(FieldValueKind::constant(GffValue::Int(123))))
+        .apply(&mut loc, &memory, None);
     assert_eq!(loc.strref, 123);
 }
 
@@ -928,7 +1135,10 @@ fn memory_delta_without_stringref_keeps_existing_and_merges_substrings() {
 fn memory_undefined_tokens_are_key_errors() {
     let memory = PatcherMemory::new();
     let err = TokenUsage::TwoDA(3).value(&memory).unwrap_err();
-    assert_eq!((err.kind, err.message.as_str()), ("KeyError", "2DAMEMORY3 was not defined before use"));
+    assert_eq!(
+        (err.kind, err.message.as_str()),
+        ("KeyError", "2DAMEMORY3 was not defined before use")
+    );
     let err = TokenUsage::Tlk(0).value(&memory).unwrap_err();
     assert_eq!(err.message, "StrRef0 was not defined before use");
     assert_eq!(TokenUsage::literal(5).value(&memory).unwrap().as_str(), "5");
@@ -942,7 +1152,10 @@ fn memory_undefined_tokens_are_key_errors() {
 fn tlk_append_via_merge_adds_entries_and_publishes_tokens() {
     let f = Fixture::new("tlk_append");
     f.game_file("dialog.tlk", &string_table(&["Old1", "Old2"]));
-    f.mod_file("append.tlk", &string_table_with_sounds(&[("Append2", "vo_a2"), ("Append1", "")]));
+    f.mod_file(
+        "append.tlk",
+        &string_table_with_sounds(&[("Append2", "vo_a2"), ("Append1", "")]),
+    );
     f.mod_file("item.uti", &item_file());
     f.mod_file("other.uti", &item_file());
     let run = f.run(&ini(&[
@@ -968,7 +1181,12 @@ fn tlk_append_via_merge_adds_entries_and_publishes_tokens() {
     assert_eq!(table.entry(3).unwrap().text, "Append1");
     assert_eq!(cost(&f), 2);
     assert_eq!(dword(&f.override_file("other.uti"), "Cost"), 3);
-    assert!(run.summary().starts_with("Processed 3 operations: 3 completed"), "{}", run.summary());
+    assert!(
+        run.summary()
+            .starts_with("Processed 3 operations: 3 completed"),
+        "{}",
+        run.summary()
+    );
 }
 
 #[test]
@@ -977,8 +1195,14 @@ fn tlk_merge_appends_every_source_entry_and_reuses_identical_lines() {
     // indices being appended; mods/tlk.py:172-190 MergeTLK appends every
     // entry of append.tlk not already present (dedup by content).
     let f = Fixture::new("tlk_merge_all");
-    f.game_file("dialog.tlk", &string_table(&["Existing line.", "Shared line."]));
-    f.mod_file("append.tlk", &string_table(&["Shared line.", "Brand new line.", "Unlisted line."]));
+    f.game_file(
+        "dialog.tlk",
+        &string_table(&["Existing line.", "Shared line."]),
+    );
+    f.mod_file(
+        "append.tlk",
+        &string_table(&["Shared line.", "Brand new line.", "Unlisted line."]),
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[TLKList]",
@@ -995,17 +1219,28 @@ fn tlk_merge_appends_every_source_entry_and_reuses_identical_lines() {
     run.assert_clean();
     assert_eq!(
         tlk_texts(&f.game_read("dialog.tlk")),
-        vec!["Existing line.", "Shared line.", "Brand new line.", "Unlisted line."]
+        vec![
+            "Existing line.",
+            "Shared line.",
+            "Brand new line.",
+            "Unlisted line."
+        ]
     );
     assert_eq!(cost(&f), 1, "the shared line was reused, not duplicated");
-    assert_eq!(gff_field(&gff(&f.override_file("item.uti")), "StackSize"), FieldValue::Word(2));
+    assert_eq!(
+        gff_field(&gff(&f.override_file("item.uti")), "StackSize"),
+        FieldValue::Word(2)
+    );
 }
 
 #[test]
 fn tlk_replace_records_the_dialog_index_as_the_token() {
     let f = Fixture::new("tlk_replace_token");
     f.game_file("dialog.tlk", &string_table(&["a", "b", "c", "d"]));
-    f.mod_file("fixes.tlk", &string_table_with_sounds(&[("Replace2", "vo_r2"), ("Replace3", "")]));
+    f.mod_file(
+        "fixes.tlk",
+        &string_table_with_sounds(&[("Replace2", "vo_r2"), ("Replace3", "")]),
+    );
     f.mod_file("item.uti", &item_file());
     f.mod_file("other.uti", &item_file());
     let run = f.run(&ini(&[
@@ -1064,7 +1299,10 @@ fn tlk_inline_text_and_sound_replace_and_publish_the_index() {
 fn tlk_appendfile_subsection_appends_only_listed_indices() {
     let f = Fixture::new("tlk_appendfile");
     f.game_file("dialog.tlk", &string_table(&["a", "b"]));
-    f.mod_file("mods.tlk", &string_table_with_sounds(&[("m0", "vo_0"), ("m1", "vo_1"), ("m2", "vo_2")]));
+    f.mod_file(
+        "mods.tlk",
+        &string_table_with_sounds(&[("m0", "vo_0"), ("m1", "vo_1"), ("m2", "vo_2")]),
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[TLKList]",
@@ -1083,10 +1321,16 @@ fn tlk_appendfile_subsection_appends_only_listed_indices() {
     ]));
     run.assert_clean();
     let table = tlk(&f.game_read("dialog.tlk"));
-    assert_eq!(tlk_texts(&f.game_read("dialog.tlk")), vec!["a", "b", "m2", "m0"]);
+    assert_eq!(
+        tlk_texts(&f.game_read("dialog.tlk")),
+        vec!["a", "b", "m2", "m0"]
+    );
     assert_eq!(table.entry(2).unwrap().sound_name(), "vo_2");
     assert_eq!(cost(&f), 2);
-    assert_eq!(gff_field(&gff(&f.override_file("item.uti")), "StackSize"), FieldValue::Word(3));
+    assert_eq!(
+        gff_field(&gff(&f.override_file("item.uti")), "StackSize"),
+        FieldValue::Word(3)
+    );
 }
 
 #[test]
@@ -1095,11 +1339,27 @@ fn tlk_replacing_a_nonexistent_index_fails_the_patch_and_keeps_the_table() {
     let original = string_table(&["a", "b"]);
     f.game_file("dialog.tlk", &original);
     f.mod_file("fixes.tlk", &string_table(&["x"]));
-    let run = f.run(&ini(&["[TLKList]", "Replace0=fixes.tlk", "", "[fixes.tlk]", "99=0"]));
+    let run = f.run(&ini(&[
+        "[TLKList]",
+        "Replace0=fixes.tlk",
+        "",
+        "[fixes.tlk]",
+        "99=0",
+    ]));
     assert_eq!(run.failed, 1);
-    assert!(run.errors().iter().any(|e| e.contains("Cannot replace nonexistent stringref '99'")), "{}", run.dump());
+    assert!(
+        run.errors()
+            .iter()
+            .any(|e| e.contains("Cannot replace nonexistent stringref '99'")),
+        "{}",
+        run.dump()
+    );
     assert_eq!(f.game_read("dialog.tlk"), original);
-    assert!(run.summary().contains("0 completed, 0 skipped, 1 failed"), "{}", run.summary());
+    assert!(
+        run.summary().contains("0 completed, 0 skipped, 1 failed"),
+        "{}",
+        run.summary()
+    );
 }
 
 #[test]
@@ -1109,7 +1369,13 @@ fn tlk_merge_of_a_missing_source_index_is_an_error() {
     f.mod_file("append.tlk", &string_table(&["x"]));
     let run = f.run(&ini(&["[TLKList]", "StrRef0=5"]));
     assert_eq!(run.failed, 1);
-    assert!(run.errors().iter().any(|e| e.contains("Cannot load nonexistent stringref '5' from source TLK")), "{}", run.dump());
+    assert!(
+        run.errors()
+            .iter()
+            .any(|e| e.contains("Cannot load nonexistent stringref '5' from source TLK")),
+        "{}",
+        run.dump()
+    );
     assert_eq!(tlk_texts(&f.game_read("dialog.tlk")), vec!["a"]);
 }
 
@@ -1134,12 +1400,30 @@ fn tlk_paired_dialogf_receives_the_same_edits() {
         "StackSize=StrRef1",
     ]));
     run.assert_clean();
-    assert!(run.has("Patching 'dialog.tlk' and 'dialogf.tlk' with shared StrRefs."), "{}", run.dump());
-    assert_eq!(tlk_texts(&f.game_read("dialog.tlk")), vec!["m0", "edited", "new_m"]);
-    assert_eq!(tlk_texts(&f.game_read("dialogf.tlk")), vec!["f0", "edited", "new_f"]);
+    assert!(
+        run.has("Patching 'dialog.tlk' and 'dialogf.tlk' with shared StrRefs."),
+        "{}",
+        run.dump()
+    );
+    assert_eq!(
+        tlk_texts(&f.game_read("dialog.tlk")),
+        vec!["m0", "edited", "new_m"]
+    );
+    assert_eq!(
+        tlk_texts(&f.game_read("dialogf.tlk")),
+        vec!["f0", "edited", "new_f"]
+    );
     assert_eq!(cost(&f), 2);
-    assert_eq!(gff_field(&gff(&f.override_file("item.uti")), "StackSize"), FieldValue::Word(1));
-    assert!(run.summary().starts_with("Processed 2 operations: 2 completed"), "{}", run.summary());
+    assert_eq!(
+        gff_field(&gff(&f.override_file("item.uti")), "StackSize"),
+        FieldValue::Word(1)
+    );
+    assert!(
+        run.summary()
+            .starts_with("Processed 2 operations: 2 completed"),
+        "{}",
+        run.summary()
+    );
 }
 
 #[test]
@@ -1177,7 +1461,11 @@ fn column(t: &odypatcher::formats::twoda::TwoDaFile, label: &str) -> Vec<String>
 }
 
 /// Run a `[2DAList]` INI body against `test.2da` in override and return the table.
-fn run_2da(tag: &str, bytes: &[u8], body: &[&str]) -> (Fixture, Run, odypatcher::formats::twoda::TwoDaFile) {
+fn run_2da(
+    tag: &str,
+    bytes: &[u8],
+    body: &[&str],
+) -> (Fixture, Run, odypatcher::formats::twoda::TwoDaFile) {
     let f = Fixture::new(tag);
     f.game_file("override/test.2da", bytes);
     let mut lines = vec!["[2DAList]", "Table0=test.2da", "", "[test.2da]"];
@@ -1189,18 +1477,36 @@ fn run_2da(tag: &str, bytes: &[u8], body: &[&str]) -> (Fixture, Run, odypatcher:
 
 #[test]
 fn twoda_change_existing_by_rowindex_rowlabel_and_labelindex() {
-    let (_, run, t) = run_2da("chg_targets", &abc_table(), &[
-        "ChangeRow0=r0", "ChangeRow1=r1",
-        "", "[r0]", "RowIndex=1", "Col1=X",
-        "", "[r1]", "RowLabel=0", "Col2=Y",
-    ]);
+    let (_, run, t) = run_2da(
+        "chg_targets",
+        &abc_table(),
+        &[
+            "ChangeRow0=r0",
+            "ChangeRow1=r1",
+            "",
+            "[r0]",
+            "RowIndex=1",
+            "Col1=X",
+            "",
+            "[r1]",
+            "RowLabel=0",
+            "Col2=Y",
+        ],
+    );
     run.assert_clean();
     assert_eq!(column(&t, "Col1"), vec!["a", "X"]);
     assert_eq!(column(&t, "Col2"), vec!["Y", "e"]);
     assert_eq!(column(&t, "Col3"), vec!["c", "f"]);
 
-    let labelled = table(&["label", "Col2", "Col3"], &[("0", vec!["a", "b", "c"]), ("1", vec!["d", "e", "f"])]);
-    let (_, run, t) = run_2da("chg_labelindex", &labelled, &["ChangeRow0=r0", "", "[r0]", "LabelIndex=d", "Col2=X"]);
+    let labelled = table(
+        &["label", "Col2", "Col3"],
+        &[("0", vec!["a", "b", "c"]), ("1", vec!["d", "e", "f"])],
+    );
+    let (_, run, t) = run_2da(
+        "chg_labelindex",
+        &labelled,
+        &["ChangeRow0=r0", "", "[r0]", "LabelIndex=d", "Col2=X"],
+    );
     run.assert_clean();
     assert_eq!(column(&t, "label"), vec!["a", "d"]);
     assert_eq!(column(&t, "Col2"), vec!["b", "X"]);
@@ -1211,10 +1517,13 @@ fn twoda_change_assign_tlk_and_2da_memory_and_bare_high() {
     let f = Fixture::new("chg_assign");
     f.game_file("dialog.tlk", &string_table(&["a"]));
     f.mod_file("append.tlk", &string_table(&["n0", "n1"]));
-    f.game_file("override/test.2da", &table(
-        &["Col1", "Col2", "Col3"],
-        &[("0", vec![" ", "3", "5"]), ("1", vec!["2", "4", "mem1"])],
-    ));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["Col1", "Col2", "Col3"],
+            &[("0", vec![" ", "3", "5"]), ("1", vec!["2", "4", "mem1"])],
+        ),
+    );
     let run = f.run(&ini(&[
         "[TLKList]",
         "StrRef0=0",
@@ -1252,7 +1561,11 @@ fn twoda_change_assign_tlk_and_2da_memory_and_bare_high() {
     ]));
     run.assert_clean();
     let t = twoda_of(&f.override_file("test.2da"));
-    assert_eq!(column(&t, "Col1"), vec!["3", "2"], "non-numeric cells are ignored by high()");
+    assert_eq!(
+        column(&t, "Col1"),
+        vec!["3", "2"],
+        "non-numeric cells are ignored by high()"
+    );
     assert_eq!(column(&t, "Col2"), vec!["5", "2"]);
     assert_eq!(column(&t, "Col3"), vec!["5", "mem1"]);
 }
@@ -1260,10 +1573,13 @@ fn twoda_change_assign_tlk_and_2da_memory_and_bare_high() {
 #[test]
 fn twoda_changerow_captures_rowindex_rowlabel_and_cell() {
     let f = Fixture::new("chg_store");
-    f.game_file("override/test.2da", &table(
-        &["label", "Col2", "Col3"],
-        &[("0", vec!["a", "b", "c"]), ("r1", vec!["d", "e", "f"])],
-    ));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["label", "Col2", "Col3"],
+            &[("0", vec!["a", "b", "c"]), ("r1", vec!["d", "e", "f"])],
+        ),
+    );
     for name in ["i.uti", "l.uti", "c.uti"] {
         f.mod_file(name, &item_file());
     }
@@ -1296,7 +1612,11 @@ fn twoda_changerow_captures_rowindex_rowlabel_and_cell() {
     ]));
     run.assert_clean();
     let t = twoda_of(&f.override_file("test.2da"));
-    assert_eq!(column(&t, "label"), vec!["a", "d"], "captures do not modify the table");
+    assert_eq!(
+        column(&t, "label"),
+        vec!["a", "d"],
+        "captures do not modify the table"
+    );
     assert_eq!(dword(&f.override_file("i.uti"), "Cost"), 1);
     assert_eq!(exostring(&f.override_file("l.uti"), "Tag"), "r1");
     assert_eq!(exostring(&f.override_file("c.uti"), "Tag"), "d");
@@ -1336,21 +1656,37 @@ fn twoda_empty_addrow_sections_add_nothing() {
     // STALE TEST: test_add_rowlabel_use_maxrowlabel expects two empty AddRow
     // sections to add rows labelled 1 and 2; mods/twoda.py:613-650 only
     // creates the row on RowLabel or a column key.
-    let (_, run, t) = run_2da("add_empty", &table(&["Col1"], &[("0", vec!["x"])]), &[
-        "AddRow0=a", "AddRow1=b", "", "[a]", "[b]",
-    ]);
+    let (_, run, t) = run_2da(
+        "add_empty",
+        &table(&["Col1"], &[("0", vec!["x"])]),
+        &["AddRow0=a", "AddRow1=b", "", "[a]", "[b]"],
+    );
     run.assert_clean();
     assert_eq!(t.row_count(), 1);
 }
 
 #[test]
 fn twoda_addrow_rowlabel_constant_and_default_label() {
-    let (_, run, t) = run_2da("add_label", &table(&["Col1"], &[("0", vec!["x"])]), &[
-        "AddRow0=a", "AddRow1=b", "AddRow2=c",
-        "", "[a]", "RowLabel=r1", "Col1=y",
-        "", "[b]", "Col1=z",
-        "", "[c]", "RowLabel=high()", "Col1=w",
-    ]);
+    let (_, run, t) = run_2da(
+        "add_label",
+        &table(&["Col1"], &[("0", vec!["x"])]),
+        &[
+            "AddRow0=a",
+            "AddRow1=b",
+            "AddRow2=c",
+            "",
+            "[a]",
+            "RowLabel=r1",
+            "Col1=y",
+            "",
+            "[b]",
+            "Col1=z",
+            "",
+            "[c]",
+            "RowLabel=high()",
+            "Col1=w",
+        ],
+    );
     run.assert_clean();
     assert_eq!(row_labels(&t), vec!["0", "r1", "2", "3"]);
     assert_eq!(column(&t, "Col1"), vec!["x", "y", "z", "w"]);
@@ -1358,14 +1694,49 @@ fn twoda_addrow_rowlabel_constant_and_default_label() {
 
 #[test]
 fn twoda_addrow_exclusive_column_matches_edit_and_others_add() {
-    let (_, run, t) = run_2da("add_exclusive", &abc_table(), &[
-        "AddRow0=existing", "AddRow1=fresh", "AddRow2=none", "AddRow3=empty", "AddRow4=badcol",
-        "", "[existing]", "ExclusiveColumn=Col1", "RowLabel=9", "Col1=d", "Col2=X", "Col3=Y",
-        "", "[fresh]", "ExclusiveColumn=Col1", "RowLabel=2", "Col1=g", "Col2=h", "Col3=i",
-        "", "[none]", "RowLabel=3", "Col1=j", "Col2=k", "Col3=l",
-        "", "[empty]", "ExclusiveColumn=", "RowLabel=4", "Col1=m", "Col2=n", "Col3=o",
-        "", "[badcol]", "ExclusiveColumn=Col4", "RowLabel=5", "Col1=p",
-    ]);
+    let (_, run, t) = run_2da(
+        "add_exclusive",
+        &abc_table(),
+        &[
+            "AddRow0=existing",
+            "AddRow1=fresh",
+            "AddRow2=none",
+            "AddRow3=empty",
+            "AddRow4=badcol",
+            "",
+            "[existing]",
+            "ExclusiveColumn=Col1",
+            "RowLabel=9",
+            "Col1=d",
+            "Col2=X",
+            "Col3=Y",
+            "",
+            "[fresh]",
+            "ExclusiveColumn=Col1",
+            "RowLabel=2",
+            "Col1=g",
+            "Col2=h",
+            "Col3=i",
+            "",
+            "[none]",
+            "RowLabel=3",
+            "Col1=j",
+            "Col2=k",
+            "Col3=l",
+            "",
+            "[empty]",
+            "ExclusiveColumn=",
+            "RowLabel=4",
+            "Col1=m",
+            "Col2=n",
+            "Col3=o",
+            "",
+            "[badcol]",
+            "ExclusiveColumn=Col4",
+            "RowLabel=5",
+            "Col1=p",
+        ],
+    );
     run.assert_clean();
     assert_eq!(row_labels(&t), vec!["0", "1", "2", "3", "4", "5"]);
     assert_eq!(column(&t, "Col1"), vec!["a", "d", "g", "j", "m", "p"]);
@@ -1378,7 +1749,13 @@ fn twoda_addrow_cells_from_high_tlk_and_2da_memory() {
     let f = Fixture::new("add_cells");
     f.game_file("dialog.tlk", &string_table(&["a", "b", "c", "d", "e"]));
     f.mod_file("append.tlk", &string_table(&["n5", "n6"]));
-    f.game_file("override/test.2da", &table(&["Col1", "Col2"], &[("0", vec!["1", "five"]), ("1", vec!["2", "six"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["Col1", "Col2"],
+            &[("0", vec!["1", "five"]), ("1", vec!["2", "six"])],
+        ),
+    );
     let run = f.run(&ini(&[
         "[TLKList]",
         "StrRef0=0",
@@ -1457,12 +1834,26 @@ fn twoda_addrow_captures_rowindex_for_matched_and_fresh_rows() {
 
 #[test]
 fn twoda_copyrow_by_rowindex_and_rowlabel() {
-    let two = table(&["Col1", "Col2"], &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])]);
-    let (_, run, t) = run_2da("copy_targets", &two, &[
-        "CopyRow0=byidx", "CopyRow1=bylabel",
-        "", "[byidx]", "RowIndex=0", "Col2=X",
-        "", "[bylabel]", "RowLabel=1", "Col2=Y",
-    ]);
+    let two = table(
+        &["Col1", "Col2"],
+        &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])],
+    );
+    let (_, run, t) = run_2da(
+        "copy_targets",
+        &two,
+        &[
+            "CopyRow0=byidx",
+            "CopyRow1=bylabel",
+            "",
+            "[byidx]",
+            "RowIndex=0",
+            "Col2=X",
+            "",
+            "[bylabel]",
+            "RowLabel=1",
+            "Col2=Y",
+        ],
+    );
     run.assert_clean();
     assert_eq!(t.row_count(), 4);
     assert_eq!(row_labels(&t), vec!["0", "1", "2", "3"]);
@@ -1473,27 +1864,62 @@ fn twoda_copyrow_by_rowindex_and_rowlabel() {
 #[test]
 fn twoda_copyrow_exclusive_column() {
     let one = table(&["Col1", "Col2"], &[("0", vec!["a", "b"])]);
-    let (_, run, t) = run_2da("copy_excl_new", &one, &[
-        "CopyRow0=c", "", "[c]", "RowIndex=0", "ExclusiveColumn=Col1", "Col1=c", "Col2=d",
-    ]);
+    let (_, run, t) = run_2da(
+        "copy_excl_new",
+        &one,
+        &[
+            "CopyRow0=c",
+            "",
+            "[c]",
+            "RowIndex=0",
+            "ExclusiveColumn=Col1",
+            "Col1=c",
+            "Col2=d",
+        ],
+    );
     run.assert_clean();
     assert_eq!(t.row_count(), 2);
     assert_eq!(row_labels(&t)[1], "1");
     assert_eq!(column(&t, "Col1"), vec!["a", "c"]);
     assert_eq!(column(&t, "Col2"), vec!["b", "d"]);
 
-    let (_, run, t) = run_2da("copy_excl_exists", &one, &[
-        "CopyRow0=c", "", "[c]", "RowIndex=0", "ExclusiveColumn=Col1", "Col1=a", "Col2=X",
-    ]);
+    let (_, run, t) = run_2da(
+        "copy_excl_exists",
+        &one,
+        &[
+            "CopyRow0=c",
+            "",
+            "[c]",
+            "RowIndex=0",
+            "ExclusiveColumn=Col1",
+            "Col1=a",
+            "Col2=X",
+        ],
+    );
     run.assert_clean();
     assert_eq!(t.row_count(), 1);
     assert_eq!(column(&t, "Col2"), vec!["X"]);
 
-    let (_, run, t) = run_2da("copy_excl_none", &one, &[
-        "CopyRow0=c1", "CopyRow1=c2",
-        "", "[c1]", "RowIndex=0", "Col1=c", "Col2=d",
-        "", "[c2]", "RowIndex=0", "ExclusiveColumn=", "NewRowLabel=r2", "Col1=e", "Col2=f",
-    ]);
+    let (_, run, t) = run_2da(
+        "copy_excl_none",
+        &one,
+        &[
+            "CopyRow0=c1",
+            "CopyRow1=c2",
+            "",
+            "[c1]",
+            "RowIndex=0",
+            "Col1=c",
+            "Col2=d",
+            "",
+            "[c2]",
+            "RowIndex=0",
+            "ExclusiveColumn=",
+            "NewRowLabel=r2",
+            "Col1=e",
+            "Col2=f",
+        ],
+    );
     run.assert_clean();
     assert_eq!(t.row_count(), 3);
     assert_eq!(row_labels(&t), vec!["0", "1", "r2"]);
@@ -1508,7 +1934,13 @@ fn twoda_copyrow_without_cells_copies_nothing_and_captures_the_source_row() {
     // clones lazily on the first column key, and captures run against the
     // source row until then.
     let f = Fixture::new("copy_nocells");
-    f.game_file("override/test.2da", &table(&["Col1", "Col2"], &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["Col1", "Col2"],
+            &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])],
+        ),
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[2DAList]",
@@ -1543,10 +1975,13 @@ fn twoda_copyrow_cells_from_high_tlk_2da_memory_hex_and_stars() {
     let f = Fixture::new("copy_cells");
     f.game_file("dialog.tlk", &string_table(&["a", "b", "c", "d", "e"]));
     f.mod_file("append.tlk", &string_table(&["n5"]));
-    f.game_file("override/test.2da", &table(
-        &["Col1", "Col2", "Col3"],
-        &[("0", vec!["a", "1", "keep"]), ("1", vec!["c", "2", "mem"])],
-    ));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["Col1", "Col2", "Col3"],
+            &[("0", vec!["a", "1", "keep"]), ("1", vec!["c", "2", "mem"])],
+        ),
+    );
     let run = f.run(&ini(&[
         "[TLKList]",
         "StrRef0=0",
@@ -1586,14 +2021,26 @@ fn twoda_copyrow_cells_from_high_tlk_2da_memory_hex_and_stars() {
     run.assert_clean();
     let t = twoda_of(&f.override_file("test.2da"));
     assert_eq!(column(&t, "Col1"), vec!["a", "c", "a", "a", "a", "a"]);
-    assert_eq!(column(&t, "Col2"), vec!["1", "2", "3", "5", "mem", "0x4101"]);
-    assert_eq!(column(&t, "Col3"), vec!["keep", "mem", "keep", "keep", "keep", ""]);
+    assert_eq!(
+        column(&t, "Col2"),
+        vec!["1", "2", "3", "5", "mem", "0x4101"]
+    );
+    assert_eq!(
+        column(&t, "Col3"),
+        vec!["keep", "mem", "keep", "keep", "keep", ""]
+    );
 }
 
 #[test]
 fn twoda_copyrow_captures_the_new_row_after_a_cell_key() {
     let f = Fixture::new("copy_capture");
-    f.game_file("override/test.2da", &table(&["Col1", "Col2"], &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["Col1", "Col2"],
+            &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])],
+        ),
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[2DAList]",
@@ -1627,7 +2074,13 @@ fn twoda_addcolumn_defaults_and_inserts() {
     let f = Fixture::new("addcol");
     f.game_file("dialog.tlk", &string_table(&["a", "b", "c", "d", "e"]));
     f.mod_file("append.tlk", &string_table(&["n5"]));
-    f.game_file("override/test.2da", &table(&["Col1", "Col2"], &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["Col1", "Col2"],
+            &[("0", vec!["a", "b"]), ("1", vec!["c", "d"])],
+        ),
+    );
     f.mod_file("i.uti", &item_file());
     f.mod_file("l.uti", &item_file());
     let run = f.run(&ini(&[
@@ -1705,7 +2158,10 @@ fn twoda_addcolumn_defaults_and_inserts() {
     ]));
     run.assert_clean();
     let t = twoda_of(&f.override_file("test.2da"));
-    assert_eq!(column_labels(&t), vec!["Col1", "Col2", "Col3", "Col4", "Col5", "Col6", "Col7", "Col8", "Col9"]);
+    assert_eq!(
+        column_labels(&t),
+        vec!["Col1", "Col2", "Col3", "Col4", "Col5", "Col6", "Col7", "Col8", "Col9"]
+    );
     assert_eq!(column(&t, "Col3"), vec!["", ""]);
     assert_eq!(column(&t, "Col4"), vec!["X", "X"]);
     assert_eq!(column(&t, "Col5"), vec!["X", "5"]);
@@ -1715,7 +2171,11 @@ fn twoda_addcolumn_defaults_and_inserts() {
     // resolve; mods/twoda.py:854-864 only resolves StrRef for `I<n>` keys.
     assert_eq!(column(&t, "Col8"), vec!["", "2DAMEMORY5"]);
     assert_eq!(column(&t, "Col9"), vec!["X", "Y"]);
-    assert_eq!(column(&t, "Col1"), vec!["a", "c"], "an existing column is left alone");
+    assert_eq!(
+        column(&t, "Col1"),
+        vec!["a", "c"],
+        "an existing column is left alone"
+    );
     assert_eq!(exostring(&f.override_file("i.uti"), "Tag"), "X");
     assert_eq!(exostring(&f.override_file("l.uti"), "Tag"), "Y");
 }
@@ -1723,7 +2183,10 @@ fn twoda_addcolumn_defaults_and_inserts() {
 #[test]
 fn twoda_2da_strref_store_records_a_cell_as_a_tlk_token() {
     let f = Fixture::new("strref_store");
-    f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["77"]), ("1", vec!["abc"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(&["Col1"], &[("0", vec!["77"]), ("1", vec!["abc"])]),
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[2DAList]",
@@ -1750,7 +2213,11 @@ fn twoda_2da_strref_store_records_a_cell_as_a_tlk_token() {
     ]));
     run.assert_clean();
     assert_eq!(cost(&f), 77);
-    assert_eq!(gff_field(&gff(&f.override_file("item.uti")), "StackSize"), FieldValue::Word(0), "non-integer captures are dropped; unset StrRef reads 0");
+    assert_eq!(
+        gff_field(&gff(&f.override_file("item.uti")), "StackSize"),
+        FieldValue::Word(0),
+        "non-integer captures are dropped; unset StrRef reads 0"
+    );
 }
 
 #[test]
@@ -1786,15 +2253,27 @@ fn twoda_a_failing_modifier_logs_and_stops_that_table_only() {
     // (mods/twoda.py _resolve_2da_memory returns the value unchanged).
     let t = twoda_of(&f.override_file("test.2da"));
     assert_eq!(column(&t, "Col1"), vec!["2DAMEMORY3", "Z"]);
-    assert_eq!(cell(&twoda_of(&f.override_file("spells.2da")), 0, "label"), "renamed");
-    assert!(run.summary().starts_with("Processed 2 operations: 2 completed"), "{}", run.summary());
+    assert_eq!(
+        cell(&twoda_of(&f.override_file("spells.2da")), 0, "label"),
+        "renamed"
+    );
+    assert!(
+        run.summary()
+            .starts_with("Processed 2 operations: 2 completed"),
+        "{}",
+        run.summary()
+    );
 }
 
 // ===========================================================================
 // test_mods.py: GFF (through the installer)
 // ===========================================================================
 
-fn run_gff(tag: &str, bytes: &[u8], body: &[&str]) -> (Fixture, Run, odypatcher::formats::gff::GffFile) {
+fn run_gff(
+    tag: &str,
+    bytes: &[u8],
+    body: &[&str],
+) -> (Fixture, Run, odypatcher::formats::gff::GffFile) {
     let f = Fixture::new(tag);
     f.mod_file("test.gff", bytes);
     let mut lines = vec!["[GFFList]", "File0=test.gff", "", "[test.gff]"];
@@ -1823,10 +2302,27 @@ fn gff_modify_every_scalar_type() {
         ("V4", FieldValue::Orientation([0.0, 1.0, 2.0, 3.0])),
         ("Neg", FieldValue::Char(1)),
     ]);
-    let (_, run, file) = run_gff("modify_types", &source, &[
-        "B=2", "C=2", "W=2", "S=2", "D=2", "I=2", "D64=2", "I64=2", "F=2.345", "DD=2.345678",
-        "Str=def", "Loc(strref)=1", "V3=1|2|3", "V4=1|2|3|4", "Neg=-5",
-    ]);
+    let (_, run, file) = run_gff(
+        "modify_types",
+        &source,
+        &[
+            "B=2",
+            "C=2",
+            "W=2",
+            "S=2",
+            "D=2",
+            "I=2",
+            "D64=2",
+            "I64=2",
+            "F=2.345",
+            "DD=2.345678",
+            "Str=def",
+            "Loc(strref)=1",
+            "V3=1|2|3",
+            "V4=1|2|3|4",
+            "Neg=-5",
+        ],
+    );
     run.assert_clean();
     assert_eq!(gff_field(&file, "B"), FieldValue::Byte(2));
     // Int8 values written from INI text are character codes: mods/gff.py:809-810
@@ -1836,7 +2332,10 @@ fn gff_modify_every_scalar_type() {
     assert_eq!(gff_field(&file, "S"), FieldValue::Short(2));
     assert_eq!(gff_field(&file, "D"), FieldValue::Dword(2));
     assert_eq!(gff_field(&file, "I"), FieldValue::Int(2));
-    assert_eq!(gff_field(&file, "D64"), FieldValue::Dword64(2u64.to_le_bytes()));
+    assert_eq!(
+        gff_field(&file, "D64"),
+        FieldValue::Dword64(2u64.to_le_bytes())
+    );
     assert_eq!(gff_field(&file, "I64"), FieldValue::Int64(2));
     assert_eq!(gff_field(&file, "F"), FieldValue::Float(2.345));
     assert_eq!(gff_field(&file, "DD"), FieldValue::Double(2.345678));
@@ -1845,8 +2344,14 @@ fn gff_modify_every_scalar_type() {
         FieldValue::ExoLocString(loc) => assert_eq!(loc.strref, 1),
         other => panic!("{other:?}"),
     }
-    assert_eq!(gff_field(&file, "V3"), FieldValue::Position([1.0, 2.0, 3.0]));
-    assert_eq!(gff_field(&file, "V4"), FieldValue::Orientation([1.0, 2.0, 3.0, 4.0]));
+    assert_eq!(
+        gff_field(&file, "V3"),
+        FieldValue::Position([1.0, 2.0, 3.0])
+    );
+    assert_eq!(
+        gff_field(&file, "V4"),
+        FieldValue::Orientation([1.0, 2.0, 3.0, 4.0])
+    );
     assert_eq!(gff_field(&file, "Neg"), FieldValue::Char(b'-'));
 }
 
@@ -1855,16 +2360,25 @@ fn gff_modify_nested_list_field_and_memory_tokens_into_string_and_byte() {
     let f = Fixture::new("modify_nested");
     f.game_file("dialog.tlk", &string_table(&["a"]));
     f.mod_file("append.tlk", &string_table(&["n"]));
-    f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["123"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(&["Col1"], &[("0", vec!["123"])]),
+    );
     let mut item = odypatcher::formats::gff::GffStruct::new();
-    item.add_field(odypatcher::formats::gff::GffField::new("String", FieldValue::ExoString(String::new())));
-    f.mod_file("test.gff", &gff_with(vec![
-        ("List", FieldValue::List(vec![item])),
-        ("String", FieldValue::ExoString(String::new())),
-        ("Integer", FieldValue::Byte(0)),
-        ("String2", FieldValue::ExoString(String::new())),
-        ("Integer2", FieldValue::Byte(0)),
-    ]));
+    item.add_field(odypatcher::formats::gff::GffField::new(
+        "String",
+        FieldValue::ExoString(String::new()),
+    ));
+    f.mod_file(
+        "test.gff",
+        &gff_with(vec![
+            ("List", FieldValue::List(vec![item])),
+            ("String", FieldValue::ExoString(String::new())),
+            ("Integer", FieldValue::Byte(0)),
+            ("String2", FieldValue::ExoString(String::new())),
+            ("Integer2", FieldValue::Byte(0)),
+        ]),
+    );
     let run = f.run(&ini(&[
         "[TLKList]",
         "StrRef5=0",
@@ -1891,34 +2405,47 @@ fn gff_modify_nested_list_field_and_memory_tokens_into_string_and_byte() {
     ]));
     run.assert_clean();
     let file = gff(&f.override_file("test.gff"));
-    assert_eq!(gff_field(&file, "List\\0\\String"), FieldValue::ExoString("abc".into()));
-    assert_eq!(gff_field(&file, "String"), FieldValue::ExoString("123".into()));
+    assert_eq!(
+        gff_field(&file, "List\\0\\String"),
+        FieldValue::ExoString("abc".into())
+    );
+    assert_eq!(
+        gff_field(&file, "String"),
+        FieldValue::ExoString("123".into())
+    );
     assert_eq!(gff_field(&file, "Integer"), FieldValue::Byte(123));
-    assert_eq!(gff_field(&file, "String2"), FieldValue::ExoString("1".into()));
+    assert_eq!(
+        gff_field(&file, "String2"),
+        FieldValue::ExoString("1".into())
+    );
     assert_eq!(gff_field(&file, "Integer2"), FieldValue::Byte(1));
 }
 
 #[test]
 fn gff_add_new_list_struct_and_nested_field() {
-    let (_, run, file) = run_gff("add_newnested", &gff_with(vec![]), &[
-        "AddField0=new_list",
-        "",
-        "[new_list]",
-        "FieldType=List",
-        "Label=List",
-        "AddField0=new_struct",
-        "",
-        "[new_struct]",
-        "FieldType=Struct",
-        "Label=",
-        "TypeId=7",
-        "AddField0=inner",
-        "",
-        "[inner]",
-        "FieldType=Byte",
-        "Label=SomeInteger",
-        "Value=123",
-    ]);
+    let (_, run, file) = run_gff(
+        "add_newnested",
+        &gff_with(vec![]),
+        &[
+            "AddField0=new_list",
+            "",
+            "[new_list]",
+            "FieldType=List",
+            "Label=List",
+            "AddField0=new_struct",
+            "",
+            "[new_struct]",
+            "FieldType=Struct",
+            "Label=",
+            "TypeId=7",
+            "AddField0=inner",
+            "",
+            "[inner]",
+            "FieldType=Byte",
+            "Label=SomeInteger",
+            "Value=123",
+        ],
+    );
     run.assert_clean();
     match gff_field(&file, "List") {
         FieldValue::List(items) => {
@@ -1927,23 +2454,36 @@ fn gff_add_new_list_struct_and_nested_field() {
         }
         other => panic!("{other:?}"),
     }
-    assert_eq!(gff_field(&file, "List\\0\\SomeInteger"), FieldValue::Byte(123));
+    assert_eq!(
+        gff_field(&file, "List\\0\\SomeInteger"),
+        FieldValue::Byte(123)
+    );
 }
 
 #[test]
 fn gff_add_into_existing_list_element_by_path() {
-    let source = gff_with(vec![("List", FieldValue::List(vec![odypatcher::formats::gff::GffStruct::new()]))]);
-    let (_, run, file) = run_gff("add_nested", &source, &[
-        "AddField0=s",
-        "",
-        "[s]",
-        "FieldType=ExoString",
-        "Label=String",
-        "Value=abc",
-        "Path=List\\0",
-    ]);
+    let source = gff_with(vec![(
+        "List",
+        FieldValue::List(vec![odypatcher::formats::gff::GffStruct::new()]),
+    )]);
+    let (_, run, file) = run_gff(
+        "add_nested",
+        &source,
+        &[
+            "AddField0=s",
+            "",
+            "[s]",
+            "FieldType=ExoString",
+            "Label=String",
+            "Value=abc",
+            "Path=List\\0",
+        ],
+    );
     run.assert_clean();
-    assert_eq!(gff_field(&file, "List\\0\\String"), FieldValue::ExoString("abc".into()));
+    assert_eq!(
+        gff_field(&file, "List\\0\\String"),
+        FieldValue::ExoString("abc".into())
+    );
 }
 
 #[test]
@@ -1951,8 +2491,17 @@ fn gff_add_field_values_from_2da_and_tlk_memory() {
     let f = Fixture::new("add_memory");
     f.game_file("dialog.tlk", &string_table(&["a"]));
     f.mod_file("append.tlk", &string_table(&["n"]));
-    f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["123"])]));
-    f.mod_file("test.gff", &gff_with(vec![("Loc", FieldValue::ExoLocString(ExoLocString::new(0)))]));
+    f.game_file(
+        "override/test.2da",
+        &table(&["Col1"], &[("0", vec!["123"])]),
+    );
+    f.mod_file(
+        "test.gff",
+        &gff_with(vec![(
+            "Loc",
+            FieldValue::ExoLocString(ExoLocString::new(0)),
+        )]),
+    );
     let run = f.run(&ini(&[
         "[TLKList]",
         "StrRef5=0",
@@ -2004,12 +2553,21 @@ fn gff_add_field_values_from_2da_and_tlk_memory() {
     ]));
     run.assert_clean();
     let file = gff(&f.override_file("test.gff"));
-    assert_eq!(gff_field(&file, "String"), FieldValue::ExoString("123".into()));
+    assert_eq!(
+        gff_field(&file, "String"),
+        FieldValue::ExoString("123".into())
+    );
     assert_eq!(gff_field(&file, "Integer"), FieldValue::Byte(123));
-    assert_eq!(gff_field(&file, "String2"), FieldValue::ExoString("1".into()));
+    assert_eq!(
+        gff_field(&file, "String2"),
+        FieldValue::ExoString("1".into())
+    );
     assert_eq!(gff_field(&file, "Integer2"), FieldValue::Byte(1));
     match gff_field(&file, "Loc") {
-        FieldValue::ExoLocString(loc) => assert_eq!(loc.strref, 123, "AddField on an existing locstring modifies it"),
+        FieldValue::ExoLocString(loc) => assert_eq!(
+            loc.strref, 123,
+            "AddField on an existing locstring modifies it"
+        ),
         other => panic!("{other:?}"),
     }
 }
@@ -2017,7 +2575,10 @@ fn gff_add_field_values_from_2da_and_tlk_memory() {
 #[test]
 fn gff_add_structs_to_list_keep_order_and_capture_list_index() {
     let f = Fixture::new("addlist");
-    f.mod_file("test.gff", &gff_with(vec![("List", FieldValue::List(vec![]))]));
+    f.mod_file(
+        "test.gff",
+        &gff_with(vec![("List", FieldValue::List(vec![]))]),
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[GFFList]",
@@ -2054,7 +2615,10 @@ fn gff_add_structs_to_list_keep_order_and_capture_list_index() {
     run.assert_clean();
     let file = gff(&f.override_file("test.gff"));
     match gff_field(&file, "List") {
-        FieldValue::List(items) => assert_eq!(items.iter().map(|s| s.type_id).collect::<Vec<_>>(), vec![5, 3, 1]),
+        FieldValue::List(items) => assert_eq!(
+            items.iter().map(|s| s.type_id).collect::<Vec<_>>(),
+            vec![5, 3, 1]
+        ),
         other => panic!("{other:?}"),
     }
     assert_eq!(cost(&f), 1);
@@ -2063,12 +2627,24 @@ fn gff_add_structs_to_list_keep_order_and_capture_list_index() {
 #[test]
 fn gff_locstring_delta_merges_into_the_existing_field() {
     let f = Fixture::new("loc_merge");
-    f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["x"]), ("1", vec!["y"]), ("2", vec!["z"])]));
-    f.mod_file("test.gff", &gff_with(vec![
-        ("Keep", FieldValue::ExoLocString(locstring(123, &[]))),
-        ("Merge", FieldValue::ExoLocString(locstring(0, &[(0, "a"), (2, "b")]))),
-        ("Mem", FieldValue::ExoLocString(locstring(0, &[]))),
-    ]));
+    f.game_file(
+        "override/test.2da",
+        &table(
+            &["Col1"],
+            &[("0", vec!["x"]), ("1", vec!["y"]), ("2", vec!["z"])],
+        ),
+    );
+    f.mod_file(
+        "test.gff",
+        &gff_with(vec![
+            ("Keep", FieldValue::ExoLocString(locstring(123, &[]))),
+            (
+                "Merge",
+                FieldValue::ExoLocString(locstring(0, &[(0, "a"), (2, "b")])),
+            ),
+            ("Mem", FieldValue::ExoLocString(locstring(0, &[]))),
+        ]),
+    );
     let run = f.run(&ini(&[
         "[2DAList]",
         "Table0=test.2da",
@@ -2091,22 +2667,31 @@ fn gff_locstring_delta_merges_into_the_existing_field() {
     ]));
     run.assert_clean();
     let file = gff(&f.override_file("test.gff"));
-    let FieldValue::ExoLocString(keep) = gff_field(&file, "Keep") else { panic!() };
+    let FieldValue::ExoLocString(keep) = gff_field(&file, "Keep") else {
+        panic!()
+    };
     assert_eq!(keep.strref, 123);
     assert_eq!(keep.string_by_id(0), "x");
-    let FieldValue::ExoLocString(merge) = gff_field(&file, "Merge") else { panic!() };
+    let FieldValue::ExoLocString(merge) = gff_field(&file, "Merge") else {
+        panic!()
+    };
     assert_eq!(merge.substrings.len(), 3);
     assert_eq!(merge.string_by_id(0), "1");
     assert_eq!(merge.string_by_id(4), "2");
     assert_eq!(merge.string_by_id(2), "b");
-    let FieldValue::ExoLocString(mem) = gff_field(&file, "Mem") else { panic!() };
+    let FieldValue::ExoLocString(mem) = gff_field(&file, "Mem") else {
+        panic!()
+    };
     assert_eq!(mem.strref, 2);
 }
 
 #[test]
 fn gff_field_path_capture_can_be_used_as_a_modify_path() {
     let f = Fixture::new("fieldpath");
-    f.mod_file("test.gff", &gff_with(vec![("List", FieldValue::List(vec![]))]));
+    f.mod_file(
+        "test.gff",
+        &gff_with(vec![("List", FieldValue::List(vec![]))]),
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[GFFList]",
@@ -2142,20 +2727,24 @@ fn gff_field_path_capture_can_be_used_as_a_modify_path() {
 
 #[test]
 fn gff_add_char_field_values_are_character_codes() {
-    let (_, run, file) = run_gff("add_char", &gff_with(vec![]), &[
-        "AddField0=a",
-        "AddField1=b",
-        "",
-        "[a]",
-        "FieldType=Char",
-        "Label=SomeChar",
-        "Value=123",
-        "",
-        "[b]",
-        "FieldType=Char",
-        "Label=NegChar",
-        "Value=-5",
-    ]);
+    let (_, run, file) = run_gff(
+        "add_char",
+        &gff_with(vec![]),
+        &[
+            "AddField0=a",
+            "AddField1=b",
+            "",
+            "[a]",
+            "FieldType=Char",
+            "Label=SomeChar",
+            "Value=123",
+            "",
+            "[b]",
+            "FieldType=Char",
+            "Label=NegChar",
+            "Value=-5",
+        ],
+    );
     run.assert_clean();
     // STALE FINDING: the reader previews `Value=123` as the integer 123, but
     // the apply path (mods/gff.py:151-160 `_parse_char` on the raw text, via
@@ -2166,24 +2755,29 @@ fn gff_add_char_field_values_are_character_codes() {
 
 #[test]
 fn gff_add_field_on_existing_label_of_same_type_modifies_it() {
-    let (_, run, file) = run_gff("add_existing", &gff_with(vec![("Cost", FieldValue::Dword(100))]), &[
-        "AddField0=c",
-        "",
-        "[c]",
-        "FieldType=DWORD",
-        "Label=Cost",
-        "Value=7",
-    ]);
+    let (_, run, file) = run_gff(
+        "add_existing",
+        &gff_with(vec![("Cost", FieldValue::Dword(100))]),
+        &[
+            "AddField0=c",
+            "",
+            "[c]",
+            "FieldType=DWORD",
+            "Label=Cost",
+            "Value=7",
+        ],
+    );
     run.assert_clean();
     assert_eq!(gff_field(&file, "Cost"), FieldValue::Dword(7));
 }
 
 #[test]
 fn gff_modify_of_a_missing_field_logs_an_error_and_the_rest_applies() {
-    let (_, run, file) = run_gff("modify_missing", &gff_with(vec![("Cost", FieldValue::Dword(1))]), &[
-        "Nope=5",
-        "Cost=9",
-    ]);
+    let (_, run, file) = run_gff(
+        "modify_missing",
+        &gff_with(vec![("Cost", FieldValue::Dword(1))]),
+        &["Nope=5", "Cost=9"],
+    );
     assert_eq!(gff_field(&file, "Cost"), FieldValue::Dword(9));
     assert!(!run.errors().is_empty(), "{}", run.dump());
     assert_eq!(run.failed, 1, "an error during the patch marks it failed");
@@ -2198,7 +2792,10 @@ fn ssf_assign_int_2da_token_and_tlk_token() {
     let f = Fixture::new("ssf");
     f.game_file("dialog.tlk", &string_table(&["a", "b", "c"]));
     f.mod_file("append.tlk", &string_table(&["n"]));
-    f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["123"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(&["Col1"], &[("0", vec!["123"])]),
+    );
     f.mod_file("p.ssf", &soundset(&[]));
     let run = f.run(&ini(&[
         "[TLKList]",
@@ -2235,12 +2832,26 @@ fn ssf_replace_key_overwrites_an_existing_override_file() {
     let f = Fixture::new("ssf_replace");
     f.game_file("override/p.ssf", &soundset(&[("Death", 9)]));
     f.mod_file("p.ssf", &soundset(&[]));
-    let run = f.run(&ini(&["[SSFList]", "Replace0=p.ssf", "", "[p.ssf]", "Battlecry 1=1"]));
+    let run = f.run(&ini(&[
+        "[SSFList]",
+        "Replace0=p.ssf",
+        "",
+        "[p.ssf]",
+        "Battlecry 1=1",
+    ]));
     run.assert_clean();
     let s = ssf(&f.override_file("p.ssf"));
-    assert_eq!(s.entry("Death").unwrap(), u32::MAX, "the mod's fresh copy was used");
+    assert_eq!(
+        s.entry("Death").unwrap(),
+        u32::MAX,
+        "the mod's fresh copy was used"
+    );
     assert_eq!(s.entry("Battlecry 1").unwrap(), 1);
-    assert!(run.has("Patching 'p.ssf' and replacing existing file in the 'Override' folder"), "{}", run.dump());
+    assert!(
+        run.has("Patching 'p.ssf' and replacing existing file in the 'Override' folder"),
+        "{}",
+        run.dump()
+    );
 }
 
 // ===========================================================================
@@ -2252,7 +2863,10 @@ fn hack_writes_big_endian_into_ncs_and_little_endian_elsewhere() {
     let f = Fixture::new("hack");
     f.game_file("dialog.tlk", &string_table(&["a", "b"]));
     f.mod_file("append.tlk", &string_table(&["n"]));
-    f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["258"])]));
+    f.game_file(
+        "override/test.2da",
+        &table(&["Col1"], &[("0", vec!["258"])]),
+    );
     f.mod_file("s.ncs", &[0u8; 16]);
     f.mod_file("s.bin", &[0u8; 16]);
     let run = f.run(&ini(&[
@@ -2288,15 +2902,34 @@ fn hack_writes_big_endian_into_ncs_and_little_endian_elsewhere() {
     assert_eq!(&ncs[8..12], &[0, 0, 0, 2]);
     let bin = f.override_file("s.bin");
     assert_eq!(&bin[0..4], &[2, 1, 0, 0]);
-    assert!(run.verbose().iter().any(|l| l == "HACKList s.ncs: writing DWORD 258 at offset 0X0"), "{}", run.dump());
+    assert!(
+        run.verbose()
+            .iter()
+            .any(|l| l == "HACKList s.ncs: writing DWORD 258 at offset 0X0"),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
 fn hack_offset_past_the_end_warns_and_skips() {
     let f = Fixture::new("hack_oob");
     f.mod_file("s.ncs", &[0u8; 8]);
-    let run = f.run(&ini(&["[HACKList]", "File0=s.ncs", "", "[s.ncs]", "12=1", "4=7"]));
-    assert!(run.warnings().iter().any(|w| w.starts_with("HACKList s.ncs: offset 0XC is outside the file")), "{}", run.dump());
+    let run = f.run(&ini(&[
+        "[HACKList]",
+        "File0=s.ncs",
+        "",
+        "[s.ncs]",
+        "12=1",
+        "4=7",
+    ]));
+    assert!(
+        run.warnings()
+            .iter()
+            .any(|w| w.starts_with("HACKList s.ncs: offset 0XC is outside the file")),
+        "{}",
+        run.dump()
+    );
     let ncs = f.override_file("s.ncs");
     assert_eq!(ncs.len(), 8);
     assert_eq!(&ncs[4..8], &[0, 0, 0, 7]);
@@ -2311,7 +2944,10 @@ fn compile_list_substitutes_tokens_and_compiles_with_the_builtin_compiler() {
     let f = Fixture::new("nss");
     f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["42"])]));
     f.mod_file("nwscript.nss", b"// empty header\n");
-    f.mod_file("script.nss", b"// #StrRef9#\nvoid main() { int a = #2DAMEMORY1#; }");
+    f.mod_file(
+        "script.nss",
+        b"// #StrRef9#\nvoid main() { int a = #2DAMEMORY1#; }",
+    );
     let run = f.run(&ini(&[
         "[2DAList]",
         "Table0=test.2da",
@@ -2328,9 +2964,25 @@ fn compile_list_substitutes_tokens_and_compiles_with_the_builtin_compiler() {
     ]));
     assert!(f.override_exists("script.ncs"), "{}", run.dump());
     assert_eq!(&f.override_file("script.ncs")[0..8], b"NCS V1.0");
-    assert!(run.verbose().iter().any(|l| l == "script.nss: Replacing '#2DAMEMORY1#' with '42'"), "{}", run.dump());
-    assert!(run.warnings().iter().any(|l| l == "StrRef9 was not defined before use in 'script.nss'; leaving token unchanged."), "{}", run.dump());
-    assert!(!f.override_exists("nwscript.ncs"), "the header is never compiled");
+    assert!(
+        run.verbose()
+            .iter()
+            .any(|l| l == "script.nss: Replacing '#2DAMEMORY1#' with '42'"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.warnings()
+            .iter()
+            .any(|l| l
+                == "StrRef9 was not defined before use in 'script.nss'; leaving token unchanged."),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        !f.override_exists("nwscript.ncs"),
+        "the header is never compiled"
+    );
 }
 
 #[test]
@@ -2342,10 +2994,19 @@ fn compile_list_skips_an_existing_script_unless_replacing() {
     let run = f.run(&ini(&["[CompileList]", "File0=script.nss"]));
     assert_eq!(f.override_file("script.ncs"), b"OLD");
     assert_eq!(run.skipped, 1);
-    assert!(run.has("'script.ncs' already exists in the 'Override' folder. Skipping file..."), "{}", run.dump());
+    assert!(
+        run.has("'script.ncs' already exists in the 'Override' folder. Skipping file..."),
+        "{}",
+        run.dump()
+    );
 
     let run = f.run(&ini(&["[CompileList]", "Replace0=script.nss"]));
-    assert_eq!(&f.override_file("script.ncs")[0..8], b"NCS V1.0", "{}", run.dump());
+    assert_eq!(
+        &f.override_file("script.ncs")[0..8],
+        b"NCS V1.0",
+        "{}",
+        run.dump()
+    );
     assert_eq!(run.completed, 1);
 }
 
@@ -2386,38 +3047,85 @@ fn install_summary_counts_each_outcome() {
         "[item.uti]",
         "Cost=50",
     ]));
-    assert_eq!((run.configured, run.completed, run.skipped, run.failed), (4, 2, 1, 1), "{}", run.dump());
-    assert!(run.summary().starts_with("Processed 4 operations: 2 completed, 1 skipped, 1 failed, 0 warnings, 2 errors."), "{}", run.summary());
-    assert!(run.has_typed(LogType::Error, "Installation completed with errors."), "{}", run.dump());
+    assert_eq!(
+        (run.configured, run.completed, run.skipped, run.failed),
+        (4, 2, 1, 1),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.summary().starts_with(
+            "Processed 4 operations: 2 completed, 1 skipped, 1 failed, 0 warnings, 2 errors."
+        ),
+        "{}",
+        run.summary()
+    );
+    assert!(
+        run.has_typed(LogType::Error, "Installation completed with errors."),
+        "{}",
+        run.dump()
+    );
     assert_eq!(f.override_file("kept.tga"), b"old");
     assert_eq!(cost(&f), 50);
-    assert!(run.errors().iter().any(|e| e.starts_with("Could not load source file to patch:")), "{}", run.dump());
-    assert!(run.errors().iter().any(|e| e == "Could not locate resource to patch: 'missing.uti'"), "{}", run.dump());
+    assert!(
+        run.errors()
+            .iter()
+            .any(|e| e.starts_with("Could not load source file to patch:")),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.errors()
+            .iter()
+            .any(|e| e == "Could not locate resource to patch: 'missing.uti'"),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
 fn install_success_line_uses_singular_for_one_operation() {
     let f = Fixture::new("singular");
     f.mod_file("item.uti", &item_file());
-    let run = f.run(&ini(&["[GFFList]", "File0=item.uti", "", "[item.uti]", "Cost=1"]));
+    let run = f.run(&ini(&[
+        "[GFFList]",
+        "File0=item.uti",
+        "",
+        "[item.uti]",
+        "Cost=1",
+    ]));
     assert!(run.has_typed(LogType::Note, "Successfully completed installation. Processed 1 operation: 1 completed, 0 skipped, 0 failed, 0 warnings, 0 errors."), "{}", run.dump());
-    assert!(run.has("Patching 'item.uti' and saving to the 'Override' folder"), "{}", run.dump());
+    assert!(
+        run.has("Patching 'item.uti' and saving to the 'Override' folder"),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
 fn install_nothing_to_do_reports_zero_operations() {
     let f = Fixture::new("nothing");
     let run = f.run(&ini(&["[Settings]", "LogLevel=4"]));
-    assert!(run.summary().starts_with("Processed 0 operations: 0 completed"), "{}", run.summary());
+    assert!(
+        run.summary()
+            .starts_with("Processed 0 operations: 0 completed"),
+        "{}",
+        run.summary()
+    );
 }
 
 #[test]
 fn install_refuses_a_folder_that_is_not_a_game() {
     let f = Fixture::bare("notgame");
     f.mod_file("item.uti", &item_file());
-    let (exc, _) = f.try_run(&ini(&["[GFFList]", "File0=item.uti"])).unwrap_err();
+    let (exc, _) = f
+        .try_run(&ini(&["[GFFList]", "File0=item.uti"]))
+        .unwrap_err();
     assert_eq!(exc.kind, "RuntimeError");
-    assert_eq!(exc.message, "Chosen KOTOR directory is not a valid installation - cannot initialize ModInstaller.");
+    assert_eq!(
+        exc.message,
+        "Chosen KOTOR directory is not a valid installation - cannot initialize ModInstaller."
+    );
     assert!(!f.override_exists("item.uti"));
 }
 
@@ -2453,11 +3161,34 @@ fn install_corrupt_source_fails_that_patch_and_continues() {
         "Cost=50",
     ]));
     assert_eq!((run.completed, run.failed), (2, 2), "{}", run.dump());
-    assert_eq!(cell(&twoda_of(&f.override_file("spells.2da")), 2, "label"), "third_spell");
+    assert_eq!(
+        cell(&twoda_of(&f.override_file("spells.2da")), 2, "label"),
+        "third_spell"
+    );
     assert_eq!(cost(&f), 50);
-    assert!(run.errors().iter().filter(|e| e.starts_with("An error occurred in patchlist ")).count() >= 2, "{}", run.dump());
-    assert!(run.errors().iter().any(|e| e.starts_with("An error occurred in patchlist ModificationsGFF:")), "{}", run.dump());
-    assert!(run.errors().iter().any(|e| e.starts_with("An error occurred in patchlist Modifications2DA:")), "{}", run.dump());
+    assert!(
+        run.errors()
+            .iter()
+            .filter(|e| e.starts_with("An error occurred in patchlist "))
+            .count()
+            >= 2,
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.errors()
+            .iter()
+            .any(|e| e.starts_with("An error occurred in patchlist ModificationsGFF:")),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.errors()
+            .iter()
+            .any(|e| e.starts_with("An error occurred in patchlist Modifications2DA:")),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
@@ -2487,10 +3218,26 @@ fn install_list_copies_new_files_skips_existing_and_replaces_on_request() {
     assert_eq!(f.override_file("swap.tga"), b"new");
     assert_eq!(f.override_file("fresh.tga"), b"new");
     assert_eq!(f.override_file("renamed.tga"), b"aliased");
-    assert!(run.has("'kept.tga' already exists in the 'Override' folder. Skipping file..."), "{}", run.dump());
-    assert!(run.has("Copying 'swap.tga' and replacing existing file in the 'Override' folder"), "{}", run.dump());
-    assert!(run.has("Copying 'fresh.tga' and saving to the 'Override' folder"), "{}", run.dump());
-    assert!(run.has("Copying 'alias.tga' and saving as 'renamed.tga' in the 'Override' folder"), "{}", run.dump());
+    assert!(
+        run.has("'kept.tga' already exists in the 'Override' folder. Skipping file..."),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.has("Copying 'swap.tga' and replacing existing file in the 'Override' folder"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.has("Copying 'fresh.tga' and saving to the 'Override' folder"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.has("Copying 'alias.tga' and saving as 'renamed.tga' in the 'Override' folder"),
+        "{}",
+        run.dump()
+    );
     assert_eq!((run.completed, run.skipped), (3, 1));
 }
 
@@ -2513,9 +3260,18 @@ fn install_list_never_replaces_protected_exe_tlk_key_bif() {
     ]));
     assert_eq!(tlk_texts(&f.game_read("dialog.tlk")), vec!["a"]);
     assert_eq!(f.game_read("chitin.key"), b"KEY ");
-    assert_eq!(f.game_read("new.key"), b"NEW", "a protected extension that does not exist yet is installed");
+    assert_eq!(
+        f.game_read("new.key"),
+        b"NEW",
+        "a protected extension that does not exist yet is installed"
+    );
     assert!(run.warnings().iter().any(|w| w.starts_with("Skipping protected existing file 'dialog.tlk' in the 'game' folder; InstallList cannot replace EXE, TLK, KEY, or BIF files.")), "{}", run.dump());
-    assert_eq!((run.completed, run.skipped, run.failed), (1, 2, 0), "{}", run.dump());
+    assert_eq!(
+        (run.completed, run.skipped, run.failed),
+        (1, 2, 0),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
@@ -2524,7 +3280,11 @@ fn install_backup_tree_manifest_and_uninstall_scripts() {
     let original = spell_table();
     f.game_file("override/spells.2da", &original);
     f.mod_file("item.uti", &item_file());
-    write_archive(&f.game.join("modules/danm13.mod"), ArchiveKind::Mod, &[("a.utc", &item_file())]);
+    write_archive(
+        &f.game.join("modules/danm13.mod"),
+        ArchiveKind::Mod,
+        &[("a.utc", &item_file())],
+    );
     let run = f.run(&ini(&[
         "[2DAList]",
         "Table0=spells.2da",
@@ -2552,13 +3312,39 @@ fn install_backup_tree_manifest_and_uninstall_scripts() {
     let backup = f.backup_dir().expect("one backup folder");
     let name = backup.file_name().unwrap().to_string_lossy().to_string();
     assert!(ModUninstaller::is_valid_backup_folder(&backup), "{name}");
-    assert!(run.has(&format!("Using backup directory: '{}'", backup.display())), "{}", run.dump());
-    assert_eq!(std::fs::read(backup.join("override").join("spells.2da")).unwrap(), original);
-    assert!(run.has(&format!("Backing up '{}'...", f.game.join("override").join("spells.2da").display())), "{}", run.dump());
-    assert!(backup.join("modules").join("danm13.mod").is_file(), "an archive written to is backed up whole");
+    assert!(
+        run.has(&format!("Using backup directory: '{}'", backup.display())),
+        "{}",
+        run.dump()
+    );
+    assert_eq!(
+        std::fs::read(backup.join("override").join("spells.2da")).unwrap(),
+        original
+    );
+    assert!(
+        run.has(&format!(
+            "Backing up '{}'...",
+            f.game.join("override").join("spells.2da").display()
+        )),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        backup.join("modules").join("danm13.mod").is_file(),
+        "an archive written to is backed up whole"
+    );
     let manifest = std::fs::read_to_string(backup.join("remove these files.txt")).unwrap();
     let listed: Vec<&str> = manifest.lines().collect();
-    assert_eq!(listed, vec![f.game.join("override").join("item.uti").to_string_lossy().to_string()], "new files are listed once");
+    assert_eq!(
+        listed,
+        vec![f
+            .game
+            .join("override")
+            .join("item.uti")
+            .to_string_lossy()
+            .to_string()],
+        "new files are listed once"
+    );
     assert!(!backup.join("override").join("item.uti").exists());
     assert!(f.root.join("uninstall").join("uninstall.ps1").is_file());
     let sh = std::fs::read_to_string(f.root.join("uninstall").join("uninstall.sh")).unwrap();
@@ -2597,10 +3383,24 @@ fn uninstaller_restores_replaced_files_and_removes_new_ones() {
     assert!(uninstaller.uninstall_selected_mod().unwrap());
     assert_eq!(f.override_file("spells.2da"), original);
     assert!(!f.override_exists("item.uti"));
-    let notes: Vec<String> = uninstaller.logger.notes().iter().map(|l| l.message.clone()).collect();
-    assert!(notes.iter().any(|n| n == "Restored 'override/spells.2da'."), "{notes:?}");
-    assert!(notes.iter().any(|n| n == "Removed 'override/item.uti'."), "{notes:?}");
-    assert!(f.backup_dir().is_none(), "the restored backup was deleted on request");
+    let notes: Vec<String> = uninstaller
+        .logger
+        .notes()
+        .iter()
+        .map(|l| l.message.clone())
+        .collect();
+    assert!(
+        notes.iter().any(|n| n == "Restored 'override/spells.2da'."),
+        "{notes:?}"
+    );
+    assert!(
+        notes.iter().any(|n| n == "Removed 'override/item.uti'."),
+        "{notes:?}"
+    );
+    assert!(
+        f.backup_dir().is_none(),
+        "the restored backup was deleted on request"
+    );
 }
 
 #[test]
@@ -2615,7 +3415,11 @@ fn uninstaller_without_a_backup_reports_and_does_nothing() {
 #[test]
 fn install_override_type_warn_and_rename() {
     let f = Fixture::new("overridetype");
-    write_archive(&f.game.join("modules/danm13.mod"), ArchiveKind::Mod, &[("item.uti", &item_file())]);
+    write_archive(
+        &f.game.join("modules/danm13.mod"),
+        ArchiveKind::Mod,
+        &[("item.uti", &item_file())],
+    );
     f.game_file("override/item.uti", &item_file());
     f.game_file("override/other.uti", &item_file());
     f.game_file("override/quiet.uti", &item_file());
@@ -2641,16 +3445,31 @@ fn install_override_type_warn_and_rename() {
         "Cost=3",
     ]));
     run.assert_clean();
-    assert!(run.warnings().iter().any(|w| w.contains("item.uti' is shadowing this mod's changes in Modules\\danm13.mod!")), "{}", run.dump());
+    assert!(
+        run.warnings().iter().any(
+            |w| w.contains("item.uti' is shadowing this mod's changes in Modules\\danm13.mod!")
+        ),
+        "{}",
+        run.dump()
+    );
     assert!(f.override_exists("item.uti"));
     assert!(!f.override_exists("other.uti"));
     assert!(f.override_exists("old_other.uti"));
     assert!(f.override_exists("quiet.uti"));
     assert!(!run.has("quiet.uti' is shadowing"));
     let archive = f.game.join("modules/danm13.mod");
-    assert_eq!(dword(&archive_member(&archive, "item.uti").unwrap(), "Cost"), 1);
-    assert_eq!(dword(&archive_member(&archive, "other.uti").unwrap(), "Cost"), 2);
-    assert_eq!(dword(&archive_member(&archive, "quiet.uti").unwrap(), "Cost"), 3);
+    assert_eq!(
+        dword(&archive_member(&archive, "item.uti").unwrap(), "Cost"),
+        1
+    );
+    assert_eq!(
+        dword(&archive_member(&archive, "other.uti").unwrap(), "Cost"),
+        2
+    );
+    assert_eq!(
+        dword(&archive_member(&archive, "quiet.uti").unwrap(), "Cost"),
+        3
+    );
 }
 
 #[test]
@@ -2681,19 +3500,45 @@ fn install_into_capsule_patches_members_and_adds_new_ones() {
         "Cost=2",
     ]));
     run.assert_clean();
-    assert_eq!(dword(&archive_member(&archive, "item.uti").unwrap(), "Cost"), 1);
-    assert_eq!(dword(&archive_member(&archive, "fresh.uti").unwrap(), "Cost"), 2);
+    assert_eq!(
+        dword(&archive_member(&archive, "item.uti").unwrap(), "Cost"),
+        1
+    );
+    assert_eq!(
+        dword(&archive_member(&archive, "fresh.uti").unwrap(), "Cost"),
+        2
+    );
     assert_eq!(archive_member(&archive, "copy.tga").unwrap(), b"tga");
-    assert!(run.has("Patching existing file 'item.uti' in the 'Modules\\danm13.mod' archive"), "{}", run.dump());
-    assert!(run.has("Patching 'fresh.uti' and adding to the 'Modules\\danm13.mod' archive"), "{}", run.dump());
-    assert!(run.has("Copying 'copy.tga' and adding to the 'Modules\\danm13.mod' archive"), "{}", run.dump());
+    assert!(
+        run.has("Patching existing file 'item.uti' in the 'Modules\\danm13.mod' archive"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.has("Patching 'fresh.uti' and adding to the 'Modules\\danm13.mod' archive"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.has("Copying 'copy.tga' and adding to the 'Modules\\danm13.mod' archive"),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
 fn install_into_a_missing_mod_stages_it_from_the_rims() {
     let f = Fixture::new("rim2mod");
-    write_archive(&f.game.join("modules/danm13.rim"), ArchiveKind::Rim, &[("item.uti", &item_file())]);
-    write_archive(&f.game.join("modules/danm13_s.rim"), ArchiveKind::Rim, &[("extra.tga", b"tga")]);
+    write_archive(
+        &f.game.join("modules/danm13.rim"),
+        ArchiveKind::Rim,
+        &[("item.uti", &item_file())],
+    );
+    write_archive(
+        &f.game.join("modules/danm13_s.rim"),
+        ArchiveKind::Rim,
+        &[("extra.tga", b"tga")],
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[GFFList]",
@@ -2706,12 +3551,33 @@ fn install_into_a_missing_mod_stages_it_from_the_rims() {
     run.assert_clean();
     let archive = f.game.join("modules/danm13.mod");
     assert!(archive.is_file());
-    assert_eq!(dword(&archive_member(&archive, "item.uti").unwrap(), "Cost"), 5);
+    assert_eq!(
+        dword(&archive_member(&archive, "item.uti").unwrap(), "Cost"),
+        5
+    );
     assert_eq!(archive_member(&archive, "extra.tga").unwrap(), b"tga");
-    assert!(run.notes().iter().any(|n| n.starts_with("IMPORTANT! The module at path") && n.contains("Modules/danm13_dlg.erf")), "{}", run.dump());
-    let manifest = std::fs::read_to_string(f.backup_dir().unwrap().join("remove these files.txt")).unwrap();
-    assert!(manifest.contains("danm13.mod"), "the staged module is registered for removal: {manifest}");
-    assert!(!std::fs::read_dir(f.game.join("modules")).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with(".holopatcher")), "no staging leftovers");
+    assert!(
+        run.notes()
+            .iter()
+            .any(|n| n.starts_with("IMPORTANT! The module at path")
+                && n.contains("Modules/danm13_dlg.erf")),
+        "{}",
+        run.dump()
+    );
+    let manifest =
+        std::fs::read_to_string(f.backup_dir().unwrap().join("remove these files.txt")).unwrap();
+    assert!(
+        manifest.contains("danm13.mod"),
+        "the staged module is registered for removal: {manifest}"
+    );
+    assert!(
+        !std::fs::read_dir(f.game.join("modules")).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".holopatcher")),
+        "no staging leftovers"
+    );
 }
 
 #[test]
@@ -2736,8 +3602,16 @@ fn install_into_a_missing_capsule_that_is_not_a_mod_is_skipped() {
 #[test]
 fn install_patching_a_rim_warns_and_a_shadowing_mod_is_reported() {
     let f = Fixture::new("rimwarn");
-    write_archive(&f.game.join("modules/danm13.rim"), ArchiveKind::Rim, &[("item.uti", &item_file())]);
-    write_archive(&f.game.join("modules/danm13.mod"), ArchiveKind::Mod, &[("dummy.tga", b"x")]);
+    write_archive(
+        &f.game.join("modules/danm13.rim"),
+        ArchiveKind::Rim,
+        &[("item.uti", &item_file())],
+    );
+    write_archive(
+        &f.game.join("modules/danm13.mod"),
+        ArchiveKind::Mod,
+        &[("dummy.tga", b"x")],
+    );
     f.mod_file("item.uti", &item_file());
     let run = f.run(&ini(&[
         "[GFFList]",
@@ -2748,9 +3622,21 @@ fn install_patching_a_rim_warns_and_a_shadowing_mod_is_reported() {
         "Cost=5",
     ]));
     run.assert_clean();
-    assert!(run.warnings().iter().any(|w| w.starts_with("This mod is patching RIM file Modules/danm13.rim!")), "{}", run.dump());
+    assert!(
+        run.warnings()
+            .iter()
+            .any(|w| w.starts_with("This mod is patching RIM file Modules/danm13.rim!")),
+        "{}",
+        run.dump()
+    );
     assert!(run.warnings().iter().any(|w| w == "This mod intends to install 'item.uti' into 'Modules\\danm13.rim', but is overshadowed by the existing 'danm13.mod'!"), "{}", run.dump());
-    assert_eq!(dword(&archive_member(&f.game.join("modules/danm13.rim"), "item.uti").unwrap(), "Cost"), 5);
+    assert_eq!(
+        dword(
+            &archive_member(&f.game.join("modules/danm13.rim"), "item.uti").unwrap(),
+            "Cost"
+        ),
+        5
+    );
 }
 
 #[test]
@@ -2758,7 +3644,21 @@ fn install_cancel_skips_the_remaining_operations() {
     let f = Fixture::new("cancel");
     f.mod_file("a.uti", &item_file());
     f.mod_file("b.uti", &item_file());
-    f.mod_file("changes.ini", ini(&["[GFFList]", "File0=a.uti", "File1=b.uti", "", "[a.uti]", "Cost=1", "", "[b.uti]", "Cost=2"]).as_bytes());
+    f.mod_file(
+        "changes.ini",
+        ini(&[
+            "[GFFList]",
+            "File0=a.uti",
+            "File1=b.uti",
+            "",
+            "[a.uti]",
+            "Cost=1",
+            "",
+            "[b.uti]",
+            "Cost=2",
+        ])
+        .as_bytes(),
+    );
     let mut installer = f.installer().unwrap();
     let calls = std::cell::Cell::new(0);
     let cancel = || {
@@ -2773,8 +3673,20 @@ fn install_cancel_skips_the_remaining_operations() {
     assert!(!f.override_exists("b.uti"));
     assert_eq!((run.completed, run.skipped), (1, 1));
     assert_eq!(progress, 2);
-    assert!(run.warnings().iter().any(|w| w == "Installation cancelled with 1 operations remaining."), "{}", run.dump());
-    assert!(run.warnings().iter().any(|w| w.starts_with("Installation cancelled. Processed 2 operations: 1 completed, 1 skipped, 0 failed")), "{}", run.dump());
+    assert!(
+        run.warnings()
+            .iter()
+            .any(|w| w == "Installation cancelled with 1 operations remaining."),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.warnings().iter().any(|w| w.starts_with(
+            "Installation cancelled. Processed 2 operations: 1 completed, 1 skipped, 0 failed"
+        )),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
@@ -2796,7 +3708,16 @@ fn install_required_files_gate_the_run() {
     assert!(!f.override_exists("item.uti"));
 
     f.game_file("override/needed.mod", b"x");
-    let run = f.run(&ini(&["[Settings]", "Required=needed.mod", "", "[GFFList]", "File0=item.uti", "", "[item.uti]", "Cost=1"]));
+    let run = f.run(&ini(&[
+        "[Settings]",
+        "Required=needed.mod",
+        "",
+        "[GFFList]",
+        "File0=item.uti",
+        "",
+        "[item.uti]",
+        "Cost=1",
+    ]));
     run.assert_clean();
     assert!(f.override_exists("item.uti"));
 }
@@ -2830,9 +3751,18 @@ fn install_lowercases_output_names_and_folds_existing_case_variants() {
     let f = Fixture::new("lowercase");
     f.game_file("override/Item.UTI", &item_file());
     f.mod_file("item.uti", &item_file());
-    let run = f.run(&ini(&["[GFFList]", "File0=Item.UTI", "", "[Item.UTI]", "Cost=4"]));
+    let run = f.run(&ini(&[
+        "[GFFList]",
+        "File0=Item.UTI",
+        "",
+        "[Item.UTI]",
+        "Cost=4",
+    ]));
     run.assert_clean();
-    let names: Vec<String> = std::fs::read_dir(f.game.join("override")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+    let names: Vec<String> = std::fs::read_dir(f.game.join("override"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
     assert_eq!(names, vec!["item.uti"]);
     assert_eq!(cost(&f), 4);
 }
@@ -2850,6 +3780,10 @@ fn install_ini_with_non_utf8_bytes_still_loads() {
     let run = Run::from_logger(&installer.log);
     assert_eq!(cost(&f), 6);
     let config = installer.config().unwrap();
-    assert!(config.window_title.starts_with("caf"), "{}", config.window_title);
+    assert!(
+        config.window_title.starts_with("caf"),
+        "{}",
+        config.window_title
+    );
     let _ = run;
 }

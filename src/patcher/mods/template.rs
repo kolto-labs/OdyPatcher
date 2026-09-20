@@ -73,7 +73,9 @@ impl ModBase {
         // Empty aliases leave the current name unchanged.
         let saveas = dict.pop("!SaveAs");
         let filename = dict.pop("!Filename");
-        let alias = filename.filter(|f| !f.is_empty()).or(saveas.filter(|s| !s.is_empty()));
+        let alias = filename
+            .filter(|f| !f.is_empty())
+            .or(saveas.filter(|s| !s.is_empty()));
         if let Some(alias) = alias {
             self.saveas = alias;
         }
@@ -88,7 +90,9 @@ impl ModBase {
         };
 
         // TSLPatcher defaults to "ignore"; HoloPatcher defaults to "warn".
-        self.override_type = dict.pop_or("!OverrideType", OverrideType::WARN).to_lowercase();
+        self.override_type = dict
+            .pop_or("!OverrideType", OverrideType::WARN)
+            .to_lowercase();
         self.sourcefolder = dict.pop_or("!SourceFolder", default_sourcefolder);
     }
 }

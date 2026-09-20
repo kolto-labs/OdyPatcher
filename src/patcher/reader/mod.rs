@@ -50,9 +50,9 @@ pub fn python_int(text: &str) -> PResult<i64> {
             "invalid literal for int() with base 10: {text:?}"
         )));
     }
-    cleaned
-        .parse::<i64>()
-        .map_err(|_| PatchException::value(format!("invalid literal for int() with base 10: {text:?}")))
+    cleaned.parse::<i64>().map_err(|_| {
+        PatchException::value(format!("invalid literal for int() with base 10: {text:?}"))
+    })
 }
 
 /// `str.isascii() and str.isdigit()`.
@@ -95,8 +95,11 @@ impl NamespaceReader {
             .map(str::to_string)
             .ok_or_else(|| PatchException::key(section_not_found("Namespaces")))?;
 
-        let namespace_ids =
-            CaseInsensitiveDict::from_section(self.ini.section(&namespaces_section_name).expect("section exists"));
+        let namespace_ids = CaseInsensitiveDict::from_section(
+            self.ini
+                .section(&namespaces_section_name)
+                .expect("section exists"),
+        );
         let mut namespaces = Vec::new();
 
         for (key, namespace_id) in namespace_ids.items() {
@@ -112,7 +115,9 @@ impl NamespaceReader {
                 })?;
 
             let section = CaseInsensitiveDict::from_section(
-                self.ini.section(&namespace_section_key).expect("section exists"),
+                self.ini
+                    .section(&namespace_section_key)
+                    .expect("section exists"),
             );
 
             // required
@@ -217,7 +222,8 @@ impl<'a> ConfigReader<'a> {
         self.load_hack_list()?;
         self.load_compile_list()?;
         self.load_ssf_list()?;
-        self.log.add_note("The ConfigReader finished loading the INI");
+        self.log
+            .add_note("The ConfigReader finished loading the INI");
         let orphaned: Vec<String> = self
             .ini
             .sections()
@@ -319,8 +325,10 @@ impl<'a> ConfigReader<'a> {
         }
         self.config.save_processed_scripts =
             python_int(settings_ini.get("SaveProcessedScripts").unwrap_or("0"))?;
-        self.config.script_compiler_flags =
-            settings_ini.get("ScriptCompilerFlags").unwrap_or("").to_string();
+        self.config.script_compiler_flags = settings_ini
+            .get("ScriptCompilerFlags")
+            .unwrap_or("")
+            .to_string();
         self.config.log_level = Some(LogLevel::from_int(python_int(
             settings_ini.get("LogLevel").unwrap_or("3"),
         )?)?);
@@ -353,7 +361,8 @@ impl<'a> ConfigReader<'a> {
             return Ok(());
         };
 
-        self.log.add_note("Loading [InstallList] patches from ini...");
+        self.log
+            .add_note("Loading [InstallList] patches from ini...");
         let folders: Vec<(String, String)> = self
             .ini
             .section(&install_list_section)
@@ -444,8 +453,17 @@ mod tests {
         );
         r.load_settings().unwrap();
         assert_eq!(r.config.window_title, "Cap");
-        assert_eq!(r.config.required_files, vec![vec!["a.mod".to_string(), "b.mod".to_string()], vec!["c.mod".to_string()]]);
-        assert_eq!(r.config.required_messages, vec!["need it".to_string(), String::new()]);
+        assert_eq!(
+            r.config.required_files,
+            vec![
+                vec!["a.mod".to_string(), "b.mod".to_string()],
+                vec!["c.mod".to_string()]
+            ]
+        );
+        assert_eq!(
+            r.config.required_messages,
+            vec!["need it".to_string(), String::new()]
+        );
         assert_eq!(r.config.log_level, Some(LogLevel::Full));
         assert_eq!(r.config.save_processed_scripts, 1);
         assert!(r.config.ignore_file_extensions);
@@ -455,11 +473,29 @@ mod tests {
     #[test]
     fn bad_settings_raise_value_errors() {
         let mut logger = PatchLogger::new();
-        assert_eq!(reader("[Settings]\nRequiredX=a\n", &mut logger).load_settings().unwrap_err().kind, "ValueError");
+        assert_eq!(
+            reader("[Settings]\nRequiredX=a\n", &mut logger)
+                .load_settings()
+                .unwrap_err()
+                .kind,
+            "ValueError"
+        );
         let mut logger = PatchLogger::new();
-        assert_eq!(reader("[Settings]\nLogLevel=9\n", &mut logger).load_settings().unwrap_err().kind, "ValueError");
+        assert_eq!(
+            reader("[Settings]\nLogLevel=9\n", &mut logger)
+                .load_settings()
+                .unwrap_err()
+                .kind,
+            "ValueError"
+        );
         let mut logger = PatchLogger::new();
-        assert_eq!(reader("[Settings]\nLookupGameNumber=3\n", &mut logger).load_settings().unwrap_err().kind, "ValueError");
+        assert_eq!(
+            reader("[Settings]\nLookupGameNumber=3\n", &mut logger)
+                .load_settings()
+                .unwrap_err()
+                .kind,
+            "ValueError"
+        );
         let mut logger = PatchLogger::new();
         let mut r = reader("[TLKList]\n", &mut logger);
         r.load_settings().unwrap();
@@ -476,12 +512,26 @@ mod tests {
         r.load_install_list().unwrap();
         assert_eq!(r.config.install_list.len(), 2);
         let a = &r.config.install_list[0];
-        assert_eq!((a.base.destination.as_str(), a.base.sourcefolder.as_str(), a.base.replace_file), ("Override", "src", false));
+        assert_eq!(
+            (
+                a.base.destination.as_str(),
+                a.base.sourcefolder.as_str(),
+                a.base.replace_file
+            ),
+            ("Override", "src", false)
+        );
         let b = &r.config.install_list[1];
         assert_eq!(b.base.saveas, "c.utc");
-        assert!(b.base.replace_file, "!ReplaceFile is discarded for InstallList");
+        assert!(
+            b.base.replace_file,
+            "!ReplaceFile is discarded for InstallList"
+        );
         assert_eq!(b.base.destination, "Modules\\x.mod");
-        assert_eq!(logger.warnings().len(), 1, "missing [install_folder1] warns");
+        assert_eq!(
+            logger.warnings().len(),
+            1,
+            "missing [install_folder1] warns"
+        );
     }
 
     #[test]
@@ -496,9 +546,17 @@ mod tests {
         assert_eq!(namespaces[0].namespace_id, "full");
         assert_eq!(namespaces[0].data_folderpath, PathBuf::from("sub"));
 
-        let ini = ConfigParser::read_string("[Namespaces]\nNamespace1=missing\n", OptionXform::Lower).unwrap();
-        assert_eq!(NamespaceReader::new(ini).load().unwrap_err().kind, "KeyError");
+        let ini =
+            ConfigParser::read_string("[Namespaces]\nNamespace1=missing\n", OptionXform::Lower)
+                .unwrap();
+        assert_eq!(
+            NamespaceReader::new(ini).load().unwrap_err().kind,
+            "KeyError"
+        );
         let ini = ConfigParser::read_string("[Other]\n", OptionXform::Lower).unwrap();
-        assert_eq!(NamespaceReader::new(ini).load().unwrap_err().message, section_not_found("Namespaces"));
+        assert_eq!(
+            NamespaceReader::new(ini).load().unwrap_err().message,
+            section_not_found("Namespaces")
+        );
     }
 }

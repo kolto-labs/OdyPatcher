@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use super::{references_traceback, section_not_found, ConfigReader};
 use crate::patcher::casepath::case_sensitive_path;
 use crate::patcher::error::{PResult, PatchException};
-use crate::patcher::mods::tlk::{resref_from_text, MergeTLK, ModificationsTLK, ModifyTLK, TlkModifier};
+use crate::patcher::mods::tlk::{
+    resref_from_text, MergeTLK, ModificationsTLK, ModifyTLK, TlkModifier,
+};
 use crate::patcher::mods::PatcherModifications;
 
 /// `parse_tlk_index(raw_value, description)`: non-negative ASCII decimal
@@ -67,7 +69,11 @@ impl ConfigReader<'_> {
 
         // Position of the single MergeTLK in `modifiers`, once created.
         let mut source_tlk_merge: Option<usize> = None;
-        let raw_section = self.ini.section(&tlk_list_section).cloned().unwrap_or_default();
+        let raw_section = self
+            .ini
+            .section(&tlk_list_section)
+            .cloned()
+            .unwrap_or_default();
         let edits: Vec<(String, String)> = tlk_list_edits
             .items()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -120,13 +126,15 @@ impl ConfigReader<'_> {
         let append_file = lower_key.starts_with("append");
 
         if lower_key.starts_with("strref") {
-            let token_id = parse_tlk_index(key.get(6..), "StrRef token").map_err(TlkKeyFailure::Other)?;
+            let token_id =
+                parse_tlk_index(key.get(6..), "StrRef token").map_err(TlkKeyFailure::Other)?;
             let source_stringref =
                 parse_tlk_index(value, "source TLK index").map_err(TlkKeyFailure::Other)?;
             let index = match *source_tlk_merge {
                 Some(index) => index,
                 None => {
-                    let path = self.tlk_source_path(&self.config.patches_tlk.base.sourcefile.clone());
+                    let path =
+                        self.tlk_source_path(&self.config.patches_tlk.base.sourcefile.clone());
                     self.config
                         .patches_tlk
                         .modifiers
@@ -136,7 +144,9 @@ impl ConfigReader<'_> {
                     index
                 }
             };
-            if let Some(TlkModifier::Merge(merge)) = self.config.patches_tlk.modifiers.get_mut(index) {
+            if let Some(TlkModifier::Merge(merge)) =
+                self.config.patches_tlk.modifiers.get_mut(index)
+            {
                 merge.add_mapping(token_id, source_stringref);
             }
             Ok(())
@@ -152,7 +162,11 @@ impl ConfigReader<'_> {
             let mut next_section_dict = self.section_dict(&next_section_name);
             self.config
                 .patches_tlk
-                .pop_tslpatcher_vars(&mut next_section_dict, Some(default_destination), default_sourcefolder)
+                .pop_tslpatcher_vars(
+                    &mut next_section_dict,
+                    Some(default_destination),
+                    default_sourcefolder,
+                )
                 .map_err(TlkKeyFailure::Other)?;
 
             // The raw section is walked, so a `!` key left in it fails to parse.
@@ -164,11 +178,17 @@ impl ConfigReader<'_> {
             for (raw_dialog_tlk_index, raw_mod_tlk_index) in lines {
                 let dialog_index_text = strip_strref_prefix(&raw_dialog_tlk_index);
                 let mod_index_text = raw_mod_tlk_index.as_deref().map(strip_strref_prefix);
-                let dialog_tlk_index = parse_tlk_index(Some(dialog_index_text), "destination TLK index")
+                let dialog_tlk_index =
+                    parse_tlk_index(Some(dialog_index_text), "destination TLK index")
+                        .map_err(TlkKeyFailure::Other)?;
+                let mod_tlk_index = parse_tlk_index(mod_index_text, "source TLK index")
                     .map_err(TlkKeyFailure::Other)?;
-                let mod_tlk_index =
-                    parse_tlk_index(mod_index_text, "source TLK index").map_err(TlkKeyFailure::Other)?;
-                self.process_tlk_entries(&next_section_name, dialog_tlk_index, mod_tlk_index, replace_file);
+                self.process_tlk_entries(
+                    &next_section_name,
+                    dialog_tlk_index,
+                    mod_tlk_index,
+                    replace_file,
+                );
             }
             Ok(())
         } else if lower_key.contains('\\') || lower_key.contains('/') {
@@ -193,13 +213,19 @@ impl ConfigReader<'_> {
             if property_name == "text" {
                 let mut modifier = ModifyTLK::new(token_id, true);
                 modifier.set_text(value.unwrap_or(""));
-                self.config.patches_tlk.modifiers.push(TlkModifier::Modify(modifier));
+                self.config
+                    .patches_tlk
+                    .modifiers
+                    .push(TlkModifier::Modify(modifier));
                 Ok(())
             } else if property_name == "sound" {
                 let mut modifier = ModifyTLK::new(token_id, true);
                 let resref = resref_from_text(value.unwrap_or("")).map_err(TlkKeyFailure::Other)?;
                 modifier.set_sound(&resref);
-                self.config.patches_tlk.modifiers.push(TlkModifier::Modify(modifier));
+                self.config
+                    .patches_tlk
+                    .modifiers
+                    .push(TlkModifier::Modify(modifier));
                 Ok(())
             } else {
                 Err(TlkKeyFailure::Syntax(PatchException::value(format!(
@@ -234,7 +260,10 @@ impl ConfigReader<'_> {
         let mut modifier = ModifyTLK::new(dialog_tlk_index, is_replacement);
         modifier.mod_index = mod_tlk_index;
         modifier.tlk_filepath = Some(self.tlk_source_path(tlk_filename));
-        self.config.patches_tlk.modifiers.push(TlkModifier::Modify(modifier));
+        self.config
+            .patches_tlk
+            .modifiers
+            .push(TlkModifier::Modify(modifier));
     }
 }
 
@@ -263,7 +292,10 @@ mod tests {
         let mut r = reader("[Settings]\n", &mut logger);
         r.load_tlk_list().unwrap();
         assert!(r.config.patches_tlk.modifiers.is_empty());
-        assert_eq!(logger.notes()[0].message, "[TLKList] section missing from ini.");
+        assert_eq!(
+            logger.notes()[0].message,
+            "[TLKList] section missing from ini."
+        );
     }
 
     #[test]
@@ -273,17 +305,32 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tlk.modifiers.len(), 3);
-        let TlkModifier::Modify(first) = &tlk.modifiers[0] else { panic!("expected ModifyTLK") };
-        assert_eq!((first.token_id, first.mod_index, first.is_replacement), (3, 1, false));
+        let TlkModifier::Modify(first) = &tlk.modifiers[0] else {
+            panic!("expected ModifyTLK")
+        };
+        assert_eq!(
+            (first.token_id, first.mod_index, first.is_replacement),
+            (3, 1, false)
+        );
         // The subsection's pop_tslpatcher_vars runs first and resets the
         // source folder to the default, so `[TLKList] !SourceFolder` does not
         // reach subsection files (reader.py:413 before :383).
-        assert_eq!(first.tlk_filepath, Some(PathBuf::from("/tmp/tslpatchdata/add.tlk")));
-        let TlkModifier::Modify(second) = &tlk.modifiers[1] else { panic!("expected ModifyTLK") };
+        assert_eq!(
+            first.tlk_filepath,
+            Some(PathBuf::from("/tmp/tslpatchdata/add.tlk"))
+        );
+        let TlkModifier::Modify(second) = &tlk.modifiers[1] else {
+            panic!("expected ModifyTLK")
+        };
         assert_eq!((second.token_id, second.mod_index), (4, 2));
-        let TlkModifier::Merge(merge) = &tlk.modifiers[2] else { panic!("expected MergeTLK") };
+        let TlkModifier::Merge(merge) = &tlk.modifiers[2] else {
+            panic!("expected MergeTLK")
+        };
         // The subsection's pop_tslpatcher_vars reset the source folder to the default.
-        assert_eq!(merge.tlk_filepath, PathBuf::from("/tmp/tslpatchdata/custom.tlk"));
+        assert_eq!(
+            merge.tlk_filepath,
+            PathBuf::from("/tmp/tslpatchdata/custom.tlk")
+        );
         // Last duplicate wins, case-insensitively.
         assert_eq!(merge.strref_mappings.get(&0), Some(&7));
         assert_eq!(merge.strref_mappings.get(&1), Some(&0));
@@ -295,14 +342,20 @@ mod tests {
     fn replace_sections_and_inline_edits_build_replacing_modifiers() {
         let tlk = load("[TLKList]\nReplaceFile0=rep.tlk\n5\\Text=Hello there\n6/Sound= vo_x \n\n[rep.tlk]\n123=0\n").unwrap();
         assert_eq!(tlk.modifiers.len(), 3);
-        let TlkModifier::Modify(replace) = &tlk.modifiers[0] else { panic!() };
+        let TlkModifier::Modify(replace) = &tlk.modifiers[0] else {
+            panic!()
+        };
         assert!(replace.is_replacement);
         assert_eq!((replace.token_id, replace.mod_index), (123, 0));
-        let TlkModifier::Modify(text) = &tlk.modifiers[1] else { panic!() };
+        let TlkModifier::Modify(text) = &tlk.modifiers[1] else {
+            panic!()
+        };
         assert!(text.is_replacement && text.text_is_set() && !text.sound_is_set());
         assert_eq!(text.text(), "Hello there");
         assert_eq!(text.tlk_filepath, None);
-        let TlkModifier::Modify(sound) = &tlk.modifiers[2] else { panic!() };
+        let TlkModifier::Modify(sound) = &tlk.modifiers[2] else {
+            panic!()
+        };
         assert_eq!(sound.sound(), "vo_x");
         assert!(sound.sound_is_set() && !sound.text_is_set());
     }
@@ -310,10 +363,22 @@ mod tests {
     #[test]
     fn errors_use_reader_py_wording() {
         let err = load("[TLKList]\nStrRefX=1\n").unwrap_err();
-        assert_eq!((err.kind, err.message.as_str()), ("ValueError", "Could not parse 'StrRefX=1' in [TLKList]"));
-        assert_eq!(load("[TLKList]\nStrRef0=abc\n").unwrap_err().message, "Could not parse 'StrRef0=abc' in [TLKList]");
-        assert_eq!(load("[TLKList]\nStrRef0=\n").unwrap_err().message, "Could not parse 'StrRef0=' in [TLKList]");
-        assert_eq!(load("[TLKList]\nStrRef0\n").unwrap_err().message, "Could not parse 'StrRef0=None' in [TLKList]");
+        assert_eq!(
+            (err.kind, err.message.as_str()),
+            ("ValueError", "Could not parse 'StrRefX=1' in [TLKList]")
+        );
+        assert_eq!(
+            load("[TLKList]\nStrRef0=abc\n").unwrap_err().message,
+            "Could not parse 'StrRef0=abc' in [TLKList]"
+        );
+        assert_eq!(
+            load("[TLKList]\nStrRef0=\n").unwrap_err().message,
+            "Could not parse 'StrRef0=' in [TLKList]"
+        );
+        assert_eq!(
+            load("[TLKList]\nStrRef0\n").unwrap_err().message,
+            "Could not parse 'StrRef0=None' in [TLKList]"
+        );
         assert_eq!(
             load("[TLKList]\nFoo=bar\n").unwrap_err().message,
             "Invalid syntax found in [TLKList] 'Foo=bar'! Expected 'Foo' to be one of ['AppendFile', 'ReplaceFile', '!SourceFile', 'StrRef', 'Text', 'Sound']"
@@ -322,28 +387,49 @@ mod tests {
             load("[TLKList]\n5\\Voice=x\n").unwrap_err().message,
             "Invalid [TLKList] syntax: '5\\Voice=x'! Expected '5\\Voice' to be one of ['Sound', 'Text']"
         );
-        assert_eq!(load("[TLKList]\nx\\Text=hi\n").unwrap_err().message, "Could not parse 'x\\Text=hi' in [TLKList]");
-        assert_eq!(load("[TLKList]\n1\\2\\Text=hi\n").unwrap_err().message, "Could not parse '1\\2\\Text=hi' in [TLKList]");
-        assert_eq!(load("[TLKList]\n5\\Sound=caf\u{e9}\n").unwrap_err().message, "Could not parse '5\\Sound=caf\u{e9}' in [TLKList]");
+        assert_eq!(
+            load("[TLKList]\nx\\Text=hi\n").unwrap_err().message,
+            "Could not parse 'x\\Text=hi' in [TLKList]"
+        );
+        assert_eq!(
+            load("[TLKList]\n1\\2\\Text=hi\n").unwrap_err().message,
+            "Could not parse '1\\2\\Text=hi' in [TLKList]"
+        );
+        assert_eq!(
+            load("[TLKList]\n5\\Sound=caf\u{e9}\n").unwrap_err().message,
+            "Could not parse '5\\Sound=caf\u{e9}' in [TLKList]"
+        );
         assert_eq!(
             load("[TLKList]\nAppendFile0=missing.tlk\n").unwrap_err().message,
             "The [missing.tlk] section was not found in the ini, referenced by 'AppendFile0=missing.tlk' in [TLKList]"
         );
         assert_eq!(
-            load("[TLKList]\nAppendFile0=a.tlk\n\n[a.tlk]\nStrRef5=x\n").unwrap_err().message,
+            load("[TLKList]\nAppendFile0=a.tlk\n\n[a.tlk]\nStrRef5=x\n")
+                .unwrap_err()
+                .message,
             "Could not parse 'AppendFile0=a.tlk' in [TLKList]"
         );
         assert_eq!(
-            load("[TLKList]\nAppendFile0=a.tlk\n\n[a.tlk]\n!SourceFolder=sub\n5=1\n").unwrap_err().message,
+            load("[TLKList]\nAppendFile0=a.tlk\n\n[a.tlk]\n!SourceFolder=sub\n5=1\n")
+                .unwrap_err()
+                .message,
             "Could not parse 'AppendFile0=a.tlk' in [TLKList]"
         );
         assert_eq!(
-            load("[TLKList]\nAppendFile0=a.tlk\n\n[a.tlk]\n!ReplaceFile=1\n").unwrap_err().message,
+            load("[TLKList]\nAppendFile0=a.tlk\n\n[a.tlk]\n!ReplaceFile=1\n")
+                .unwrap_err()
+                .message,
             "Could not parse 'AppendFile0=a.tlk' in [TLKList]"
         );
         // Bang keys on [TLKList] itself are rejected before the loop, unwrapped.
-        assert_eq!(load("[TLKList]\n!ReplaceFile=1\n").unwrap_err().message, "!ReplaceFile is not supported in [TLKList]");
-        assert_eq!(load("[TLKList]\n!OverrideType=x\n").unwrap_err().message, "!OverrideType is not supported in [TLKList]");
+        assert_eq!(
+            load("[TLKList]\n!ReplaceFile=1\n").unwrap_err().message,
+            "!ReplaceFile is not supported in [TLKList]"
+        );
+        assert_eq!(
+            load("[TLKList]\n!OverrideType=x\n").unwrap_err().message,
+            "!OverrideType is not supported in [TLKList]"
+        );
     }
 
     #[test]
@@ -353,7 +439,12 @@ mod tests {
         assert_eq!(tlk.base.sourcefolder, "src");
         assert_eq!(tlk.sourcefile_f, "af.tlk");
         assert_eq!(tlk.base.saveas, "other.tlk");
-        let TlkModifier::Merge(merge) = &tlk.modifiers[0] else { panic!() };
-        assert_eq!(merge.tlk_filepath, PathBuf::from("/tmp/tslpatchdata/src/append.tlk"));
+        let TlkModifier::Merge(merge) = &tlk.modifiers[0] else {
+            panic!()
+        };
+        assert_eq!(
+            merge.tlk_filepath,
+            PathBuf::from("/tmp/tslpatchdata/src/append.tlk")
+        );
     }
 }

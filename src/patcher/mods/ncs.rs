@@ -90,11 +90,12 @@ impl ModificationsNCS {
             } else if token_type.to_lowercase() == "2damemory" {
                 let mut memory_val: Option<&MemoryValue> = None;
                 if let Some(highest_token) = memory.memory_2da.keys().next_back() {
-                    let memory_token = if token_id_or_value <= 0 || token_id_or_value > *highest_token {
-                        1
-                    } else {
-                        token_id_or_value
-                    };
+                    let memory_token =
+                        if token_id_or_value <= 0 || token_id_or_value > *highest_token {
+                            1
+                        } else {
+                            token_id_or_value
+                        };
                     memory_val = memory.memory_2da.get(&memory_token);
                 }
                 let Some(memory_val) = memory_val else {
@@ -110,7 +111,8 @@ impl ModificationsNCS {
                     continue;
                 }
                 let text = memory_val.as_str();
-                if !text.is_ascii() || text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+                if !text.is_ascii() || text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit())
+                {
                     logger.add_warning(format!(
                         "2DAMEMORY{token_id_or_value} does not contain an unsigned decimal value; skipping value."
                     ));
@@ -232,11 +234,21 @@ mod tests {
         let mut logger = PatchLogger::new();
         let memory = PatcherMemory::new();
         let mut bytes = vec![0u8; 8];
-        patch("a.NCS", vec![HackData::new("VALUE", 2, 0x0102_0304)]).apply(&mut bytes, &memory, &mut logger, Game::K1);
+        patch("a.NCS", vec![HackData::new("VALUE", 2, 0x0102_0304)]).apply(
+            &mut bytes,
+            &memory,
+            &mut logger,
+            Game::K1,
+        );
         assert_eq!(bytes, vec![0, 0, 1, 2, 3, 4, 0, 0]);
 
         let mut bytes = vec![0u8; 8];
-        patch("a.ncs.bak", vec![HackData::new("VALUE", 2, 0x0102_0304)]).apply(&mut bytes, &memory, &mut logger, Game::K1);
+        patch("a.ncs.bak", vec![HackData::new("VALUE", 2, 0x0102_0304)]).apply(
+            &mut bytes,
+            &memory,
+            &mut logger,
+            Game::K1,
+        );
         assert_eq!(bytes, vec![0, 0, 4, 3, 2, 1, 0, 0]);
         assert_eq!(logger.warnings().len(), 0);
         assert_eq!(
@@ -250,7 +262,11 @@ mod tests {
         let mut logger = PatchLogger::new();
         let memory = PatcherMemory::new();
         let mut bytes = vec![0u8; 4];
-        patch("a.ncs", vec![HackData::new("VALUE", 4, 1), HackData::new("VALUE", 2, 1)]).apply(&mut bytes, &memory, &mut logger, Game::K1);
+        patch(
+            "a.ncs",
+            vec![HackData::new("VALUE", 4, 1), HackData::new("VALUE", 2, 1)],
+        )
+        .apply(&mut bytes, &memory, &mut logger, Game::K1);
         assert_eq!(
             logger.warnings()[0].message,
             "HACKList script.ncs: offset 0X4 is outside the file; skipping value."
@@ -276,7 +292,11 @@ mod tests {
         .apply(&mut bytes, &memory, &mut logger, Game::K1);
         assert_eq!(&bytes[0..4], &123_456i32.to_be_bytes());
         assert_eq!(&bytes[4..8], &[0, 0, 0, 0]);
-        let warnings: Vec<_> = logger.warnings().iter().map(|l| l.message.clone()).collect();
+        let warnings: Vec<_> = logger
+            .warnings()
+            .iter()
+            .map(|l| l.message.clone())
+            .collect();
         assert_eq!(
             warnings,
             vec![
@@ -292,14 +312,21 @@ mod tests {
         let mut memory = PatcherMemory::new();
         let mut bytes = vec![0u8; 4];
         // Empty memory: skipped with a warning.
-        patch("a.ncs", vec![HackData::new("2DAMEMORY", 0, 1)]).apply(&mut bytes, &memory, &mut logger, Game::K1);
+        patch("a.ncs", vec![HackData::new("2DAMEMORY", 0, 1)]).apply(
+            &mut bytes,
+            &memory,
+            &mut logger,
+            Game::K1,
+        );
         assert_eq!(
             logger.warnings()[0].message,
             "2DAMEMORY1 was not defined before use in HACKList; skipping value."
         );
 
         memory.memory_2da.insert(1, MemoryValue::Str("7".into()));
-        memory.memory_2da.insert(2, MemoryValue::FieldPath("A\\B".into()));
+        memory
+            .memory_2da
+            .insert(2, MemoryValue::FieldPath("A\\B".into()));
         memory.memory_2da.insert(3, MemoryValue::Str("row".into()));
         memory.memory_2da.insert(5, MemoryValue::Str("9".into()));
         let mut bytes = vec![0u8; 20];
@@ -316,7 +343,12 @@ mod tests {
         .apply(&mut bytes, &memory, &mut logger, Game::K2);
         assert_eq!(&bytes[0..4], &[0, 0, 0, 7]);
         assert_eq!(&bytes[4..8], &[0, 0, 0, 7]);
-        let warnings: Vec<_> = logger.warnings().iter().skip(1).map(|l| l.message.clone()).collect();
+        let warnings: Vec<_> = logger
+            .warnings()
+            .iter()
+            .skip(1)
+            .map(|l| l.message.clone())
+            .collect();
         assert_eq!(
             warnings,
             vec![
@@ -332,15 +364,24 @@ mod tests {
         let mut logger = PatchLogger::new();
         let mut memory = PatcherMemory::new();
         let mut m = patch("a.ncs", vec![HackData::new("VALUE", 0, 1)]);
-        let out = m.patch_resource(&[0, 0, 0, 0, 9], &mut memory, &mut logger, Game::K1).unwrap();
+        let out = m
+            .patch_resource(&[0, 0, 0, 0, 9], &mut memory, &mut logger, Game::K1)
+            .unwrap();
         assert_eq!(out, PatchOutput::Bytes(vec![0, 0, 0, 1, 9]));
-        assert!(logger.all_logs.iter().all(|l| l.log_type == LogType::Verbose));
+        assert!(logger
+            .all_logs
+            .iter()
+            .all(|l| l.log_type == LogType::Verbose));
     }
 
     #[test]
     fn replace_file_comes_only_from_a_leading_replacefile_key() {
         let mut m = ModificationsNCS::new("a.ncs");
-        let mut dict = CaseInsensitiveDict::from_pairs([("replacefile", "TRUE"), ("!ReplaceFile", "0"), ("12", "5")]);
+        let mut dict = CaseInsensitiveDict::from_pairs([
+            ("replacefile", "TRUE"),
+            ("!ReplaceFile", "0"),
+            ("12", "5"),
+        ]);
         m.pop_tslpatcher_vars(&mut dict, None, ".").unwrap();
         assert!(m.base.replace_file);
         assert_eq!(dict.keys().collect::<Vec<_>>(), vec!["12"]);
@@ -356,9 +397,16 @@ mod tests {
         assert!(!m.base.replace_file, "a lone ReplaceFile key is not enough");
 
         let mut m = ModificationsNCS::new("a.ncs");
-        let mut dict = CaseInsensitiveDict::from_pairs([("ReplaceFile", "yes"), ("12", "5"), ("!ReplaceFile", "1")]);
+        let mut dict = CaseInsensitiveDict::from_pairs([
+            ("ReplaceFile", "yes"),
+            ("12", "5"),
+            ("!ReplaceFile", "1"),
+        ]);
         m.pop_tslpatcher_vars(&mut dict, None, ".").unwrap();
-        assert!(!m.base.replace_file, "!ReplaceFile is ignored and 'yes' is not accepted");
+        assert!(
+            !m.base.replace_file,
+            "!ReplaceFile is ignored and 'yes' is not accepted"
+        );
     }
 
     #[test]

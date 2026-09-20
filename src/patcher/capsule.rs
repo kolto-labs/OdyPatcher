@@ -107,7 +107,10 @@ fn split_filename(name: &str, dots: usize) -> (String, String) {
     let parts: Vec<&str> = parts.into_iter().rev().collect();
     if parts.len() <= dots {
         return match name.find('.') {
-            Some(first_dot) => (name[..first_dot].to_string(), name[first_dot + 1..].to_string()),
+            Some(first_dot) => (
+                name[..first_dot].to_string(),
+                name[first_dot + 1..].to_string(),
+            ),
             None => (name.to_string(), String::new()),
         };
     }
@@ -170,7 +173,11 @@ impl Capsule {
         let identifier = ResourceIdentifier::new(resname, restype);
         identifier.validate()?;
         let mut archive = self.load()?;
-        let parent = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let parent = self
+            .path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
         let staged = mkstemp(&parent, ".holopatcher_res_", ".tmp")?;
         let result = (|| -> PResult<()> {
             std::fs::write(&staged, data)?;
@@ -221,7 +228,9 @@ mod tests {
         let bad = ResourceIdentifier::from_path("readme.txt.bogus");
         assert_eq!(bad.unpack(), ("readme.txt", "bogus"));
         assert_eq!(bad.validate().unwrap_err().kind, "ValueError");
-        assert!(ResourceIdentifier::from_path("spells.2da").validate().is_ok());
+        assert!(ResourceIdentifier::from_path("spells.2da")
+            .validate()
+            .is_ok());
         assert_eq!(split_filename("a.b.c", 2), ("a".into(), "b.c".into()));
         assert_eq!(split_filename("a.b.c", 3), ("a".into(), "b.c".into()));
         assert_eq!(split_filename("abc", 1), ("abc".into(), String::new()));
@@ -234,28 +243,46 @@ mod tests {
         let mut archive = ErfFile::create(&path.to_string_lossy(), ArchiveKind::Mod);
         let seed = dir.join("seed.utc");
         std::fs::write(&seed, b"seed").unwrap();
-        archive.add_resource(&seed.to_string_lossy(), true, "seed.utc").unwrap();
+        archive
+            .add_resource(&seed.to_string_lossy(), true, "seed.utc")
+            .unwrap();
         archive.save(None).unwrap();
 
         let mut capsule = Capsule::new(&path).unwrap();
         assert!(capsule.contains("SEED", "utc").unwrap());
         assert!(!capsule.contains("seed", "uti").unwrap());
-        assert_eq!(capsule.resource("seed", "utc").unwrap(), Some(b"seed".to_vec()));
+        assert_eq!(
+            capsule.resource("seed", "utc").unwrap(),
+            Some(b"seed".to_vec())
+        );
         assert_eq!(capsule.resource("nope", "utc").unwrap(), None);
 
         capsule.add("extra", "uti", b"extra-data").unwrap();
         capsule.add("seed", "utc", b"replaced").unwrap();
         let reread = Capsule::new(&path).unwrap();
-        assert_eq!(reread.resource("extra", "uti").unwrap(), Some(b"extra-data".to_vec()));
-        assert_eq!(reread.resource("seed", "utc").unwrap(), Some(b"replaced".to_vec()));
+        assert_eq!(
+            reread.resource("extra", "uti").unwrap(),
+            Some(b"extra-data".to_vec())
+        );
+        assert_eq!(
+            reread.resource("seed", "utc").unwrap(),
+            Some(b"replaced".to_vec())
+        );
         assert_eq!(ErfFile::load(&path.to_string_lossy()).unwrap().count(), 2);
         assert!(!dir.join("seed.utc.tmp").exists());
 
         let err = capsule.add("x", "bogus", b"").unwrap_err();
         assert_eq!(err.kind, "ValueError");
-        assert_eq!(Capsule::new(&dir.join("x.sav")).unwrap_err().kind, "ValueError");
         assert_eq!(
-            Capsule::new(&dir.join("missing.erf")).unwrap().contains("a", "utc").unwrap_err().kind,
+            Capsule::new(&dir.join("x.sav")).unwrap_err().kind,
+            "ValueError"
+        );
+        assert_eq!(
+            Capsule::new(&dir.join("missing.erf"))
+                .unwrap()
+                .contains("a", "utc")
+                .unwrap_err()
+                .kind,
             "FileNotFoundError"
         );
         let _ = std::fs::remove_dir_all(&dir);

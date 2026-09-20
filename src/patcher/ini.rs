@@ -180,12 +180,18 @@ impl ConfigParser {
         if let Some((lineno, line)) = errors.first() {
             return Err(PatchException::new(
                 "ParsingError",
-                format!("Source contains parsing errors: '<string>'\n\t[line {lineno:2}]: {line:?}"),
+                format!(
+                    "Source contains parsing errors: '<string>'\n\t[line {lineno:2}]: {line:?}"
+                ),
             ));
         }
 
         // `_join_multiline_values`: trailing whitespace of joined values is dropped.
-        for section in parser.sections.iter_mut().chain(std::iter::once(&mut parser.defaults)) {
+        for section in parser
+            .sections
+            .iter_mut()
+            .chain(std::iter::once(&mut parser.defaults))
+        {
             for (_, value) in section.options.iter_mut() {
                 if let Some(text) = value.as_mut() {
                     let trimmed = text.trim_end().to_string();
@@ -402,7 +408,10 @@ mod tests {
     fn duplicate_section_headers_merge_and_case_variants_stay_distinct() {
         let ini = parse("[S]\na=1\n[T]\nx=1\n[S]\nb=2\n[s]\nc=3\n");
         assert_eq!(ini.sections().collect::<Vec<_>>(), vec!["S", "T", "s"]);
-        assert_eq!(ini.section("S").unwrap().keys().collect::<Vec<_>>(), vec!["a", "b"]);
+        assert_eq!(
+            ini.section("S").unwrap().keys().collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
     }
 
     #[test]
@@ -417,7 +426,10 @@ mod tests {
     fn quotes_are_kept_and_headers_are_untrimmed() {
         let ini = parse("[ Foo ]\nName=\"Quoted\"\n[Bar]trailing\nk=v\n");
         assert!(ini.section(" Foo ").is_some());
-        assert_eq!(ini.section(" Foo ").unwrap().get("Name"), Some(Some("\"Quoted\"")));
+        assert_eq!(
+            ini.section(" Foo ").unwrap().get("Name"),
+            Some(Some("\"Quoted\""))
+        );
         assert!(ini.section("Bar").is_some());
     }
 
@@ -436,8 +448,12 @@ mod tests {
 
     #[test]
     fn lower_xform_folds_option_names() {
-        let ini = ConfigParser::read_string("[Namespaces]\nNameSpace1=x\n", OptionXform::Lower).unwrap();
-        assert_eq!(ini.section("Namespaces").unwrap().get("namespace1"), Some(Some("x")));
+        let ini =
+            ConfigParser::read_string("[Namespaces]\nNameSpace1=x\n", OptionXform::Lower).unwrap();
+        assert_eq!(
+            ini.section("Namespaces").unwrap().get("namespace1"),
+            Some(Some("x"))
+        );
     }
 
     #[test]

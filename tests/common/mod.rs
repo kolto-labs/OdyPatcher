@@ -75,8 +75,7 @@ impl Fixture {
 
     /// Read a file under the game folder.
     pub fn game_read(&self, relative: &str) -> Vec<u8> {
-        std::fs::read(self.game.join(relative))
-            .unwrap_or_else(|e| panic!("read {relative}: {e}"))
+        std::fs::read(self.game.join(relative)).unwrap_or_else(|e| panic!("read {relative}: {e}"))
     }
 
     /// Read `override/<name>`.
@@ -129,7 +128,10 @@ impl Fixture {
                 "install failed: {}: {}\nlog:\n{}",
                 exc.kind,
                 exc.message,
-                logs.iter().map(|l| l.formatted_message()).collect::<Vec<_>>().join("\n")
+                logs.iter()
+                    .map(|l| l.formatted_message())
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ),
         }
     }
@@ -234,7 +236,11 @@ impl Run {
             .iter()
             .rev()
             .find(|l| l.message.contains("Processed "))
-            .and_then(|l| l.message.find("Processed ").map(|i| l.message[i..].to_string()))
+            .and_then(|l| {
+                l.message
+                    .find("Processed ")
+                    .map(|i| l.message[i..].to_string())
+            })
             .unwrap_or_default()
     }
 
@@ -269,7 +275,9 @@ pub fn write_file(path: &Path, bytes: &[u8]) {
 pub fn load_config(ini: &str, mod_path: &Path) -> (PResult<PatcherConfig>, PatchLogger) {
     let mut logger = PatchLogger::new();
     let mut config = PatcherConfig::new();
-    let result = config.load(ini, mod_path, &mut logger, None).map(|_| config);
+    let result = config
+        .load(ini, mod_path, &mut logger, None)
+        .map(|_| config);
     (result, logger)
 }
 
@@ -338,7 +346,11 @@ pub fn tlk(bytes: &[u8]) -> TlkFile {
 
 /// Texts of every entry.
 pub fn tlk_texts(bytes: &[u8]) -> Vec<String> {
-    tlk(bytes).entries().iter().map(|e| e.text.clone()).collect()
+    tlk(bytes)
+        .entries()
+        .iter()
+        .map(|e| e.text.clone())
+        .collect()
 }
 
 /// A small table of spells: `label,name,spelldesc,iconresref` x 2 rows.
@@ -366,7 +378,9 @@ pub fn twoda_of(bytes: &[u8]) -> TwoDaFile {
 
 /// A cell by row index and column label.
 pub fn cell(t: &TwoDaFile, row: usize, column: &str) -> String {
-    let col = t.column_by_label(column).unwrap_or_else(|_| panic!("no column {column}"));
+    let col = t
+        .column_by_label(column)
+        .unwrap_or_else(|_| panic!("no column {column}"));
     t.cell(row, col).unwrap().to_string()
 }
 
@@ -388,12 +402,18 @@ pub fn column_labels(t: &TwoDaFile) -> Vec<String> {
 /// ExoString "old_tag", `StackSize` Word 1, empty `PropertiesList`.
 pub fn item_file() -> Vec<u8> {
     let mut file = GffFile::new_file("UTI ", "item.uti");
-    file.root.add_field(GffField::new("Cost", FieldValue::Dword(100)));
     file.root
-        .add_field(GffField::new("Tag", FieldValue::ExoString("old_tag".into())));
-    file.root.add_field(GffField::new("StackSize", FieldValue::Word(1)));
+        .add_field(GffField::new("Cost", FieldValue::Dword(100)));
+    file.root.add_field(GffField::new(
+        "Tag",
+        FieldValue::ExoString("old_tag".into()),
+    ));
     file.root
-        .add_field(GffField::new("PropertiesList", FieldValue::List(Vec::new())));
+        .add_field(GffField::new("StackSize", FieldValue::Word(1)));
+    file.root.add_field(GffField::new(
+        "PropertiesList",
+        FieldValue::List(Vec::new()),
+    ));
     file.to_bytes().unwrap()
 }
 
@@ -453,7 +473,11 @@ pub fn ssf(bytes: &[u8]) -> odypatcher::formats::ssf::SsfFile {
 }
 
 /// Create an ERF/MOD archive on disk holding `(filename, bytes)` members.
-pub fn write_archive(path: &Path, kind: odypatcher::formats::erf::ArchiveKind, members: &[(&str, &[u8])]) {
+pub fn write_archive(
+    path: &Path,
+    kind: odypatcher::formats::erf::ArchiveKind,
+    members: &[(&str, &[u8])],
+) {
     use odypatcher::formats::erf::ErfFile;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();

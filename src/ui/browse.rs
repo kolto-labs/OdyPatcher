@@ -54,7 +54,6 @@ impl App {
                         action = Some(MenuAction::Lowercase);
                         ui.close();
                     }
-
                 });
 
                 ui.menu_button("Help", |ui| {
@@ -165,10 +164,8 @@ deleted. This cannot be undone. Back up your game folder first.",
             return;
         }
 
-        let report = crate::tools::restore_backup(
-            &session.base_path,
-            std::path::Path::new(&self.game_path),
-        );
+        let report =
+            crate::tools::restore_backup(&session.base_path, std::path::Path::new(&self.game_path));
         let mut text = String::from("Restoring backed-up files\n\n");
 
         for log in &report.logs {
@@ -231,9 +228,7 @@ so nothing was renamed."
         let variants: Vec<String> = self
             .session
             .as_ref()
-            .map(|s| {
-                s.namespaces.iter().map(|e| e.name.clone()).collect()
-            })
+            .map(|s| s.namespaces.iter().map(|e| e.name.clone()).collect())
             .unwrap_or_default();
 
         egui::TopBottomPanel::top("choosers").show(ctx, |ui| {

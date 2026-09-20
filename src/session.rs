@@ -261,9 +261,12 @@ impl Session {
                 self.tslpatchdata_path.display()
             ));
         }
-        self.config_error
-            .as_ref()
-            .map(|error| format!("Cannot read the instruction file \"{}\": {error}", self.ini_name()))
+        self.config_error.as_ref().map(|error| {
+            format!(
+                "Cannot read the instruction file \"{}\": {error}",
+                self.ini_name()
+            )
+        })
     }
 
     /// What to call the button that starts the run.
@@ -526,7 +529,10 @@ pub fn locate_mod(chosen: &str) -> Option<PathBuf> {
     }
 
     // The session works from the folder that contains `tslpatchdata`.
-    let root = data_folder.parent().map(Path::to_path_buf).unwrap_or_default();
+    let root = data_folder
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
     Some(if root.as_os_str().is_empty() {
         PathBuf::from(".")
     } else {
@@ -602,7 +608,11 @@ mod tests {
     #[test]
     fn a_missing_description_uses_placeholder_text_without_blocking() {
         let dir = temp_dir("noinfo");
-        fs::write(dir.join("tslpatchdata").join("changes.ini"), b"[Settings]\n").unwrap();
+        fs::write(
+            dir.join("tslpatchdata").join("changes.ini"),
+            b"[Settings]\n",
+        )
+        .unwrap();
 
         let session = discover(&dir);
         assert!(!session.has_info());
@@ -654,8 +664,16 @@ mod tests {
             b"[Namespaces]\nA=full\nB=update\n\n[full]\nName=Full\nIniName=changes.ini\nInfoName=info.rtf\n\n[update]\nName=Update\nIniName=update.ini\nInfoName=update.rtf\n",
         )
         .unwrap();
-        fs::write(data.join("changes.ini"), b"[Settings]\nWindowCaption=Full\n").unwrap();
-        fs::write(data.join("update.ini"), b"[Settings]\nWindowCaption=Update\n").unwrap();
+        fs::write(
+            data.join("changes.ini"),
+            b"[Settings]\nWindowCaption=Full\n",
+        )
+        .unwrap();
+        fs::write(
+            data.join("update.ini"),
+            b"[Settings]\nWindowCaption=Update\n",
+        )
+        .unwrap();
 
         let mut session = discover(&dir);
         assert_eq!(session.namespaces.len(), 2);
@@ -684,7 +702,10 @@ mod tests {
 
         let session = discover(&dir);
         assert!(session.namespaces.is_empty());
-        let error = session.namespace_error.clone().expect("namespaces.ini error");
+        let error = session
+            .namespace_error
+            .clone()
+            .expect("namespaces.ini error");
         assert!(error.starts_with("KeyError"), "{error}");
         assert!(session.blocked_reason().unwrap().contains("namespaces.ini"));
 
@@ -694,7 +715,11 @@ mod tests {
     #[test]
     fn the_install_log_is_written_beside_the_mod() {
         let dir = temp_dir("log");
-        fs::write(dir.join("tslpatchdata").join("changes.ini"), b"[Settings]\nLogLevel=3\n").unwrap();
+        fs::write(
+            dir.join("tslpatchdata").join("changes.ini"),
+            b"[Settings]\nLogLevel=3\n",
+        )
+        .unwrap();
 
         let session = discover(&dir);
         assert_eq!(session.log_level(), LogLevel::Warnings);
@@ -744,7 +769,11 @@ mod tests {
     #[test]
     fn a_mod_folder_resolves_to_the_folder_holding_the_data() {
         let dir = temp_dir("locate");
-        fs::write(dir.join("tslpatchdata").join("changes.ini"), b"[Settings]\n").unwrap();
+        fs::write(
+            dir.join("tslpatchdata").join("changes.ini"),
+            b"[Settings]\n",
+        )
+        .unwrap();
 
         let root = dir.to_string_lossy().into_owned();
 
@@ -790,7 +819,11 @@ mod tests {
     #[test]
     fn the_information_text_is_read_as_plain_words() {
         let dir = temp_dir("info");
-        fs::write(dir.join("tslpatchdata").join("changes.ini"), b"[Settings]\n").unwrap();
+        fs::write(
+            dir.join("tslpatchdata").join("changes.ini"),
+            b"[Settings]\n",
+        )
+        .unwrap();
         fs::write(
             dir.join("tslpatchdata").join("info.rtf"),
             br"{\rtf1\ansi This mod adds a sword.\par}",
@@ -806,13 +839,19 @@ mod tests {
     #[test]
     fn a_folder_that_is_not_a_game_stops_the_run_before_it_starts() {
         let dir = temp_dir("notagame");
-        fs::write(dir.join("tslpatchdata").join("changes.ini"), b"[Settings]\n").unwrap();
+        fs::write(
+            dir.join("tslpatchdata").join("changes.ini"),
+            b"[Settings]\n",
+        )
+        .unwrap();
         let not_a_game = dir.join("nowhere");
         fs::create_dir_all(&not_a_game).unwrap();
 
         let session = discover(&dir);
         let outcome = session.run_install(&not_a_game, PatchLogger::new(), None, None);
-        let err = outcome.result.expect_err("a plain folder is not a KOTOR install");
+        let err = outcome
+            .result
+            .expect_err("a plain folder is not a KOTOR install");
         assert_eq!(err.kind, "RuntimeError");
         assert!(outcome.log_path.is_some());
 

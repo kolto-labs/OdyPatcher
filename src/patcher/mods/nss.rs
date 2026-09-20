@@ -169,14 +169,18 @@ impl ModificationsNSS {
                     index += 1;
                 } else {
                     argument.extend(std::iter::repeat('\\').take(backslashes));
-                    if index < chars.len() && (quoted || (chars[index] != ' ' && chars[index] != '\t')) {
+                    if index < chars.len()
+                        && (quoted || (chars[index] != ' ' && chars[index] != '\t'))
+                    {
                         argument.push(chars[index]);
                         index += 1;
                     }
                 }
             }
             if quoted {
-                return Err(PatchException::value("Unclosed double quote in ScriptCompilerFlags."));
+                return Err(PatchException::value(
+                    "Unclosed double quote in ScriptCompilerFlags.",
+                ));
             }
             arguments.push(argument);
         }
@@ -198,8 +202,12 @@ impl ModificationsNSS {
         let tempdir = TempDir::new("tmp")?;
         let tempcompiled_filepath = tempdir.path().join("temp_script.ncs");
         let compiler_flags = Self::split_compiler_flags(&self.compiler_flags)?;
-        let (stdout, stderr) =
-            nwnnsscompiler.compile_script(temp_script_file, &tempcompiled_filepath, game, &compiler_flags)?;
+        let (stdout, stderr) = nwnnsscompiler.compile_script(
+            temp_script_file,
+            &tempcompiled_filepath,
+            game,
+            &compiler_flags,
+        )?;
         let result = if stdout.contains(INCLUDE_FILE_MARKER) {
             PatchOutput::Skip
         } else {
@@ -281,7 +289,11 @@ impl ModificationsNSS {
         candidates
     }
 
-    fn load_nwscript(&self, temp_script_folder: &Path, game: Game) -> PResult<Arc<bionsscomp::NwScript>> {
+    fn load_nwscript(
+        &self,
+        temp_script_folder: &Path,
+        game: Game,
+    ) -> PResult<Arc<bionsscomp::NwScript>> {
         let bio_game = match game {
             Game::K1 => bionsscomp::Game::K1,
             Game::K2 => bionsscomp::Game::K2,
@@ -293,7 +305,11 @@ impl ModificationsNSS {
                 continue;
             }
             let key = (game.number(), path.clone());
-            if let Some(cached) = header_cache().lock().ok().and_then(|cache| cache.get(&key).cloned()) {
+            if let Some(cached) = header_cache()
+                .lock()
+                .ok()
+                .and_then(|cache| cache.get(&key).cloned())
+            {
                 return Ok(cached);
             }
             match bionsscomp::NwScript::load(bio_game, path) {
@@ -388,8 +404,9 @@ impl PatcherModifications for ModificationsNSS {
         } else {
             encode_windows_1252(&processed)?
         };
-        std::fs::write(&temp_script_file, &processed_bytes)
-            .map_err(|err| PatchException::from_io(&err, Some(&temp_script_file.to_string_lossy())))?;
+        std::fs::write(&temp_script_file, &processed_bytes).map_err(|err| {
+            PatchException::from_io(&err, Some(&temp_script_file.to_string_lossy()))
+        })?;
 
         // Compile with external on windows, fall back to built-in if mac/linux or if external fails.
         let is_windows = cfg!(windows);
@@ -459,10 +476,7 @@ fn decode_script_bytes(bytes: &[u8]) -> PResult<String> {
 /// `PureWindowsPath(path).name`: the text after the last `\` or `/`.
 pub fn windows_name(path: &str) -> &str {
     let trimmed = path.trim_end_matches(['\\', '/']);
-    trimmed
-        .rsplit(['\\', '/'])
-        .next()
-        .unwrap_or(trimmed)
+    trimmed.rsplit(['\\', '/']).next().unwrap_or(trimmed)
 }
 
 /// `PurePath(path).with_suffix(suffix)` (POSIX flavour): only `/` separates.
@@ -473,10 +487,16 @@ pub fn posix_with_suffix(path: &str, suffix: &str) -> PResult<String> {
 /// `str(PureWindowsPath(path).with_suffix(suffix))`: `/` and `\` separate,
 /// and the result is printed with backslashes.
 pub fn windows_with_suffix(path: &str, suffix: &str) -> PResult<String> {
-    with_suffix_impl(path, suffix, &['\\', '/'], "PureWindowsPath").map(|text| text.replace('/', "\\"))
+    with_suffix_impl(path, suffix, &['\\', '/'], "PureWindowsPath")
+        .map(|text| text.replace('/', "\\"))
 }
 
-fn with_suffix_impl(path: &str, suffix: &str, separators: &[char], class_name: &str) -> PResult<String> {
+fn with_suffix_impl(
+    path: &str,
+    suffix: &str,
+    separators: &[char],
+    class_name: &str,
+) -> PResult<String> {
     let split_at = path.rfind(separators).map(|index| index + 1).unwrap_or(0);
     let (parent, name) = path.split_at(split_at);
     if name.is_empty() {
@@ -495,7 +515,11 @@ fn with_suffix_impl(path: &str, suffix: &str, separators: &[char], class_name: &
 
 /// `repr(text)` for a Python `str`.
 pub fn python_str_repr(text: &str) -> String {
-    let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
     let mut out = String::with_capacity(text.len() + 2);
     out.push(quote);
     for ch in text.chars() {
@@ -508,7 +532,9 @@ pub fn python_str_repr(text: &str) -> String {
                 out.push('\\');
                 out.push(c);
             }
-            c if (c as u32) < 0x20 || c as u32 == 0x7F => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7F => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -518,15 +544,19 @@ pub fn python_str_repr(text: &str) -> String {
 
 /// `str((name, message))`: how `str(universal_simplify_exception(e))` prints.
 pub fn python_tuple_repr(pair: &(String, String)) -> String {
-    format!("({}, {})", python_str_repr(&pair.0), python_str_repr(&pair.1))
+    format!(
+        "({}, {})",
+        python_str_repr(&pair.0),
+        python_str_repr(&pair.1)
+    )
 }
 
 /// The windows-1252 code points for bytes `0x80..=0x9F`; `0` marks an
 /// undefined byte.
 const CP1252_HIGH: [u32; 32] = [
-    0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017D, 0,
-    0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E,
-    0x0178,
+    0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039,
+    0x0152, 0, 0x017D, 0, 0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC,
+    0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178,
 ];
 
 /// `text.encode("windows-1252")`; an unmappable character is a
@@ -580,17 +610,20 @@ pub fn decode_windows_1252(bytes: &[u8]) -> String {
 /// SHA-256 of a byte string, as uppercase hex (`generate_hash(..., "sha256").upper()`).
 pub fn sha256_hex_upper(data: &[u8]) -> String {
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
-        0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
-        0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
-        0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
         0xc67178f2,
     ];
     let mut h: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
     ];
     let mut message = data.to_vec();
     let bit_len = (data.len() as u64).wrapping_mul(8);
@@ -608,13 +641,20 @@ pub fn sha256_hex_upper(data: &[u8]) -> String {
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
             let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
         for i in 0..64 {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ (!e & g);
-            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let t1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let t2 = s0.wrapping_add(maj);
@@ -670,8 +710,12 @@ impl KnownExternalCompilers {
             KnownExternalCompilers::TslPatcher | KnownExternalCompilers::DeNcs => {
                 "539EB689D2E0D3751AEED273385865278BEF6696C46BC0CAB116B40C3B2FE820"
             }
-            KnownExternalCompilers::KotorTool => "E36AA3172173B654AE20379888EDDC9CF45C62FBEB7AB05061C57B52961C824D",
-            KnownExternalCompilers::V1 => "EC3E657C18A32AD13D28DA0AA3A77911B32D9661EA83CF0D9BCE02E1C4D8499D",
+            KnownExternalCompilers::KotorTool => {
+                "E36AA3172173B654AE20379888EDDC9CF45C62FBEB7AB05061C57B52961C824D"
+            }
+            KnownExternalCompilers::V1 => {
+                "EC3E657C18A32AD13D28DA0AA3A77911B32D9661EA83CF0D9BCE02E1C4D8499D"
+            }
             KnownExternalCompilers::KotorScriptingTool => {
                 "B7344408A47BE8780816CF68F5A171A09640AB47AD1A905B7F87DE30A50A0A92"
             }
@@ -696,7 +740,9 @@ impl KnownExternalCompilers {
             .iter()
             .copied()
             .find(|member| member.sha256() == uppercase)
-            .ok_or_else(|| PatchException::value(format!("No compilers found with sha256 hash '{uppercase}'")))
+            .ok_or_else(|| {
+                PatchException::value(format!("No compilers found with sha256 hash '{uppercase}'"))
+            })
     }
 
     /// The `compile` command-line template, with `{source}` etc. placeholders.
@@ -795,8 +841,9 @@ impl ExternalNCSCompiler {
 
     /// `ExternalNCSCompiler(nwnnsscomp_path)`: hashes the file.
     pub fn new(nwnnsscomp_path: &Path) -> PResult<Self> {
-        let bytes = std::fs::read(nwnnsscomp_path)
-            .map_err(|err| PatchException::from_io(&err, Some(&nwnnsscomp_path.to_string_lossy())))?;
+        let bytes = std::fs::read(nwnnsscomp_path).map_err(|err| {
+            PatchException::from_io(&err, Some(&nwnnsscomp_path.to_string_lossy()))
+        })?;
         Ok(Self {
             nwnnsscomp_path: nwnnsscomp_path.to_path_buf(),
             filehash: sha256_hex_upper(&bytes),
@@ -860,10 +907,15 @@ impl ExternalNCSCompiler {
         if !safe_isfile(output_filepath) {
             return Err(PatchException::new(
                 "FileNotFoundError",
-                format!("External script compiler did not create '{}'.", output_filepath.display()),
+                format!(
+                    "External script compiler did not create '{}'.",
+                    output_filepath.display()
+                ),
             ));
         }
-        let size = std::fs::metadata(output_filepath).map(|m| m.len()).unwrap_or(0);
+        let size = std::fs::metadata(output_filepath)
+            .map(|m| m.len())
+            .unwrap_or(0);
         if size == 0 {
             return Err(PatchException::value(format!(
                 "External script compiler created an empty output file at '{}'.",
@@ -877,7 +929,10 @@ impl ExternalNCSCompiler {
     fn get_output(result: &CompletedProcess) -> (String, String) {
         let mut stdout = result.stdout.clone();
         let mut stderr = if result.returncode != 0 && result.stderr.trim().is_empty() {
-            format!("No error provided, but return code is nonzero: ({})", result.returncode)
+            format!(
+                "No error provided, but return code is nonzero: ({})",
+                result.returncode
+            )
         } else {
             result.stderr.clone()
         };
@@ -959,7 +1014,10 @@ fn run_with_timeout(args: &[String], cwd: &Path, timeout_secs: u64) -> PResult<C
                         "TimeoutExpired",
                         format!(
                             "Command '[{}]' timed out after {timeout_secs} seconds",
-                            args.iter().map(|a| python_str_repr(a)).collect::<Vec<_>>().join(", ")
+                            args.iter()
+                                .map(|a| python_str_repr(a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         ),
                     ));
                 }
@@ -999,12 +1057,17 @@ impl TempDir {
             match std::fs::create_dir(&path) {
                 Ok(()) => return Ok(Self { path }),
                 Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(err) => return Err(PatchException::from_io(&err, Some(&path.to_string_lossy()))),
+                Err(err) => {
+                    return Err(PatchException::from_io(&err, Some(&path.to_string_lossy())))
+                }
             }
         }
         Err(PatchException::new(
             "FileExistsError",
-            format!("No usable temporary directory name found in {}", base.display()),
+            format!(
+                "No usable temporary directory name found in {}",
+                base.display()
+            ),
         ))
     }
 
@@ -1088,13 +1151,18 @@ pub mod workspace {
         if safe_isdir(temp_script_folder) {
             let _ = std::fs::remove_dir_all(temp_script_folder);
         }
-        std::fs::create_dir_all(temp_script_folder)
-            .map_err(|err| PatchException::from_io(&err, Some(&temp_script_folder.to_string_lossy())))?;
+        std::fs::create_dir_all(temp_script_folder).map_err(|err| {
+            PatchException::from_io(&err, Some(&temp_script_folder.to_string_lossy()))
+        })?;
 
         let mut include_folders: Vec<PathBuf> = Vec::new();
         let mut seen_include_folders: Vec<String> = Vec::new();
         let source_folders: Vec<String> = std::iter::once(".".to_string())
-            .chain(patches_nss.iter().map(|patch| patch.base.sourcefolder.clone()))
+            .chain(
+                patches_nss
+                    .iter()
+                    .map(|patch| patch.base.sourcefolder.clone()),
+            )
             .collect();
         for source_folder in &source_folders {
             let source_path = resolve_source_folder(source_folder, "CompileList source folder")?;
@@ -1109,7 +1177,8 @@ pub mod workspace {
         let mut patch_source_folders: Vec<PathBuf> = Vec::new();
         let mut seen_patch_source_folders: Vec<String> = Vec::new();
         for patch in patches_nss.iter() {
-            let source_path = resolve_source_folder(&patch.base.sourcefolder, "CompileList source folder")?;
+            let source_path =
+                resolve_source_folder(&patch.base.sourcefolder, "CompileList source folder")?;
             let normalized = casefold(&source_path);
             if seen_patch_source_folders.contains(&normalized) {
                 continue;
@@ -1122,8 +1191,9 @@ pub mod workspace {
         let mut script_count = 0usize;
         for (index, source_path) in patch_source_folders.iter().enumerate() {
             let working_folder = temp_script_folder.join(format!("source_{index}"));
-            std::fs::create_dir_all(&working_folder)
-                .map_err(|err| PatchException::from_io(&err, Some(&working_folder.to_string_lossy())))?;
+            std::fs::create_dir_all(&working_folder).map_err(|err| {
+                PatchException::from_io(&err, Some(&working_folder.to_string_lossy()))
+            })?;
 
             // Make includes from every CompileList source directory available,
             // while allowing the current source directory to take precedence.
@@ -1142,16 +1212,20 @@ pub mod workspace {
                     if posix_suffix(&name).to_lowercase() != ".nss" || !safe_isfile(&source_file) {
                         continue;
                     }
-                    let safe_source_file = resolve_source_file_path(&source_file, "CompileList source file")?;
+                    let safe_source_file =
+                        resolve_source_file_path(&source_file, "CompileList source file")?;
                     let target = working_folder.join(name.to_lowercase());
-                    std::fs::copy(&safe_source_file, &target)
-                        .map_err(|err| PatchException::from_io(&err, Some(&safe_source_file.to_string_lossy())))?;
+                    std::fs::copy(&safe_source_file, &target).map_err(|err| {
+                        PatchException::from_io(&err, Some(&safe_source_file.to_string_lossy()))
+                    })?;
                 }
             }
 
             let scripts = sorted_by_name(safe_iterdir(&working_folder))
                 .into_iter()
-                .filter(|script| posix_suffix(&file_name(script)).to_lowercase() == ".nss" && safe_isfile(script))
+                .filter(|script| {
+                    posix_suffix(&file_name(script)).to_lowercase() == ".nss" && safe_isfile(script)
+                })
                 .count();
             script_count += scripts;
             working_folders.insert(normalized_source_path, working_folder);
@@ -1161,10 +1235,14 @@ pub mod workspace {
             "Copied {script_count} CompileList source and include files without rewriting their contents."
         ));
         for nss_patch in patches_nss.iter_mut() {
-            let source_path = resolve_source_folder(&nss_patch.base.sourcefolder, "CompileList source folder")?;
+            let source_path =
+                resolve_source_folder(&nss_patch.base.sourcefolder, "CompileList source folder")?;
             nss_patch.temp_script_folder = working_folders.get(&casefold(&source_path)).cloned();
             if let Some(nwnnsscomp_path) = nss_patch.nwnnsscomp_path.clone() {
-                nss_patch.nwnnsscomp_path = Some(resolve_source_file_path(&nwnnsscomp_path, "script compiler")?);
+                nss_patch.nwnnsscomp_path = Some(resolve_source_file_path(
+                    &nwnnsscomp_path,
+                    "script compiler",
+                )?);
             }
         }
         Ok(Some(temp_script_folder.to_path_buf()))
@@ -1200,12 +1278,18 @@ pub mod workspace {
             .map(|name| name.to_string_lossy().to_lowercase() == "tslpatchdata")
             .unwrap_or(false);
         let package_root: PathBuf = if is_tslpatchdata {
-            mod_path.parent().map(Path::to_path_buf).unwrap_or_else(|| mod_path.to_path_buf())
+            mod_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| mod_path.to_path_buf())
         } else {
             mod_path.to_path_buf()
         };
-        let output_parent =
-            resolve_relative_folder_within(&package_root, "processed_nss", "processed CompileList output folder")?;
+        let output_parent = resolve_relative_folder_within(
+            &package_root,
+            "processed_nss",
+            "processed CompileList output folder",
+        )?;
         std::fs::create_dir_all(&output_parent)
             .map_err(|err| PatchException::from_io(&err, Some(&output_parent.to_string_lossy())))?;
         let timestamp = super::super::super::timeutil::backup_timestamp_micros();
@@ -1231,7 +1315,8 @@ pub mod workspace {
                 filename: Some(dst.to_string_lossy().to_string()),
             });
         }
-        std::fs::create_dir_all(dst).map_err(|err| PatchException::from_io(&err, Some(&dst.to_string_lossy())))?;
+        std::fs::create_dir_all(dst)
+            .map_err(|err| PatchException::from_io(&err, Some(&dst.to_string_lossy())))?;
         for entry in safe_iterdir(src) {
             let target = dst.join(file_name(&entry));
             if entry.is_dir() {
@@ -1281,7 +1366,10 @@ mod tests {
         assert_eq!(m.base.action, "Compile");
         assert!(m.base.replace_file);
         assert!(m.base.skip_if_not_replace);
-        assert_eq!(ModificationsNSS::new("noext", None).base.saveas, "noext.ncs");
+        assert_eq!(
+            ModificationsNSS::new("noext", None).base.saveas,
+            "noext.ncs"
+        );
         assert_eq!(ModificationsNSS::new("", None).base.saveas, "");
     }
 
@@ -1289,7 +1377,9 @@ mod tests {
     fn tokens_are_replaced_with_verbose_lines_and_undefined_ones_warn() {
         let mut memory = PatcherMemory::new();
         memory.memory_2da.insert(1, MemoryValue::Str("10".into()));
-        memory.memory_2da.insert(3, MemoryValue::FieldPath("GFF\\Path".into()));
+        memory
+            .memory_2da
+            .insert(3, MemoryValue::FieldPath("GFF\\Path".into()));
         memory.memory_str.insert(0, 500);
         let mut logger = PatchLogger::new();
         let m = ModificationsNSS::new("s.nss", None);
@@ -1301,7 +1391,11 @@ mod tests {
             text,
             "a=10; b=; c=GFF\\Path; d=#2DAMEMORY4#; e=#2DAMEMORY01#; f=500; g=#StrRef7#;"
         );
-        let verbose: Vec<_> = logger.verbose_logs().iter().map(|l| l.message.clone()).collect();
+        let verbose: Vec<_> = logger
+            .verbose_logs()
+            .iter()
+            .map(|l| l.message.clone())
+            .collect();
         assert_eq!(
             verbose,
             vec![
@@ -1311,7 +1405,11 @@ mod tests {
                 "s.nss: Replacing '#StrRef0#' with '500'",
             ]
         );
-        let warnings: Vec<_> = logger.warnings().iter().map(|l| l.message.clone()).collect();
+        let warnings: Vec<_> = logger
+            .warnings()
+            .iter()
+            .map(|l| l.message.clone())
+            .collect();
         assert_eq!(
             warnings,
             vec![
@@ -1325,10 +1423,14 @@ mod tests {
     #[test]
     fn compiler_flags_split_like_windows() {
         assert_eq!(
-            ModificationsNSS::split_compiler_flags("  -a \"b c\" d\\\\e \\\"q\\\" \"in\"\"side\"").unwrap(),
+            ModificationsNSS::split_compiler_flags("  -a \"b c\" d\\\\e \\\"q\\\" \"in\"\"side\"")
+                .unwrap(),
             vec!["-a", "b c", "d\\\\e", "\"q\"", "in\"side"]
         );
-        assert_eq!(ModificationsNSS::split_compiler_flags("").unwrap(), Vec::<String>::new());
+        assert_eq!(
+            ModificationsNSS::split_compiler_flags("").unwrap(),
+            Vec::<String>::new()
+        );
         let err = ModificationsNSS::split_compiler_flags("\"open").unwrap_err();
         assert_eq!(err.kind, "ValueError");
         assert_eq!(err.message, "Unclosed double quote in ScriptCompilerFlags.");
@@ -1336,7 +1438,10 @@ mod tests {
 
     #[test]
     fn path_helpers_follow_pathlib() {
-        assert_eq!(windows_with_suffix("sub/x.nss", ".ncs").unwrap(), "sub\\x.ncs");
+        assert_eq!(
+            windows_with_suffix("sub/x.nss", ".ncs").unwrap(),
+            "sub\\x.ncs"
+        );
         assert_eq!(windows_with_suffix("x", ".ncs").unwrap(), "x.ncs");
         assert_eq!(windows_with_suffix("x.", ".ncs").unwrap(), "x..ncs");
         assert_eq!(windows_with_suffix(".nss", ".ncs").unwrap(), ".nss.ncs");
@@ -1353,9 +1458,15 @@ mod tests {
 
     #[test]
     fn windows_1252_round_trips_and_rejects_unmappable() {
-        assert_eq!(encode_windows_1252("caf\u{e9} \u{20ac}").unwrap(), b"caf\xe9 \x80");
+        assert_eq!(
+            encode_windows_1252("caf\u{e9} \u{20ac}").unwrap(),
+            b"caf\xe9 \x80"
+        );
         assert_eq!(decode_windows_1252(b"\x80\x81\xe9"), "\u{20ac}\u{81}\u{e9}");
-        assert_eq!(encode_windows_1252("\u{4e2d}").unwrap_err().kind, "UnicodeEncodeError");
+        assert_eq!(
+            encode_windows_1252("\u{4e2d}").unwrap_err().kind,
+            "UnicodeEncodeError"
+        );
     }
 
     #[test]
@@ -1369,12 +1480,19 @@ mod tests {
             "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
         );
         assert_eq!(
-            KnownExternalCompilers::from_sha256("539eb689d2e0d3751aeed273385865278bef6696c46bc0cab116b40c3b2fe820")
-                .unwrap()
-                .member_name(),
+            KnownExternalCompilers::from_sha256(
+                "539eb689d2e0d3751aeed273385865278bef6696c46bc0cab116b40c3b2fe820"
+            )
+            .unwrap()
+            .member_name(),
             "TSLPATCHER"
         );
-        assert_eq!(KnownExternalCompilers::from_sha256("nope").unwrap_err().kind, "ValueError");
+        assert_eq!(
+            KnownExternalCompilers::from_sha256("nope")
+                .unwrap_err()
+                .kind,
+            "ValueError"
+        );
     }
 
     #[test]
@@ -1397,10 +1515,23 @@ mod tests {
         );
         assert_eq!(
             kt.get_compile_args("x", &[]),
-            vec!["x", "-c", "--outputdir", "/o", "-o", "a.ncs", "-g", "2", "/s/a.nss"]
+            vec![
+                "x",
+                "-c",
+                "--outputdir",
+                "/o",
+                "-o",
+                "a.ncs",
+                "-g",
+                "2",
+                "/s/a.nss"
+            ]
         );
         let unknown = NwnnsscompConfig::new("00", PathBuf::from("a"), PathBuf::from("b"), Game::K1);
-        assert_eq!(unknown.get_compile_args("x", &[]), vec!["x", "-c", "a", "-o", "b"]);
+        assert_eq!(
+            unknown.get_compile_args("x", &[]),
+            vec!["x", "-c", "a", "-o", "b"]
+        );
     }
 
     #[test]
@@ -1412,7 +1543,10 @@ mod tests {
         };
         let (stdout, stderr) = ExternalNCSCompiler::get_output(&result);
         assert_eq!(stdout, "ok\nmore");
-        assert_eq!(stderr, "No error provided, but return code is nonzero: (1)\n\nError: bad");
+        assert_eq!(
+            stderr,
+            "No error provided, but return code is nonzero: (1)\n\nError: bad"
+        );
     }
 
     #[test]
@@ -1425,13 +1559,21 @@ mod tests {
             .patch_resource(b"void main() {}", &mut memory, &mut logger, Game::K1)
             .unwrap_err();
         assert_eq!(err.kind, "RuntimeError");
-        assert_eq!(err.message, "CompileList working directory was not prepared before compilation.");
+        assert_eq!(
+            err.message,
+            "CompileList working directory was not prepared before compilation."
+        );
 
         let dir = temp_dir("builtin");
         std::fs::write(dir.join("nwscript.nss"), b"// empty header\n").unwrap();
         m.temp_script_folder = Some(dir.clone());
         let out = m
-            .patch_resource(b"void main() { int a = #2DAMEMORY1#; }", &mut memory, &mut logger, Game::K1)
+            .patch_resource(
+                b"void main() { int a = #2DAMEMORY1#; }",
+                &mut memory,
+                &mut logger,
+                Game::K1,
+            )
             .unwrap();
         let PatchOutput::Bytes(ncs) = out else {
             panic!("expected compiled bytes");
@@ -1440,7 +1582,9 @@ mod tests {
         let written = std::fs::read_to_string(dir.join("script.nss")).unwrap();
         assert_eq!(written, "void main() { int a = 42; }");
         if cfg!(windows) {
-            assert!(logger.notes().iter().any(|l| l.message.contains("was not found in the 'tslpatchdata' folder")));
+            assert!(logger.notes().iter().any(|l| l
+                .message
+                .contains("was not found in the 'tslpatchdata' folder")));
         } else {
             assert!(logger.notes().iter().any(|l| l.message
                 == "Patching from a unix operating system, compiling 'Script.nss' using the built-in compilers..."));
@@ -1448,14 +1592,27 @@ mod tests {
 
         // An include file is a skip with PyKotor's note.
         let out = m
-            .patch_resource(b"int helper() { return 1; }", &mut memory, &mut logger, Game::K1)
+            .patch_resource(
+                b"int helper() { return 1; }",
+                &mut memory,
+                &mut logger,
+                Game::K1,
+            )
             .unwrap();
         assert_eq!(out, PatchOutput::Skip);
-        assert!(logger.notes().iter().any(|l| l.message == ENTRY_POINT_ERROR));
+        assert!(logger
+            .notes()
+            .iter()
+            .any(|l| l.message == ENTRY_POINT_ERROR));
 
         // A broken script is a CompileError the installer reports per patch.
         let err = m
-            .patch_resource(b"void main() { int a = ; }", &mut memory, &mut logger, Game::K1)
+            .patch_resource(
+                b"void main() { int a = ; }",
+                &mut memory,
+                &mut logger,
+                Game::K1,
+            )
             .unwrap_err();
         assert_eq!(err.kind, "CompileError");
 
@@ -1466,7 +1623,9 @@ mod tests {
             .patch_resource(b"void main() {}", &mut memory, &mut logger, Game::K1)
             .unwrap_err();
         assert_eq!(err.kind, "CompileError");
-        assert!(err.message.starts_with("Could not find a 'nwscript.nss' header to compile 'Script.nss'"));
+        assert!(err
+            .message
+            .starts_with("Could not find a 'nwscript.nss' header to compile 'Script.nss'"));
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&bare);
@@ -1497,7 +1656,10 @@ mod tests {
         std::fs::write(mod_path.join("Sub").join("inc.nss"), b"sub inc").unwrap();
         std::fs::write(mod_path.join("Sub").join("Other.nss"), b"sub other").unwrap();
 
-        let mut patches = vec![ModificationsNSS::new("Main.nss", None), ModificationsNSS::new("Other.nss", None)];
+        let mut patches = vec![
+            ModificationsNSS::new("Main.nss", None),
+            ModificationsNSS::new("Other.nss", None),
+        ];
         patches[1].base.sourcefolder = "Sub".into();
         patches[1].nwnnsscomp_path = Some(mod_path.join("nwnnsscomp.exe"));
 
@@ -1511,7 +1673,11 @@ mod tests {
             &memory,
             Game::K1,
             &workspace_root,
-            |relative, _| Ok(crate::patcher::casepath::abspath(&mod_for_folder.join(relative))),
+            |relative, _| {
+                Ok(crate::patcher::casepath::abspath(
+                    &mod_for_folder.join(relative),
+                ))
+            },
             |path, description| {
                 Ok(if description == "script compiler" {
                     path.with_file_name("resolved.exe")
@@ -1527,14 +1693,34 @@ mod tests {
         let source_1 = workspace_root.join("source_1");
         assert_eq!(patches[0].temp_script_folder, Some(source_0.clone()));
         assert_eq!(patches[1].temp_script_folder, Some(source_1.clone()));
-        assert_eq!(patches[1].nwnnsscomp_path, Some(mod_path.join("resolved.exe")));
+        assert_eq!(
+            patches[1].nwnnsscomp_path,
+            Some(mod_path.join("resolved.exe"))
+        );
 
-        assert_eq!(std::fs::read(source_0.join("main.nss")).unwrap(), b"root main");
-        assert_eq!(std::fs::read(source_0.join("inc.nss")).unwrap(), b"root inc", "own folder wins");
-        assert_eq!(std::fs::read(source_0.join("other.nss")).unwrap(), b"sub other");
+        assert_eq!(
+            std::fs::read(source_0.join("main.nss")).unwrap(),
+            b"root main"
+        );
+        assert_eq!(
+            std::fs::read(source_0.join("inc.nss")).unwrap(),
+            b"root inc",
+            "own folder wins"
+        );
+        assert_eq!(
+            std::fs::read(source_0.join("other.nss")).unwrap(),
+            b"sub other"
+        );
         assert!(!source_0.join("notes.txt").exists());
-        assert_eq!(std::fs::read(source_1.join("inc.nss")).unwrap(), b"sub inc", "own folder wins");
-        assert_eq!(std::fs::read(source_1.join("main.nss")).unwrap(), b"root main");
+        assert_eq!(
+            std::fs::read(source_1.join("inc.nss")).unwrap(),
+            b"sub inc",
+            "own folder wins"
+        );
+        assert_eq!(
+            std::fs::read(source_1.join("main.nss")).unwrap(),
+            b"root main"
+        );
         assert_eq!(
             logger.verbose_logs().last().unwrap().message,
             "Copied 6 CompileList source and include files without rewriting their contents."
@@ -1564,12 +1750,21 @@ mod tests {
         )
         .unwrap();
         assert!(saved.starts_with(dir.join("processed_nss")));
-        assert_eq!(std::fs::read(saved.join("source_1").join("inc.nss")).unwrap(), b"sub inc");
-        assert!(logger
-            .notes()
-            .iter()
-            .any(|l| l.message == format!("Saved processed CompileList scripts to '{}'.", saved.display())));
-        assert_eq!(workspace::copytree(&workspace_root, &saved).unwrap_err().kind, "FileExistsError");
+        assert_eq!(
+            std::fs::read(saved.join("source_1").join("inc.nss")).unwrap(),
+            b"sub inc"
+        );
+        assert!(logger.notes().iter().any(|l| l.message
+            == format!(
+                "Saved processed CompileList scripts to '{}'.",
+                saved.display()
+            )));
+        assert_eq!(
+            workspace::copytree(&workspace_root, &saved)
+                .unwrap_err()
+                .kind,
+            "FileExistsError"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -84,7 +84,9 @@ impl PatchException {
                 name,
                 format!(
                     "Permission Denied: {}",
-                    self.filename.clone().unwrap_or_else(|| self.message.clone())
+                    self.filename
+                        .clone()
+                        .unwrap_or_else(|| self.message.clone())
                 ),
             ),
             "TimeoutError" => (name, format!("Operation timed out: {}", self.message)),
@@ -137,7 +139,10 @@ mod tests {
         let missing = PatchException::file_not_found("nope", "/x/y.tlk");
         assert_eq!(
             missing.simplify(),
-            ("FileNotFoundError".into(), "Could not find the file: '/x/y.tlk'".into())
+            (
+                "FileNotFoundError".into(),
+                "Could not find the file: '/x/y.tlk'".into()
+            )
         );
         let plain = PatchException::value("bad");
         assert_eq!(plain.simplified(), "ValueError: bad");
