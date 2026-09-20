@@ -90,7 +90,8 @@ pub fn create_backup(
         processed_files.insert(uninstall_str_lower);
     }
 
-    if destination_filepath.is_file() && !is_new_file {
+    let existing_destination = case_sensitive_path(destination_filepath);
+    if existing_destination.is_file() && !is_new_file {
         // Check if the backup path exists and generate a new one if necessary
         let mut i = 2;
         let filestem = backup_filepath
@@ -111,7 +112,7 @@ pub fn create_backup(
         if let Some(sub) = &subdirectory_backup_path {
             std::fs::create_dir_all(sub)?;
         }
-        if let Err(err) = std::fs::copy(destination_filepath, &backup_filepath) {
+        if let Err(err) = std::fs::copy(&existing_destination, &backup_filepath) {
             let exc = PatchException::from_io(&err, Some(&destination_file_str));
             log.add_error(format!(
                 "Failed to create backup of '{destination_file_str}': {}",

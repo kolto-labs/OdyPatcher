@@ -26,7 +26,7 @@ use super::mods::ssf::ModificationsSSF;
 use super::mods::template::{ModBase, OverrideType, PatchOutput, PatcherModifications};
 use super::mods::tlk::{ModificationsTLK, TlkModifier};
 use super::mods::twoda::Modifications2DA;
-use super::timeutil::{backup_timestamp, backup_timestamp_micros};
+use super::timeutil::backup_timestamp;
 
 /// `repr()` of a Python `str`.
 fn py_str_repr(text: &str) -> String {
@@ -1764,7 +1764,7 @@ mod tests {
         .unwrap();
         assert_eq!(by_data.mod_path, package);
 
-        let missing = ModInstaller::new(&package, &game, Path::new("nope.ini"), None).unwrap_err();
+        let missing = ModInstaller::new(&package, &game, Path::new("nope.ini"), None).err().expect("missing ini must fail");
         assert_eq!(missing.kind, "FileNotFoundError");
         assert_eq!(missing.message, "Could not find the changes ini file on disk.");
         assert_eq!(missing.simplify().1, "Could not find the file: 'nope.ini'");

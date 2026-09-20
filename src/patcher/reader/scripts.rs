@@ -204,7 +204,7 @@ mod tests {
     fn hack_list_parses_offsets_and_values_with_every_warning() {
         let mut logger = PatchLogger::new();
         let mut r = reader(
-            "[HACKList]\n!DefaultDestination=Modules\\x.mod\n!DefaultSourceFolder=src\nFile0=a.ncs\nFile1=\nFile2=missing.ncs\nFile3=empty.ncs\n\n[a.ncs]\nReplaceFile=1\n!SaveAs=b.ncs\n 12 =  StrRef5 \n16=2DAMEMORY3\n20=2DAMEMORYx\n24=strref9999999999\n28=2DAMEMORY9999999999\n32=99\n36=u16:5\n0x10=1\n9999999999=1\n40=StrRefa\n!Weird=1\n\n[empty.ncs]\n",
+            "[HACKList]\n!DefaultDestination=Modules\\x.mod\n!DefaultSourceFolder=src\nFile0=a.ncs\nFile1=\nFile2=missing.ncs\nFile3=empty.ncs\n\n[a.ncs]\nReplaceFile=1\n!SaveAs=b.ncs\n12 =  StrRef5 \n16=2DAMEMORY3\n20=2DAMEMORYx\n24=strref9999999999\n28=2DAMEMORY9999999999\n32=99\n36=u16:5\n0x10=1\n9999999999=1\n40=StrRefa\n!Weird=1\n\n[empty.ncs]\n",
             Path::new("."),
             &mut logger,
         );
