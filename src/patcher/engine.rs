@@ -12,7 +12,7 @@ use crate::formats::tlk::{TlkEntry, TlkFile, FLAG_SOUND_PRESENT, FLAG_TEXT_PRESE
 use crate::formats::twoda::TwoDaFile;
 use crate::host::Host;
 use crate::ini::IniFile;
-use crate::patcher::config::{Game, Settings};
+use crate::patcher::legacy_config::{Game, Settings};
 use crate::patcher::files::{Context, FileHandler, PatchKind};
 use crate::patcher::log::Log;
 use crate::patcher::tokens::TokenStore;

@@ -2,7 +2,7 @@
 
 use crate::compat::{fsutil, text};
 use crate::ini::IniFile;
-use crate::patcher::config::{
+use crate::patcher::legacy_config::{
     self, NamespaceList, Settings, DATA_FOLDER, DEFAULT_INFO, DEFAULT_INI, NAMESPACES_FILE,
 };
 use crate::patcher::log::LogLine;
@@ -73,7 +73,7 @@ impl Session {
             IniFile::default()
         };
         self.settings = Settings::from_ini(&self.ini);
-        self.info_name = config::fallback_info_name(&self.data_path, &self.info_name);
+        self.info_name = legacy_config::fallback_info_name(&self.data_path, &self.info_name);
     }
 
     /// Full path of the instruction file.
@@ -144,7 +144,7 @@ impl Session {
         if !self.settings.lookup_game_folder {
             return None;
         }
-        config::registry_game_path(self.settings.lookup_game)
+        legacy_config::registry_game_path(self.settings.lookup_game)
     }
 
     /// Write the install log beside the program.

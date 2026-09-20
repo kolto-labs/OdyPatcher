@@ -5,7 +5,7 @@ use crate::error::{PatchError, Result};
 use crate::formats::erf::{self, ErfFile};
 use crate::host::{FileRequest, Host};
 use crate::ini::IniFile;
-use crate::patcher::config::{self, Settings};
+use crate::patcher::legacy_config::{self, Settings};
 use crate::patcher::log::Log;
 
 /// Which kind of file a step is about to work on.
@@ -364,7 +364,7 @@ impl FileHandler {
         }
 
         let mut chosen = if ctx.settings.lookup_game_folder {
-            config::registry_game_path(ctx.settings.lookup_game).unwrap_or_default()
+            legacy_config::registry_game_path(ctx.settings.lookup_game).unwrap_or_default()
         } else {
             String::new()
         };
@@ -1573,7 +1573,7 @@ mod tests {
 
         let ini = IniFile::default();
         let settings = Settings {
-            required: vec![crate::patcher::config::RequiredCheck {
+            required: vec![crate::patcher::legacy_config::RequiredCheck {
                 files: vec!["othermod.2da".into()],
                 message: "Install the other mod first.".into(),
             }],

@@ -1,7 +1,7 @@
 //! Pre-run report: what the instruction file declares without applying it.
 
 use crate::ini::IniFile;
-use crate::patcher::config::Settings;
+use crate::patcher::legacy_config::Settings;
 
 /// Describe what a run would change, one line at a time.
 pub fn build(ini: &IniFile, settings: &Settings, ini_name: &str, info_name: &str) -> Vec<String> {
@@ -226,7 +226,7 @@ fn install_location(settings: &Settings) -> String {
     }
 
     // Reports whatever the registry holds, blank included, as the original did.
-    crate::patcher::config::registry_game_path(settings.lookup_game).unwrap_or_default()
+    crate::patcher::legacy_config::registry_game_path(settings.lookup_game).unwrap_or_default()
 }
 
 fn log_level_text(level: i32) -> &'static str {

@@ -1,7 +1,7 @@
 //! Locate installed KotOR/TSL copies (registry, Steam libraries, common paths).
 
 use crate::compat::{fsutil, text};
-use crate::patcher::config::{self, Game};
+use crate::patcher::legacy_config::{self, Game};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A game install found on this machine.
@@ -31,7 +31,7 @@ pub fn detect() -> Vec<Install> {
     let mut found: Vec<Install> = Vec::new();
 
     for game in [Game::Kotor1, Game::Kotor2] {
-        if let Some(path) = config::registry_game_path(game) {
+        if let Some(path) = legacy_config::registry_game_path(game) {
             push_unique(
                 &mut found,
                 Install {
@@ -45,7 +45,7 @@ pub fn detect() -> Vec<Install> {
     for root in library_roots() {
         for (folder, game) in GAME_FOLDERS {
             let candidate = fsutil::join(&root, folder);
-            if config::looks_like_game_folder(&candidate) {
+            if legacy_config::looks_like_game_folder(&candidate) {
                 push_unique(
                     &mut found,
                     Install {
@@ -58,7 +58,7 @@ pub fn detect() -> Vec<Install> {
     }
 
     for candidate in direct_locations() {
-        if config::looks_like_game_folder(&candidate) {
+        if legacy_config::looks_like_game_folder(&candidate) {
             push_unique(
                 &mut found,
                 Install {
@@ -212,7 +212,7 @@ fn home_dir() -> Option<String> {
 pub fn identify(path: &str) -> Option<Game> {
     let base = text::include_trailing_delimiter(path);
 
-    if !config::looks_like_game_folder(path) {
+    if !legacy_config::looks_like_game_folder(path) {
         return None;
     }
 
