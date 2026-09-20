@@ -3,12 +3,9 @@
 pub mod direct;
 
 use std::io::{self, BufRead, Write};
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
 
-use crate::compat::fsutil;
-use crate::host::{FileRequest, Host};
-use crate::patcher::log::{Log, LogLine};
-use crate::patcher::Patcher;
+use crate::patcher::config::LogLevel;
 use crate::session::{self, Session};
 
 /// What the operator asked for on the command line.
@@ -53,7 +50,8 @@ pub struct Options {
     pub uninstall: bool,
     /// Check the mod's instructions without a game folder.
     pub validate: bool,
-    /// Fold names to lowercase while installing. Experimental.
+    /// Accepted for compatibility; does nothing. The engine lowercases the
+    /// names it writes on its own, as PyKotor does.
     pub experimental_lowercase_paths: bool,
 }
 
@@ -80,11 +78,8 @@ Options:
 
 Experimental:
       --experimental-lowercase-paths
-                         Lowercase names while installing. This is faster
-                         where the filesystem tells Data and data apart. It
-                         renames files in the mod folder and in the folders
-                         the mod writes to. This cannot be undone. Off unless
-                         you ask for it.
+                         Accepted for compatibility; does nothing. Files the
+                         patcher writes are given lowercase names anyway.
 
 Running unattended:
       --tslpatchdata <PATH>          Folder holding the mod
@@ -207,53 +202,17 @@ fn apply_positional(options: &mut Options, positional: &[String]) -> Result<(), 
     }
 }
 
-struct TerminalHost {
-    game_folder: Option<String>,
-    unattended: bool,
-}
+/// Ask the operator for the game folder at the prompt.
+fn ask_game_folder() -> Option<PathBuf> {
+    println!("\nPlease select the folder the game is installed in.");
+    print!("Game folder: ");
+    let _ = io::stdout().flush();
 
-impl Host for TerminalHost {
-    fn choose_game_folder(&mut self, prompt: &str) -> Option<String> {
-        if let Some(folder) = &self.game_folder {
-            return Some(folder.clone());
-        }
-
-        if self.unattended {
-            return None;
-        }
-
-        println!("\n{prompt}");
-        print!("Game folder: ");
-        let _ = io::stdout().flush();
-
-        let answer = read_line()?;
-        if answer.is_empty() {
-            return None;
-        }
-
-        self.game_folder = Some(answer.clone());
-        Some(answer)
-    }
-
-    fn choose_file(&mut self, request: &FileRequest) -> Option<String> {
-        if self.unattended {
-            return None;
-        }
-
-        println!("\n{}", request.title);
-        print!("Path to {} (blank to skip): ", request.default_name);
-        let _ = io::stdout().flush();
-
-        let answer = read_line()?;
-        if answer.is_empty() {
-            None
-        } else {
-            Some(answer)
-        }
-    }
-
-    fn install_path_changed(&mut self, path: &str) {
-        println!("Game folder: {path}");
+    let answer = read_line()?;
+    if answer.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(answer))
     }
 }
 
@@ -312,7 +271,8 @@ pub fn run(options: Options) -> i32 {
     if !session.has_instructions() {
         eprintln!(
             "Cannot find the instruction file \"{}\". Expected it in {}.",
-            session.ini_name, session.data_path
+            session.ini_name(),
+            session.tslpatchdata_path.display()
         );
         return 2;
     }
@@ -332,18 +292,9 @@ pub fn run(options: Options) -> i32 {
         return 2;
     }
 
-    if !session.settings.installer_mode
-        && options.assume_yes
-        && (options.game_folder.is_some() || options.game_dir.is_some())
-    {
-        eprintln!(
-            "InstallerMode=0 needs interactive file selection; it cannot run unattended with --yes and a game folder."
-        );
-        return direct::ExitCode::AbortInstallUnsafe.code();
-    }
-
-    println!("{}", session.settings.window_caption);
-    println!("{}\n", "=".repeat(session.settings.window_caption.len()));
+    let caption = session.window_caption();
+    println!("{caption}");
+    println!("{}\n", "=".repeat(caption.chars().count()));
     println!("{}", session.info_text());
 
     if !confirm(&session, &options) {
@@ -362,7 +313,7 @@ fn list_namespaces(session: &Session) -> i32 {
     }
 
     println!("Install variants:");
-    for (index, entry) in session.namespaces.entries.iter().enumerate() {
+    for (index, entry) in session.namespaces.iter().enumerate() {
         println!("  {index}. {}", entry.name);
         if !entry.description.is_empty() {
             println!("     {}", entry.description);
@@ -382,11 +333,10 @@ fn apply_namespace(session: &mut Session, options: &Options) -> Result<(), Strin
         let chosen = wanted
             .parse::<usize>()
             .ok()
-            .filter(|index| *index < session.namespaces.entries.len())
+            .filter(|index| *index < session.namespaces.len())
             .or_else(|| {
                 session
                     .namespaces
-                    .entries
                     .iter()
                     .position(|entry| entry.name.eq_ignore_ascii_case(wanted))
             })
@@ -405,7 +355,7 @@ fn apply_namespace(session: &mut Session, options: &Options) -> Result<(), Strin
     }
 
     println!("This mod offers more than one install:");
-    for (index, entry) in session.namespaces.entries.iter().enumerate() {
+    for (index, entry) in session.namespaces.iter().enumerate() {
         println!("  {index}. {} — {}", entry.name, entry.description);
     }
     print!("Choose one [0]: ");
@@ -418,7 +368,7 @@ fn apply_namespace(session: &mut Session, options: &Options) -> Result<(), Strin
         answer
             .parse::<usize>()
             .ok()
-            .filter(|index| *index < session.namespaces.entries.len())
+            .filter(|index| *index < session.namespaces.len())
             .ok_or_else(|| format!("\"{answer}\" is not one of the choices."))?
     };
 
@@ -428,11 +378,11 @@ fn apply_namespace(session: &mut Session, options: &Options) -> Result<(), Strin
 
 /// Ask before starting, unless the mod or the operator said not to.
 fn confirm(session: &Session, options: &Options) -> bool {
-    if options.assume_yes || session.settings.starts_without_asking() {
+    if options.assume_yes || session.starts_without_asking() {
         return true;
     }
 
-    print!("\n{} [y/N]: ", session.settings.confirm_prompt());
+    print!("\n{} [y/N]: ", session.confirm_message());
     let _ = io::stdout().flush();
 
     matches!(
@@ -443,72 +393,89 @@ fn confirm(session: &Session, options: &Options) -> bool {
 
 /// Run the patch and report the exit code.
 fn execute(session: Session, options: Options) -> i32 {
-    let level = options.log_level.unwrap_or(session.settings.log_level);
+    let level = options
+        .log_level
+        .and_then(|l| LogLevel::from_int(i64::from(l)).ok())
+        .unwrap_or_else(|| session.log_level());
 
-    let collected: Arc<Mutex<Vec<LogLine>>> = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&collected);
-
-    let mut log = Log::new(
-        level,
-        Box::new(move |line| {
-            println!("{}", line.as_plain_text());
-            sink.lock().unwrap().push(line.clone());
-        }),
-    );
-
-    // `--game-dir` also names the game folder, so it stands in for `--game`
-    // when nothing else asked for an unattended run.
-    let named_game_folder = options
-        .game_folder
-        .clone()
-        .or_else(|| options.game_dir.clone());
-
-    let mut host = TerminalHost {
-        game_folder: named_game_folder.clone().filter(|p| fsutil::dir_exists(p)),
-        unattended: options.assume_yes && named_game_folder.is_some(),
+    let Some(game_folder) = settle_game_folder(&session, &options) else {
+        eprintln!("No game folder was chosen.");
+        return 1;
     };
+    println!("Game folder: {}", game_folder.display());
 
-    if host.game_folder.is_none() {
-        if let Some(found) = session.looked_up_game_folder() {
-            host.game_folder = Some(found);
-        }
+    let outcome = session.run_install(&game_folder, direct::printing_logger(level), None, None);
+
+    if let Some(path) = &outcome.log_path {
+        println!("\nInstall log written to {}", path.display());
     }
 
-    let mut patcher = Patcher::new(&session.base_path, &session.data_path, &session.ini_name);
-    patcher.set_path_mode(crate::paths::resolve_mode(
-        options.experimental_lowercase_paths,
-    ));
-    let outcome = patcher.run(&mut log, &mut host);
-
-    let lines = collected.lock().unwrap().clone();
-    if let Some(path) = session.write_install_log(&lines) {
-        println!("\nInstall log written to {path}");
-    }
-
-    match outcome {
-        Ok(summary) if summary.is_clean() => {
+    let report = outcome.report;
+    match outcome.result {
+        Ok(()) if report.is_clean() => {
             println!("\nFinished. All changes have been applied.");
             0
         }
-        Ok(summary) if summary.errors == 0 => {
+        Ok(()) if !report.completed_with_errors() => {
             println!(
                 "\nFinished with {} warnings. Check the log for details.",
-                summary.warnings
+                report.warnings
             );
             0
         }
-        Ok(summary) => {
+        Ok(()) => {
             eprintln!(
                 "\nFinished with {} errors and {} warnings. The mod may not be properly installed.",
-                summary.errors, summary.warnings
+                report.errors, report.warnings
             );
             1
         }
         Err(err) => {
-            eprintln!("\nStopped: {err}");
+            eprintln!("\nStopped: {}", err.simplified());
             1
         }
     }
+}
+
+/// Which game folder to install into: the one named on the command line,
+/// else the mod's registry lookup, else a lone detected install, else the
+/// operator is asked (unless `--yes` said not to).
+fn settle_game_folder(session: &Session, options: &Options) -> Option<PathBuf> {
+    // `--game-dir` also names the game folder, so it stands in for `--game`
+    // when nothing else asked for an unattended run.
+    let named = options
+        .game_folder
+        .clone()
+        .or_else(|| options.game_dir.clone())
+        .map(PathBuf::from);
+    if let Some(named) = named {
+        if named.is_dir() {
+            return Some(named);
+        }
+        eprintln!("The game folder {} does not exist.", named.display());
+    }
+
+    if let Some(found) = session.looked_up_game_folder() {
+        return Some(PathBuf::from(found));
+    }
+
+    let detected = crate::gamepaths::detect();
+    if detected.len() == 1 {
+        println!("Found the game at {}", detected[0].path);
+        return Some(PathBuf::from(&detected[0].path));
+    }
+
+    if options.assume_yes {
+        return None;
+    }
+
+    if !detected.is_empty() {
+        println!("Installed games found:");
+        for install in &detected {
+            println!("  {}", install.path);
+        }
+    }
+    ask_game_folder().filter(|p| Path::new(p).is_dir())
 }
 
 #[cfg(test)]
@@ -589,9 +556,9 @@ mod tests {
     }
 
     #[test]
-    fn the_help_names_the_experimental_flag_as_experimental() {
+    fn the_help_still_names_the_experimental_flag() {
         assert!(USAGE.contains("--experimental-lowercase-paths"));
-        assert!(USAGE.contains("Experimental:"));
+        assert!(USAGE.contains("does nothing"));
     }
 
     #[test]

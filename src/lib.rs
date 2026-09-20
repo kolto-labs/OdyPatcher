@@ -17,10 +17,8 @@ pub mod formats {
 }
 
 pub mod gamepaths;
-pub mod host;
 pub mod ini;
 pub mod patcher;
-pub mod paths;
 pub mod rtf;
 pub mod session;
 pub mod summary;
@@ -30,9 +28,11 @@ pub mod tools;
 pub mod ui;
 
 pub use error::{PatchError, Result, Subsystem};
-pub use host::{FileRequest, Host};
-pub use patcher::{PatchSummary, Patcher, Settings};
-pub use session::Session;
+pub use patcher::{
+    Game, LogLevel, LogType, ModInstaller, ModUninstaller, PResult, PatchException, PatchLog,
+    PatchLogger, PatcherConfig, PatcherNamespace,
+};
+pub use session::{RunOutcome, RunReport, Session};
 
 /// The program's name, as shown to the operator.
 pub const APP_NAME: &str = "OdyPatcher";

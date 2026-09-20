@@ -27,8 +27,12 @@ thread_local! {
     static ADD_FIELD_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
-/// Roughly Python's default limit divided by the frames each level costs.
-const MAX_ADD_FIELD_DEPTH: usize = 400;
+/// Python (reader.py:829 `add_field_gff`) hits its 1000-frame recursion limit
+/// after roughly 300 nested sections. Each Rust level costs ~10 KiB of stack in
+/// debug builds, so 400 levels overflowed a default 2 MiB thread before the
+/// guard could raise; 100 levels fit with room to spare and still exceed any
+/// real INI's nesting.
+const MAX_ADD_FIELD_DEPTH: usize = 100;
 
 struct DepthGuard;
 

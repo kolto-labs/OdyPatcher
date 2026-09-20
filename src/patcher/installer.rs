@@ -1093,6 +1093,16 @@ impl ModInstaller {
         true
     }
 
+    /// Pre-flight only: load the configuration and run the
+    /// `_validate_patch_paths` check over every configured patch without
+    /// writing anything. Front ends use this for `--validate`.
+    pub fn validate_configured_paths(&mut self) -> PResult<()> {
+        let config: PatcherConfig = self.config()?.clone();
+        let mut configured_patches: Vec<Patch> = vec![Patch::Tlk(config.patches_tlk.clone())];
+        Self::push_lists(&mut configured_patches, &config);
+        self.validate_patch_paths(&mut configured_patches)
+    }
+
     /// `install(should_cancel, progress_update_func)`: install every
     /// configured patch and report its actual outcome.
     ///

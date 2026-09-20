@@ -1,7 +1,7 @@
 //! Locate installed KotOR/TSL copies (registry, Steam libraries, common paths).
 
 use crate::compat::{fsutil, text};
-use crate::patcher::legacy_config::{self, Game};
+use crate::patcher::config::Game;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A game install found on this machine.
@@ -13,16 +13,16 @@ pub struct Install {
 }
 
 const GAME_FOLDERS: [(&str, Game); 8] = [
-    ("swkotor", Game::Kotor1),
-    ("Star Wars - KotOR", Game::Kotor1),
-    ("Knights of the Old Republic", Game::Kotor1),
-    ("STAR WARS - Knights of the Old Republic", Game::Kotor1),
-    ("Knights of the Old Republic II", Game::Kotor2),
-    ("Star Wars - KotOR2", Game::Kotor2),
-    ("swkotor2", Game::Kotor2),
+    ("swkotor", Game::K1),
+    ("Star Wars - KotOR", Game::K1),
+    ("Knights of the Old Republic", Game::K1),
+    ("STAR WARS - Knights of the Old Republic", Game::K1),
+    ("Knights of the Old Republic II", Game::K2),
+    ("Star Wars - KotOR2", Game::K2),
+    ("swkotor2", Game::K2),
     (
         "STAR WARS - Knights of the Old Republic II - The Sith Lords",
-        Game::Kotor2,
+        Game::K2,
     ),
 ];
 
@@ -30,8 +30,8 @@ const GAME_FOLDERS: [(&str, Game); 8] = [
 pub fn detect() -> Vec<Install> {
     let mut found: Vec<Install> = Vec::new();
 
-    for game in [Game::Kotor1, Game::Kotor2] {
-        if let Some(path) = legacy_config::registry_game_path(game) {
+    for game in [Game::K1, Game::K2] {
+        if let Some(path) = registry_game_path(game) {
             push_unique(
                 &mut found,
                 Install {
@@ -45,7 +45,7 @@ pub fn detect() -> Vec<Install> {
     for root in library_roots() {
         for (folder, game) in GAME_FOLDERS {
             let candidate = fsutil::join(&root, folder);
-            if legacy_config::looks_like_game_folder(&candidate) {
+            if looks_like_game_folder(&candidate) {
                 push_unique(
                     &mut found,
                     Install {
@@ -58,7 +58,7 @@ pub fn detect() -> Vec<Install> {
     }
 
     for candidate in direct_locations() {
-        if legacy_config::looks_like_game_folder(&candidate) {
+        if looks_like_game_folder(&candidate) {
             push_unique(
                 &mut found,
                 Install {
@@ -208,19 +208,123 @@ fn home_dir() -> Option<String> {
     None
 }
 
+/// Registry locations that may hold a game's install path.
+///
+/// Both games are 32-bit, so on 64-bit Windows their keys sit under the
+/// compatibility branch; a 64-bit build sees the plain branch by default.
+pub fn registry_keys(game: Game) -> [&'static str; 2] {
+    match game {
+        Game::K1 => [
+            "HKLM\\SOFTWARE\\BioWare\\SW\\KOTOR",
+            "HKLM\\SOFTWARE\\WOW6432Node\\BioWare\\SW\\KOTOR",
+        ],
+        Game::K2 => [
+            "HKLM\\SOFTWARE\\LucasArts\\KotOR2",
+            "HKLM\\SOFTWARE\\WOW6432Node\\LucasArts\\KotOR2",
+        ],
+    }
+}
+
+/// Look up a game's install folder in the Windows registry.
+///
+/// Always `None` away from Windows, where the operator picks the folder.
+#[cfg(windows)]
+pub fn registry_game_path(game: Game) -> Option<String> {
+    for key in registry_keys(game) {
+        if let Some(path) = query_registry_value(key, "Path") {
+            if !path.is_empty() {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
+/// Read one string value from the registry.
+///
+/// Uses the registry tool that ships with every Windows release from 7 onward,
+/// which keeps this dependency-free.
+#[cfg(windows)]
+fn query_registry_value(key: &str, value_name: &str) -> Option<String> {
+    let output = std::process::Command::new("reg")
+        .args(["query", key, "/v", value_name])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_registry_output(&String::from_utf8_lossy(&output.stdout), value_name)
+}
+
+/// Pull a value out of the registry tool's output.
+///
+/// Lines look like `    Path    REG_SZ    C:\Games\SWKotOR`. Paths often
+/// contain spaces, so the split is made at the type marker.
+#[cfg(windows)]
+fn parse_registry_output(output: &str, value_name: &str) -> Option<String> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with(value_name) {
+            continue;
+        }
+
+        for marker in ["REG_SZ", "REG_EXPAND_SZ"] {
+            if let Some(at) = trimmed.find(marker) {
+                let value = trimmed[at + marker.len()..].trim();
+                if !value.is_empty() {
+                    return Some(value.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Look up a game's install folder in the Windows registry.
+///
+/// Always `None` away from Windows, where the operator picks the folder.
+#[cfg(not(windows))]
+pub fn registry_game_path(_game: Game) -> Option<String> {
+    None
+}
+
+/// Folders a game install is expected to contain.
+const INSTALL_FOLDERS: [&str; 8] = [
+    "override",
+    "movies",
+    "modules",
+    "streamwaves",
+    "streammusic",
+    "streamsounds",
+    "streamvoice",
+    "lips",
+];
+
+/// True when a folder holds the subfolders a game install has.
+pub fn looks_like_game_folder(path: &str) -> bool {
+    let base = text::include_trailing_delimiter(path);
+    INSTALL_FOLDERS
+        .iter()
+        .any(|folder| fsutil::dir_exists(&format!("{base}{folder}")))
+}
+
 /// Work out which game a folder holds, by what is inside it.
 pub fn identify(path: &str) -> Option<Game> {
     let base = text::include_trailing_delimiter(path);
 
-    if !legacy_config::looks_like_game_folder(path) {
+    if !looks_like_game_folder(path) {
         return None;
     }
 
     if fsutil::dir_exists(&format!("{base}streamvoice")) {
-        return Some(Game::Kotor2);
+        return Some(Game::K2);
     }
     if fsutil::dir_exists(&format!("{base}streamwaves")) {
-        return Some(Game::Kotor1);
+        return Some(Game::K1);
     }
 
     None
@@ -268,14 +372,14 @@ mod tests {
             &mut found,
             Install {
                 path: "/games/swkotor".into(),
-                game: Some(Game::Kotor1),
+                game: Some(Game::K1),
             },
         );
         push_unique(
             &mut found,
             Install {
                 path: "/games/SWKotOR/".into(),
-                game: Some(Game::Kotor1),
+                game: Some(Game::K1),
             },
         );
 
@@ -333,7 +437,7 @@ mod tests {
 
         fs::create_dir(dir.join("modules")).unwrap();
         fs::create_dir(dir.join("streamvoice")).unwrap();
-        assert_eq!(identify(&base), Some(Game::Kotor2));
+        assert_eq!(identify(&base), Some(Game::K2));
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -345,7 +449,7 @@ mod tests {
 
         fs::create_dir(dir.join("modules")).unwrap();
         fs::create_dir(dir.join("streamwaves")).unwrap();
-        assert_eq!(identify(&base), Some(Game::Kotor1));
+        assert_eq!(identify(&base), Some(Game::K1));
 
         let _ = fs::remove_dir_all(&dir);
     }

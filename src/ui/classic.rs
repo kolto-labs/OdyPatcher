@@ -41,7 +41,6 @@ impl App {
             .as_ref()
             .map(|s| {
                 s.namespaces
-                    .entries
                     .iter()
                     .map(|e| (e.name.clone(), e.description.clone()))
                     .collect()
@@ -266,7 +265,8 @@ impl App {
                     if !session.has_instructions() {
                         Some(format!(
                             "Cannot find the instruction file \"{}\" in {}.",
-                            session.ini_name, session.data_path
+                            session.ini_name(),
+                            session.tslpatchdata_path.display()
                         ))
                     } else {
                         session.blocked_reason()

@@ -55,21 +55,6 @@ impl App {
                         ui.close();
                     }
 
-                    ui.separator();
-                    // Disabled mid-run: the mode is fixed once a run starts,
-                    // so a checkbox that moved would say something untrue.
-                    ui.add_enabled(
-                        !self.running,
-                        egui::Checkbox::new(
-                            &mut self.experimental_lowercase_paths,
-                            "Lowercase names while installing",
-                        ),
-                    )
-                    .on_hover_text(
-                        "Experimental. Faster where the filesystem tells Data and data apart. \
-Renames files in the mod folder and in the folders the mod writes to. This \
-cannot be undone.",
-                    );
                 });
 
                 ui.menu_button("Help", |ui| {
@@ -129,7 +114,12 @@ cannot be undone.",
                     return;
                 };
 
-                let findings = crate::tools::validate(session);
+                let game_folder = if self.game_path.is_empty() {
+                    None
+                } else {
+                    Some(std::path::PathBuf::from(&self.game_path))
+                };
+                let findings = crate::tools::validate(session, game_folder.as_deref());
                 let mut report = String::from("Checking the mod's instructions\n\n");
 
                 for finding in &findings {
@@ -143,7 +133,7 @@ cannot be undone.",
             MenuAction::Restore => {
                 self.dialogs.push_back(Dialog::confirm(
                     "Restore Backup",
-                    "Put every file in this mod's backup folder back into the game?\n\nFiles return to the folder their type came from: the string table beside the game, archives with the modules, everything else to override.",
+                    "Restore the most recent backup in this mod's backup folder into the game?\n\nFiles go back where they were taken from, and files the install added are removed. The backup is kept afterwards.",
                     Answer::RestoreBackup,
                 ));
             }
@@ -175,18 +165,23 @@ deleted. This cannot be undone. Back up your game folder first.",
             return;
         }
 
-        let report = crate::tools::restore_backup(session, &self.game_path);
+        let report = crate::tools::restore_backup(
+            &session.base_path,
+            std::path::Path::new(&self.game_path),
+        );
         let mut text = String::from("Restoring backed-up files\n\n");
 
-        for (name, destination) in &report.restored {
-            text.push_str(&format!("  restored {name} -> {destination}\n"));
+        for log in &report.logs {
+            text.push_str(&format!("  {}\n", log.formatted_message()));
         }
-        for (name, reason) in &report.failed {
-            text.push_str(&format!("  failed   {name}: {reason}\n"));
+        for (title, message) in &report.messages {
+            text.push_str(&format!("\n[{title}]\n{message}\n"));
         }
-        if report.restored.is_empty() && report.failed.is_empty() {
-            text.push_str("  Nothing to restore; the backup folder is empty.\n");
-        }
+        text.push_str(if report.restored {
+            "\nThe backup was restored.\n"
+        } else {
+            "\nNothing was restored.\n"
+        });
 
         self.tool_text = text;
         self.view = View::Tool;
@@ -237,11 +232,7 @@ so nothing was renamed."
             .session
             .as_ref()
             .map(|s| {
-                s.namespaces
-                    .entries
-                    .iter()
-                    .map(|e| e.name.clone())
-                    .collect()
+                s.namespaces.iter().map(|e| e.name.clone()).collect()
             })
             .unwrap_or_default();
 
