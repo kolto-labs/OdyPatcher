@@ -1403,8 +1403,8 @@ impl ModInstaller {
             workspace,
             &self.mod_path,
             &mut self.log,
-            |root, relative, description| Self::resolve_relative_folder_within(root, relative, description),
-            |path, root, description| Self::ensure_within_root(path, root, description),
+            Self::resolve_relative_folder_within,
+            Self::ensure_within_root,
         )
     }
 
@@ -1446,7 +1446,7 @@ impl ModInstaller {
             self.log = log;
             result
         };
-        for (&i, updated) in nss_indexes.iter().zip(patches_nss.into_iter()) {
+        for (&i, updated) in nss_indexes.iter().zip(patches_nss) {
             patches[i] = Patch::Nss(updated);
         }
         result

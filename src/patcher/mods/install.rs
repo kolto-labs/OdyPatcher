@@ -221,133 +221,6 @@ impl PatcherModifications for InstallFile {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "odypatcher-install-{tag}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn protected_replacement_needs_replace_and_a_protected_extension() {
-        let mut file = InstallFile::new("dialog.TLK", true);
-        assert!(file.is_protected_replacement());
-        file.base.replace_file = false;
-        assert!(!file.is_protected_replacement());
-        assert!(!InstallFile::new("a.utc", true).is_protected_replacement());
-    }
-
-    #[test]
-    fn backup_tree_manifest_and_scripts_follow_install_py() {
-        let dir = temp_dir("backup");
-        let game = dir.join("Game");
-        let override_dir = game.join("Override");
-        std::fs::create_dir_all(&override_dir).unwrap();
-        std::fs::write(override_dir.join("Spells.2da"), b"table").unwrap();
-        let package = dir.join("Mod");
-        let backup_dir = package.join("backup").join("2024-01-02_03.04.05");
-        std::fs::create_dir_all(&backup_dir).unwrap();
-
-        let mut log = PatchLogger::new();
-        let mut processed = HashSet::new();
-
-        // Existing file: copied under the relative subdirectory with a lower-cased name.
-        create_backup(
-            &mut log,
-            &override_dir.join("Spells.2da"),
-            &backup_dir,
-            &mut processed,
-            Some(Path::new("Override")),
-            false,
-        )
-        .unwrap();
-        let copied = backup_dir.join("Override").join("spells.2da");
-        assert_eq!(std::fs::read(&copied).unwrap(), b"table");
-        assert!(package.join("uninstall").join("uninstall.ps1").is_file());
-        assert!(package.join("uninstall").join("uninstall.sh").is_file());
-        let ps1 = std::fs::read_to_string(package.join("uninstall").join("uninstall.ps1")).unwrap();
-        assert!(ps1.contains(&format!("$mostRecentBackupFolder = \"{}\"", backup_dir.display())));
-        assert!(ps1.contains(&format!("Join-Path \"{}\" -ChildPath $relativePath", game.display())));
-        assert!(!ps1.contains("{{"));
-        let sh = std::fs::read_to_string(package.join("uninstall").join("uninstall.sh")).unwrap();
-        assert!(sh.contains(&format!("destinationPath=\"{}/$relativePath\"", game.display())));
-        assert!(sh.contains("^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}$"));
-        assert_eq!(log.notes()[0].message, format!("Backing up '{}'...", override_dir.join("Spells.2da").display()));
-        assert!(processed.contains(&override_dir.join("Spells.2da").to_string_lossy().to_lowercase()));
-        assert!(processed.contains(&package.join("uninstall").to_string_lossy().to_lowercase()));
-
-        // A second call for the same file is a no-op.
-        create_backup(
-            &mut log,
-            &override_dir.join("Spells.2da"),
-            &backup_dir,
-            &mut processed,
-            Some(Path::new("Override")),
-            false,
-        )
-        .unwrap();
-        assert_eq!(log.notes().len(), 1);
-
-        // Same lower-cased target from a different case gets " (2)".
-        let mut fresh = HashSet::new();
-        create_backup(
-            &mut log,
-            &override_dir.join("SPELLS.2DA"),
-            &backup_dir,
-            &mut fresh,
-            Some(Path::new("Override")),
-            false,
-        )
-        .unwrap();
-        assert!(backup_dir.join("Override").join("spells (2).2da").is_file());
-
-        // A new file goes into the manifest.
-        create_backup(
-            &mut log,
-            &override_dir.join("new.utc"),
-            &backup_dir,
-            &mut processed,
-            Some(Path::new("Override")),
-            false,
-        )
-        .unwrap();
-        create_backup(
-            &mut log,
-            &game.join("modules").join("danm13.mod"),
-            &backup_dir,
-            &mut processed,
-            Some(Path::new("modules")),
-            true,
-        )
-        .unwrap();
-        let manifest = std::fs::read_to_string(backup_dir.join("remove these files.txt")).unwrap();
-        assert_eq!(
-            manifest,
-            format!(
-                "{}\n{}",
-                override_dir.join("new.utc").display(),
-                game.join("modules").join("danm13.mod").display()
-            )
-        );
-
-        // No subdirectory: flat in the backup folder.
-        let mut flat = HashSet::new();
-        std::fs::write(game.join("dialog.tlk"), b"tlk").unwrap();
-        create_backup(&mut log, &game.join("dialog.tlk"), &backup_dir, &mut flat, None, false).unwrap();
-        assert!(backup_dir.join("dialog.tlk").is_file());
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
 /// Template of `uninstall/uninstall.ps1` (`{backup_dir}` / `{main_folder}` are substituted).
 const UNINSTALL_PS1: &str = r###"#!/usr/bin/env pwsh
 $backupParentFolder = Get-Item -Path "..$([System.IO.Path]::DirectorySeparatorChar)backup"
@@ -548,3 +421,132 @@ done < <(find "$mostRecentBackupFolder" -type f ! -name 'remove these files.txt'
 read -rp "Press enter to continue..."
 
     "###;
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "odypatcher-install-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn protected_replacement_needs_replace_and_a_protected_extension() {
+        let mut file = InstallFile::new("dialog.TLK", true);
+        assert!(file.is_protected_replacement());
+        file.base.replace_file = false;
+        assert!(!file.is_protected_replacement());
+        assert!(!InstallFile::new("a.utc", true).is_protected_replacement());
+    }
+
+    #[test]
+    fn backup_tree_manifest_and_scripts_follow_install_py() {
+        let dir = temp_dir("backup");
+        let game = dir.join("Game");
+        let override_dir = game.join("Override");
+        std::fs::create_dir_all(&override_dir).unwrap();
+        std::fs::write(override_dir.join("Spells.2da"), b"table").unwrap();
+        let package = dir.join("Mod");
+        let backup_dir = package.join("backup").join("2024-01-02_03.04.05");
+        std::fs::create_dir_all(&backup_dir).unwrap();
+
+        let mut log = PatchLogger::new();
+        let mut processed = HashSet::new();
+
+        // Existing file: copied under the relative subdirectory with a lower-cased name.
+        create_backup(
+            &mut log,
+            &override_dir.join("Spells.2da"),
+            &backup_dir,
+            &mut processed,
+            Some(Path::new("Override")),
+            false,
+        )
+        .unwrap();
+        let copied = backup_dir.join("Override").join("spells.2da");
+        assert_eq!(std::fs::read(&copied).unwrap(), b"table");
+        assert!(package.join("uninstall").join("uninstall.ps1").is_file());
+        assert!(package.join("uninstall").join("uninstall.sh").is_file());
+        let ps1 = std::fs::read_to_string(package.join("uninstall").join("uninstall.ps1")).unwrap();
+        assert!(ps1.contains(&format!("$mostRecentBackupFolder = \"{}\"", backup_dir.display())));
+        assert!(ps1.contains(&format!("Join-Path \"{}\" -ChildPath $relativePath", game.display())));
+        assert!(!ps1.contains("{{"));
+        let sh = std::fs::read_to_string(package.join("uninstall").join("uninstall.sh")).unwrap();
+        assert!(sh.contains(&format!("destinationPath=\"{}/$relativePath\"", game.display())));
+        assert!(sh.contains("^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}$"));
+        assert_eq!(log.notes()[0].message, format!("Backing up '{}'...", override_dir.join("Spells.2da").display()));
+        assert!(processed.contains(&override_dir.join("Spells.2da").to_string_lossy().to_lowercase()));
+        assert!(processed.contains(&package.join("uninstall").to_string_lossy().to_lowercase()));
+
+        // A second call for the same file is a no-op.
+        create_backup(
+            &mut log,
+            &override_dir.join("Spells.2da"),
+            &backup_dir,
+            &mut processed,
+            Some(Path::new("Override")),
+            false,
+        )
+        .unwrap();
+        assert_eq!(log.notes().len(), 1);
+
+        // Same lower-cased target from a different case gets " (2)".
+        let mut fresh = HashSet::new();
+        create_backup(
+            &mut log,
+            &override_dir.join("SPELLS.2DA"),
+            &backup_dir,
+            &mut fresh,
+            Some(Path::new("Override")),
+            false,
+        )
+        .unwrap();
+        assert!(backup_dir.join("Override").join("spells (2).2da").is_file());
+
+        // A new file goes into the manifest.
+        create_backup(
+            &mut log,
+            &override_dir.join("new.utc"),
+            &backup_dir,
+            &mut processed,
+            Some(Path::new("Override")),
+            false,
+        )
+        .unwrap();
+        create_backup(
+            &mut log,
+            &game.join("modules").join("danm13.mod"),
+            &backup_dir,
+            &mut processed,
+            Some(Path::new("modules")),
+            true,
+        )
+        .unwrap();
+        let manifest = std::fs::read_to_string(backup_dir.join("remove these files.txt")).unwrap();
+        assert_eq!(
+            manifest,
+            format!(
+                "{}\n{}",
+                override_dir.join("new.utc").display(),
+                game.join("modules").join("danm13.mod").display()
+            )
+        );
+
+        // No subdirectory: flat in the backup folder.
+        let mut flat = HashSet::new();
+        std::fs::write(game.join("dialog.tlk"), b"tlk").unwrap();
+        create_backup(&mut log, &game.join("dialog.tlk"), &backup_dir, &mut flat, None, false).unwrap();
+        assert!(backup_dir.join("dialog.tlk").is_file());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+

@@ -613,7 +613,7 @@ impl ConfigReader<'_> {
             }
             GffFieldType::Binary => {
                 let stripped = raw_value.trim();
-                if stripped.replace('1', "").replace('0', "").is_empty() {
+                if stripped.chars().all(|c| c == '0' || c == '1') {
                     let bytes = raw_value
                         .as_bytes()
                         .chunks(8)

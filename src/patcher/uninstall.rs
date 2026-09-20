@@ -19,16 +19,20 @@ const K1_TLK_ENTRIES: usize = 49_265;
 /// Vanilla `dialog.tlk` entry count for The Sith Lords.
 const K2_TLK_ENTRIES: usize = 136_329;
 
+type AskYesNo = Box<dyn FnMut(&str, &str) -> bool>;
+type ShowMsg = Box<dyn FnMut(&str, &str)>;
+type BackupInfo = (Option<PathBuf>, HashSet<String>, Vec<PathBuf>, usize);
+
 /// The `messagebox` calls `ModUninstaller` makes, as callbacks.
 ///
 /// Each receives `(title, message)`; `askyesno` returns the user's answer.
 pub struct UninstallDialogs {
     /// `messagebox.askyesno(title, message)`.
-    pub askyesno: Box<dyn FnMut(&str, &str) -> bool>,
+    pub askyesno: AskYesNo,
     /// `messagebox.showerror(title, message)`.
-    pub showerror: Box<dyn FnMut(&str, &str)>,
+    pub showerror: ShowMsg,
     /// `messagebox.showwarning(title, message)`.
-    pub showwarning: Box<dyn FnMut(&str, &str)>,
+    pub showwarning: ShowMsg,
 }
 
 impl UninstallDialogs {
@@ -178,7 +182,8 @@ impl ModUninstaller {
         if !backup_folder.is_dir() {
             return None;
         }
-        let mut best: Option<((i32, u32, u32, u32, u32, u32), PathBuf)> = None;
+        type BackupKey = (i32, u32, u32, u32, u32, u32);
+        let mut best: Option<(BackupKey, PathBuf)> = None;
         for entry in safe_iterdir(backup_folder) {
             let is_symlink = std::fs::symlink_metadata(&entry)
                 .map(|m| m.file_type().is_symlink())
@@ -311,7 +316,7 @@ impl ModUninstaller {
     /// `folder` is `None` when there is no usable backup or the user declined.
     pub fn get_backup_info(
         &mut self,
-    ) -> PResult<(Option<PathBuf>, HashSet<String>, Vec<PathBuf>, usize)> {
+    ) -> PResult<BackupInfo> {
         let Some(folder) = Self::get_most_recent_backup(&self.backups_location_path) else {
             (self.dialogs.showerror)(
                 "No backups found",

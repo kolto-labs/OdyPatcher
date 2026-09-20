@@ -281,7 +281,7 @@ pub fn python_float_repr(value: f64) -> String {
     let scientific = format!("{value:e}");
     let (mantissa, exponent) = scientific.split_once('e').unwrap_or((&scientific, "0"));
     let exponent: i32 = exponent.parse().unwrap_or(0);
-    if exponent < -4 || exponent >= 16 {
+    if !(-4..16).contains(&exponent) {
         let sign = if exponent < 0 { '-' } else { '+' };
         return format!("{mantissa}e{sign}{:02}", exponent.abs());
     }
@@ -947,11 +947,10 @@ impl FieldValueKind {
                         token_id.and_then(|id| memory.memory_str.get(&id).copied()).unwrap_or(0),
                     ));
                 }
-                if raw_value.starts_with("2DAMEMORY") {
+                if let Some(suffix) = raw_value.strip_prefix("2DAMEMORY") {
                     if memory.memory_2da.is_empty() {
                         return GffValue::Str(raw_value.clone());
                     }
-                    let suffix = &raw_value[9..];
                     let mut token_id = if is_ascii_digits(suffix) {
                         suffix.parse::<i32>().unwrap_or(1)
                     } else {
