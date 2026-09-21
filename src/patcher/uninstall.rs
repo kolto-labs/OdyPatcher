@@ -78,6 +78,11 @@ fn resolve(path: &Path) -> PathBuf {
     super::casepath::normcase_realpath(path)
 }
 
+/// Display a relative path with forward slashes (matches Python's posixpath output).
+fn posix_display(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 /// `path.relative_to(other)`: the `ValueError` text is Python 3.12's.
 fn relative_to(path: &Path, other: &Path) -> PResult<PathBuf> {
     path.strip_prefix(other)
@@ -298,7 +303,7 @@ impl ModUninstaller {
             result?;
             self.logger.add_note(format!(
                 "Restored '{}'.",
-                relative_to(destination, &game)?.display()
+                posix_display(&relative_to(&resolve(destination), &game)?)
             ));
         }
         for target in &removals {
@@ -321,7 +326,7 @@ impl ModUninstaller {
             }
             self.logger.add_note(format!(
                 "Removed '{}'.",
-                relative_to(&resolve(target), &game)?.display()
+                posix_display(&relative_to(&resolve(target), &game)?)
             ));
         }
         Ok(())
