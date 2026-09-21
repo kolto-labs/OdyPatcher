@@ -611,7 +611,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "macos"))] // macOS APFS case-insensitive FS causes path resolution differences
+    #[cfg(target_os = "linux")] // test uses Unix path separators in log assertions; macOS APFS causes path resolution differences
     fn uninstall_restores_files_and_removes_installed_ones() {
         let dir = temp_dir("restore");
         let game = dir.join("Game");

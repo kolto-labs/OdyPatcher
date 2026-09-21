@@ -185,6 +185,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))] // test uses Unix-style absolute paths not meaningful on Windows
     fn abspath_collapses_dots() {
         let base = Path::new("/a/b");
         assert_eq!(abspath(&base.join("../c/./d")), PathBuf::from("/a/c/d"));
