@@ -1,0 +1,5 @@
+[net]
+# Use the system git CLI (which reads the global gitconfig including the
+# url.insteadOf rewrite for private deps) instead of Cargo's built-in
+# libgit2.  Required so CARGO_PAT auth works on all platforms.
+git-fetch-with-cli = true

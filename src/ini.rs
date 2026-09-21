@@ -1,3 +1,3 @@
-//! Re-export of `kotor_formats::ini` (shared with the instruction-file editor).
+//! Re-export of the port's `configparser` equivalent, [`crate::patcher::ini`].
 
-pub use kotor_formats::ini::*;
+pub use crate::patcher::ini::*;

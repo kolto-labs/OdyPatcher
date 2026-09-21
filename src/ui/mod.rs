@@ -4,78 +4,36 @@ mod browse;
 mod classic;
 
 use std::collections::VecDeque;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use eframe::egui;
 
-use crate::host::{FileRequest, Host};
-use crate::patcher::log::{Log, LogLine};
-use crate::patcher::{PatchSummary, Patcher};
-use crate::session::{self, Session};
+use crate::patcher::logger::{LogType, PatchLog, PatchLogger};
+use crate::session::{self, RunReport, Session};
 
 /// Which layout the window is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
+    /// The mod sits beside the program: fixed layout, one button.
     Classic,
+    /// Pick the mod and game folders in the window.
     Browse,
 }
 
-enum Question {
-    GameFolder(String),
-    File(FileRequest),
-}
-
-struct Ask {
-    question: Question,
-    reply: Sender<Option<String>>,
+/// What a finished run left behind, as the worker thread reports it.
+struct RunFinished {
+    result: Result<(), String>,
+    report: RunReport,
+    log_path: Option<PathBuf>,
 }
 
 enum Message {
-    Line(Box<LogLine>),
+    Line(Box<PatchLog>),
     Progress(usize, usize),
-    InstallPath(String),
-    Ask(Ask),
-    Finished(Box<Result<PatchSummary, crate::PatchError>>),
-}
-
-struct WindowHost {
-    sender: Sender<Message>,
-}
-
-impl WindowHost {
-    fn ask(&mut self, question: Question) -> Option<String> {
-        let (reply, answers) = channel();
-
-        if self
-            .sender
-            .send(Message::Ask(Ask { question, reply }))
-            .is_err()
-        {
-            return None;
-        }
-
-        // A dropped channel means the window closed and the run should stop.
-        answers.recv().ok().flatten()
-    }
-}
-
-impl Host for WindowHost {
-    fn choose_game_folder(&mut self, prompt: &str) -> Option<String> {
-        self.ask(Question::GameFolder(prompt.to_string()))
-    }
-
-    fn choose_file(&mut self, request: &FileRequest) -> Option<String> {
-        self.ask(Question::File(request.clone()))
-    }
-
-    fn install_path_changed(&mut self, path: &str) {
-        let _ = self.sender.send(Message::InstallPath(path.to_string()));
-    }
-
-    fn progress(&mut self, current: usize, max: usize) {
-        let _ = self.sender.send(Message::Progress(current, max));
-    }
+    Finished(Box<RunFinished>),
 }
 
 /// Which panel fills the middle of the window.
@@ -146,6 +104,7 @@ impl Dialog {
     }
 }
 
+/// The window state, shared by both layouts.
 pub struct App {
     mode: Mode,
     base_path: String,
@@ -154,13 +113,12 @@ pub struct App {
     view: View,
     info_text: String,
     summary_text: String,
-    lines: Vec<LogLine>,
+    lines: Vec<PatchLog>,
     progress: (usize, usize),
     running: bool,
     finished: bool,
 
     incoming: Option<Receiver<Message>>,
-    pending: Option<Ask>,
     dialogs: VecDeque<Dialog>,
     startup_checked: bool,
 
@@ -181,6 +139,7 @@ pub struct App {
 }
 
 impl App {
+    /// The classic layout for a mod found beside the program.
     pub fn classic(session: Session) -> Self {
         let info_text = session.info_text();
         let summary_text = session.summary_text();
@@ -188,7 +147,7 @@ impl App {
         let install_path_label = session
             .looked_up_game_folder()
             .unwrap_or_else(|| "User selected.".to_string());
-        let base_path = session.base_path.clone();
+        let base_path = session.base_path.to_string_lossy().into_owned();
 
         Self {
             mode: Mode::Classic,
@@ -202,7 +161,6 @@ impl App {
             running: false,
             finished: false,
             incoming: None,
-            pending: None,
             dialogs: VecDeque::new(),
             startup_checked: false,
             choosing_variant,
@@ -218,6 +176,7 @@ impl App {
         }
     }
 
+    /// The browse layout, with nothing loaded yet.
     pub fn browse(base_path: String) -> Self {
         let game_paths: Vec<String> = crate::gamepaths::detect()
             .into_iter()
@@ -236,7 +195,6 @@ impl App {
             running: false,
             finished: false,
             incoming: None,
-            pending: None,
             dialogs: VecDeque::new(),
             startup_checked: true,
             choosing_variant: false,
@@ -253,7 +211,6 @@ impl App {
     }
 
     /// Load a mod from a folder the operator pointed at.
-    ///
     fn load_mod(&mut self, chosen: &str) {
         let Some(root) = session::locate_mod(chosen) else {
             self.dialogs.push_back(Dialog::warning(
@@ -263,7 +220,14 @@ impl App {
             return;
         };
 
-        let session = Session::discover(&root, "changes.ini", "info.rtf");
+        let session = Session::discover(&root.to_string_lossy(), "changes.ini", "info.rtf");
+
+        if let Some(error) = &session.namespace_error {
+            self.dialogs.push_back(Dialog::warning(
+                "Error",
+                format!("Cannot read namespaces.ini: {error}"),
+            ));
+        }
 
         self.mod_label = mod_label(&session, 0);
         self.selected_variant = 0;
@@ -273,7 +237,7 @@ impl App {
         self.lines.clear();
         self.progress = (0, 0);
         self.finished = false;
-        self.base_path = session.base_path.clone();
+        self.base_path = session.base_path.to_string_lossy().into_owned();
         self.session = Some(session);
     }
 
@@ -292,7 +256,7 @@ impl App {
     fn variant_description(&self) -> String {
         self.session
             .as_ref()
-            .and_then(|s| s.namespaces.entries.get(self.selected_variant))
+            .and_then(|s| s.namespaces.get(self.selected_variant))
             .map(|entry| entry.description.clone())
             .unwrap_or_else(|| "This mod offers a single installation.".to_string())
     }
@@ -307,19 +271,53 @@ impl App {
             return;
         }
 
-        if session.settings.starts_without_asking() {
+        if session.starts_without_asking() {
             self.start();
         } else {
-            let prompt = session.settings.confirm_prompt();
+            let prompt = session.confirm_message();
             self.dialogs
                 .push_back(Dialog::confirm("Ready to start", prompt, Answer::StartRun));
         }
+    }
+
+    /// Which game folder to install into: the one chosen in the window, else
+    /// the mod's registry lookup, else a lone detected install, else ask.
+    fn settle_game_folder(&self) -> Option<PathBuf> {
+        if self.mode == Mode::Browse && !self.game_path.is_empty() {
+            return Some(PathBuf::from(&self.game_path));
+        }
+
+        if let Some(found) = self
+            .session
+            .as_ref()
+            .and_then(|s| s.looked_up_game_folder())
+        {
+            if Path::new(&found).is_dir() {
+                return Some(PathBuf::from(found));
+            }
+        }
+
+        let detected = crate::gamepaths::detect();
+        if detected.len() == 1 {
+            return Some(PathBuf::from(&detected[0].path));
+        }
+
+        rfd::FileDialog::new()
+            .set_title("Select the folder the game is installed in")
+            .pick_folder()
     }
 
     fn start(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
         };
+
+        let Some(game_folder) = self.settle_game_folder() else {
+            self.dialogs
+                .push_back(Dialog::warning("Error", "No game folder was chosen."));
+            return;
+        };
+        self.install_path_label = game_folder.to_string_lossy().into_owned();
 
         let (sender, receiver) = channel();
         self.incoming = Some(receiver);
@@ -328,41 +326,35 @@ impl App {
         self.lines.clear();
         self.view = View::Log;
 
-        let base = session.base_path.clone();
-        let data = session.data_path.clone();
-        let ini_name = session.ini_name.clone();
-        let level = session.settings.log_level;
+        let session = session.clone();
+        let total = session
+            .config
+            .clone()
+            .map(|mut config| config.patch_count())
+            .unwrap_or(0);
 
-        // A folder chosen in the window is used directly; otherwise the mod's
-        // own registry lookup decides, and failing that the engine asks.
-        let known_folder = if self.mode == Mode::Browse && !self.game_path.is_empty() {
-            Some(self.game_path.clone())
-        } else {
-            session.looked_up_game_folder()
-        };
-
-        let log_sender = sender.clone();
         thread::spawn(move || {
-            let mut log = Log::new(
-                level,
-                Box::new(move |line| {
-                    let _ = log_sender.send(Message::Line(Box::new(line.clone())));
-                }),
-            );
+            let mut logger = PatchLogger::new();
+            let line_sender = sender.clone();
+            logger.add_observer(Box::new(move |log| {
+                let _ = line_sender.send(Message::Line(Box::new(log.clone())));
+            }));
 
-            let mut host = WindowHost {
-                sender: sender.clone(),
+            let done = Arc::new(Mutex::new(0usize));
+            let progress_sender = sender.clone();
+            let counter = Arc::clone(&done);
+            let mut progress = move || {
+                let mut done = counter.lock().unwrap();
+                *done += 1;
+                let _ = progress_sender.send(Message::Progress(*done, total.max(*done)));
             };
 
-            let mut patcher = Patcher::new(&base, &data, &ini_name);
-            if let Some(folder) = known_folder {
-                if crate::compat::fsutil::dir_exists(&folder) {
-                    patcher.files.set_install_path(&folder);
-                }
-            }
-
-            let outcome = patcher.run(&mut log, &mut host);
-            let _ = sender.send(Message::Finished(Box::new(outcome)));
+            let outcome = session.run_install(&game_folder, logger, None, Some(&mut progress));
+            let _ = sender.send(Message::Finished(Box::new(RunFinished {
+                result: outcome.result.map_err(|err| err.simplified()),
+                report: outcome.report,
+                log_path: outcome.log_path,
+            })));
         });
     }
 
@@ -372,17 +364,11 @@ impl App {
         };
 
         let mut finished = None;
-        let mut asked = None;
 
         for message in receiver.try_iter() {
             match message {
                 Message::Line(line) => self.lines.push(*line),
                 Message::Progress(done, total) => self.progress = (done, total),
-                Message::InstallPath(path) => self.install_path_label = path,
-                Message::Ask(ask) => {
-                    asked = Some(ask);
-                    break;
-                }
                 Message::Finished(result) => {
                     finished = Some(*result);
                     break;
@@ -390,65 +376,32 @@ impl App {
             }
         }
 
-        if let Some(ask) = asked {
-            self.pending = Some(ask);
-        }
-
         if let Some(result) = finished {
             self.complete(result);
         }
     }
 
-    fn complete(&mut self, result: Result<PatchSummary, crate::PatchError>) {
+    fn complete(&mut self, finished: RunFinished) {
         self.running = false;
         self.finished = true;
         self.installed = true;
         self.incoming = None;
 
-        if let Some(session) = self.session.as_ref() {
-            if let Some(path) = session.write_install_log(&self.lines) {
-                self.lines.push(LogLine {
-                    level: crate::patcher::LogLevel::Information,
-                    text: format!("Install log written to {path}"),
-                    outcome: crate::patcher::Outcome::Clean,
-                });
-            }
+        if let Some(path) = &finished.log_path {
+            self.lines.push(PatchLog {
+                message: format!("Install log written to {}", path.display()),
+                log_type: LogType::Note,
+                timestamp: String::new(),
+            });
         }
 
-        let installing = self
-            .session
-            .as_ref()
-            .map(|s| s.settings.installer_mode)
-            .unwrap_or(true);
-
-        self.dialogs.push_back(match result {
-            Ok(summary) if summary.is_clean() => {
-                Dialog::info("Finished", finish_message(&summary, installing))
+        self.dialogs.push_back(match finished.result {
+            Ok(()) if finished.report.is_clean() => {
+                Dialog::info("Finished", finish_message(&finished.report))
             }
-            Ok(summary) => Dialog::warning("Finished", finish_message(&summary, installing)),
+            Ok(()) => Dialog::warning("Finished", finish_message(&finished.report)),
             Err(err) => Dialog::warning("Error", format!("An error occured! {err}")),
         });
-    }
-
-    fn answer_pending(&mut self) {
-        let Some(ask) = self.pending.take() else {
-            return;
-        };
-
-        let answer = match &ask.question {
-            Question::GameFolder(prompt) => rfd::FileDialog::new()
-                .set_title(prompt)
-                .pick_folder()
-                .map(|path| path.to_string_lossy().into_owned()),
-            Question::File(request) => rfd::FileDialog::new()
-                .set_title(&request.title)
-                .set_file_name(&request.default_name)
-                .add_filter(&request.description, &[request.extension.as_str()])
-                .pick_file()
-                .map(|path| path.to_string_lossy().into_owned()),
-        };
-
-        let _ = ask.reply.send(answer);
     }
 
     fn show_dialog(&mut self, ctx: &egui::Context) {
@@ -524,11 +477,11 @@ impl App {
     }
 
     fn show_body(&self, ui: &mut egui::Ui) {
-        let plain = self
+        let level = self
             .session
             .as_ref()
-            .map(|s| s.settings.plaintext_log)
-            .unwrap_or(false);
+            .map(|s| s.log_level())
+            .unwrap_or(crate::patcher::config::LogLevel::Warnings);
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
@@ -545,13 +498,16 @@ impl App {
                 }
                 View::Log => {
                     for line in &self.lines {
-                        if plain {
-                            // A mod asking for a plain log gets one without colour.
-                            ui.monospace(line.as_plain_text());
-                        } else {
-                            let (r, g, b) = line.color();
-                            ui.colored_label(egui::Color32::from_rgb(r, g, b), line.as_rich_text());
+                        // The level only decides what is shown; every line is
+                        // still recorded and written to the install log.
+                        if !session::shows(level, line.log_type) {
+                            continue;
                         }
+                        let (r, g, b) = session::log_color(line.log_type);
+                        ui.colored_label(
+                            egui::Color32::from_rgb(r, g, b),
+                            egui::RichText::new(line.formatted_message()).monospace(),
+                        );
                     }
                 }
             });
@@ -562,8 +518,15 @@ impl App {
             return;
         };
 
+        if let Some(error) = &session.namespace_error {
+            self.dialogs.push_back(Dialog::warning(
+                "Error",
+                format!("Cannot read namespaces.ini: {error}"),
+            ));
+        }
+
         if !session.has_instructions() {
-            let ini_name = session.ini_name.clone();
+            let ini_name = session.ini_name().to_string();
             self.dialogs.push_back(Dialog::warning(
                 "Warning",
                 format!(
@@ -584,27 +547,23 @@ impl App {
 }
 
 fn mod_label(session: &Session, index: usize) -> String {
-    match session.namespaces.entries.get(index) {
+    match session.namespaces.get(index) {
         Some(entry) => entry.name.clone(),
-        None => session.settings.window_caption.clone(),
+        None => session.window_caption(),
     }
 }
 
-fn finish_message(summary: &PatchSummary, installing: bool) -> String {
-    let subject = if installing { "Installer" } else { "Patcher" };
-
-    match (summary.errors, summary.warnings) {
-        (0, 0) => format!(
-            "The {subject} is finished. Please check the progress log for details about what has been done."
-        ),
+fn finish_message(report: &RunReport) -> String {
+    match (report.errors, report.warnings) {
+        (0, 0) => "The Installer is finished. Please check the progress log for details about what has been done.".to_string(),
         (0, warnings) => format!(
-            "The {subject} is finished, but {warnings} warnings were encountered! The Mod may or may not be properly installed. Please check the progress log for further details."
+            "The Installer is finished, but {warnings} warnings were encountered! The Mod may or may not be properly installed. Please check the progress log for further details."
         ),
         (errors, 0) => format!(
-            "The {subject} is finished, but {errors} errors were encountered! The Mod has likely not been properly installed. Please check the progress log for further details."
+            "The Installer is finished, but {errors} errors were encountered! The Mod has likely not been properly installed. Please check the progress log for further details."
         ),
         (errors, warnings) => format!(
-            "The {subject} is finished, but {errors} errors and {warnings} warnings were encountered! The Mod most likely has not been properly installed. Please check the progress log for further details."
+            "The Installer is finished, but {errors} errors and {warnings} warnings were encountered! The Mod most likely has not been properly installed. Please check the progress log for further details."
         ),
     }
 }
@@ -612,10 +571,6 @@ fn finish_message(summary: &PatchSummary, installing: bool) -> String {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_messages();
-
-        if self.pending.is_some() {
-            self.answer_pending();
-        }
 
         if self.running {
             // Keep repainting so progress keeps moving while the worker runs.
@@ -636,12 +591,13 @@ impl eframe::App for App {
     }
 }
 
+/// Open the window: classic when a mod sits beside the program, else browse.
 pub fn run(base_path: &str, ini_name: &str, info_name: &str) -> Result<(), eframe::Error> {
     let beside = session::mod_is_beside_program(base_path);
 
     let (app, title, size) = if beside {
         let session = Session::discover(base_path, ini_name, info_name);
-        let title = session.settings.window_caption.clone();
+        let title = session.window_caption();
         (App::classic(session), title, classic::DEFAULT_SIZE)
     } else {
         (
@@ -674,8 +630,8 @@ mod tests {
 
     #[test]
     fn a_clean_run_reports_success() {
-        let summary = PatchSummary::default();
-        let message = finish_message(&summary, true);
+        let report = RunReport::default();
+        let message = finish_message(&report);
 
         assert!(message.contains("Installer is finished"));
         assert!(!message.contains("errors"));
@@ -683,31 +639,25 @@ mod tests {
 
     #[test]
     fn warnings_and_errors_are_both_reported() {
-        let warned = PatchSummary {
+        let warned = RunReport {
             warnings: 3,
-            errors: 0,
+            ..RunReport::default()
         };
-        assert!(finish_message(&warned, true).contains("3 warnings"));
+        assert!(finish_message(&warned).contains("3 warnings"));
 
-        let failed = PatchSummary {
-            warnings: 0,
+        let failed = RunReport {
             errors: 2,
+            ..RunReport::default()
         };
-        assert!(finish_message(&failed, true).contains("2 errors"));
+        assert!(finish_message(&failed).contains("2 errors"));
 
-        let both = PatchSummary {
+        let both = RunReport {
             warnings: 3,
             errors: 2,
+            ..RunReport::default()
         };
-        let message = finish_message(&both, true);
+        let message = finish_message(&both);
         assert!(message.contains("2 errors") && message.contains("3 warnings"));
-    }
-
-    #[test]
-    fn patch_runs_are_named_differently_from_installs() {
-        let summary = PatchSummary::default();
-        assert!(finish_message(&summary, false).contains("Patcher"));
-        assert!(finish_message(&summary, true).contains("Installer"));
     }
 
     #[test]

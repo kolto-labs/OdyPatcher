@@ -153,6 +153,32 @@ Two keys shift names around, and can be used in any file's own section:
 - `!Filename` is the same as `!SaveAs`. If both are set, `!Filename` wins.
 - `!SourceFolder` names a subfolder of `tslpatchdata` to read the starting file from.
 
+### Letter case
+
+A mod names its files the way its author typed them, usually with Windows
+casing. The patcher matches those names against what is on disk without regard
+to case, so `Override\Appearance.2da` finds `override/appearance.2da`.
+
+There is an experimental alternative, off by default, that folds names to
+lowercase and looks them up by that name instead of searching. Whoever runs the
+patcher turns it on, with `--experimental-lowercase-paths`, the
+`ODYPATCHER_EXPERIMENTAL_LOWERCASE_PATHS` variable, or the box under Tools in
+the window. No instruction key can turn it on: a mod must not change how a
+player's machine resolves paths.
+
+With it on, the patcher renames files to lowercase in the mod folder and in the
+folders the mod writes to — `override`, every `!Destination` and
+`!DefaultDestination`, every `[InstallList]` folder, and the folder holding a
+capsule destination. Nothing else in the game is touched. On a filesystem that
+does not tell `Data` and `data` apart, it does nothing.
+
+The renaming is one way. Nothing records what was renamed and nothing puts the
+original names back, so back up the game folder before turning this on.
+
+Values a mod writes into game data are not folded. A ResRef in a 2DA cell or a
+GFF field keeps the casing its author gave it, in either mode, because that is
+content rather than a name to look up.
+
 ## String table
 
 Each `StrRef<n>` key names a line in the mod's append file; each value is that

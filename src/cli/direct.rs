@@ -1,13 +1,13 @@
 //! Unattended CLI: `--tslpatchdata`, `--game-dir`, and one action flag.
+//!
+//! Mirrors HoloPatcher's console mode: the same steps, the same `ExitCode`
+//! numbers.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::compat::fsutil;
-use crate::host::{FileRequest, Host};
-use crate::patcher::log::Log;
-use crate::patcher::Patcher;
+use crate::patcher::config::LogLevel;
+use crate::patcher::logger::PatchLogger;
 use crate::session::{self, Session};
 
 use super::Options;
@@ -16,18 +16,28 @@ use super::Options;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ExitCode {
+    /// Finished, with nothing to report.
     Success = 0,
+    /// Something went wrong before the run could start.
     UnknownStartupError = 1,
+    /// The command line did not make sense.
     NumberOfArgs = 2,
+    /// No mod was found at the path given.
     NamespacesIniNotFound = 3,
+    /// The install variant asked for does not exist.
     NamespaceIndexOutOfRange = 4,
+    /// The mod ships no instruction file.
     ChangesIniNotFound = 5,
+    /// The run was refused before changing anything.
     AbortInstallUnsafe = 6,
+    /// The run stopped partway through.
     ExceptionDuringInstall = 7,
+    /// The run finished, but steps failed along the way.
     InstallCompletedWithErrors = 8,
 }
 
 impl ExitCode {
+    /// The number the process exits with.
     pub fn code(self) -> i32 {
         self as i32
     }
@@ -39,6 +49,7 @@ fn fail(message: &str, code: ExitCode) -> i32 {
     code.code()
 }
 
+/// True when the command line asks for an unattended run.
 pub fn is_requested(options: &Options) -> bool {
     options.install
         || options.uninstall
@@ -47,6 +58,7 @@ pub fn is_requested(options: &Options) -> bool {
         || options.namespace_option_index.is_some()
 }
 
+/// Carry out an unattended run, reporting the process exit code.
 pub fn run(options: Options) -> i32 {
     let Some(mod_argument) = options.tslpatchdata.clone() else {
         return fail(
@@ -59,16 +71,23 @@ pub fn run(options: Options) -> i32 {
         return fail(
             &format!(
                 "Failed to load mod: No namespaces.ini or changes.ini found in {}",
-                fsutil::join(&mod_argument, "tslpatchdata")
+                Path::new(&mod_argument).join("tslpatchdata").display()
             ),
             ExitCode::NamespacesIniNotFound,
         );
     };
 
-    let mut mod_session = Session::discover(&mod_root, "changes.ini", "info.rtf");
+    let mut mod_session = Session::discover(&mod_root.to_string_lossy(), "changes.ini", "info.rtf");
+
+    if let Some(error) = &mod_session.namespace_error {
+        return fail(
+            &format!("Failed to load mod: {error}"),
+            ExitCode::NamespacesIniNotFound,
+        );
+    }
 
     // A mod with no installations to choose from still has one to run.
-    let choices = mod_session.namespaces.entries.len().max(1);
+    let choices = mod_session.namespaces.len().max(1);
     if let Some(index) = options.namespace_option_index {
         if index >= choices {
             return fail(
@@ -89,14 +108,11 @@ pub fn run(options: Options) -> i32 {
         return fail(
             &format!(
                 "Failed to load mod: {} not found in {}",
-                mod_session.ini_name, mod_session.data_path
+                mod_session.ini_name(),
+                mod_session.tslpatchdata_path.display()
             ),
             ExitCode::ChangesIniNotFound,
         );
-    }
-
-    if !fsutil::dir_exists(&mod_root) {
-        return fail("Invalid mod or game paths", ExitCode::NumberOfArgs);
     }
 
     let chosen = usize::from(options.install)
@@ -116,110 +132,96 @@ pub fn run(options: Options) -> i32 {
         );
     }
 
-    if options.validate {
-        return validate(&mod_session);
-    }
-
-    let Some(game_argument) = options
+    let game_argument = options
         .game_dir
         .clone()
         .or_else(|| options.game_folder.clone())
-    else {
+        .map(PathBuf::from);
+
+    if options.validate {
+        let game_folder = game_argument.filter(|p| p.is_dir());
+        return validate(&mod_session, game_folder.as_deref());
+    }
+
+    let Some(game_folder) = game_argument else {
         return fail(
             "No game directory specified. Use --game-dir <path>",
             ExitCode::NumberOfArgs,
         );
     };
 
-    if !fsutil::dir_exists(&game_argument) {
+    if !game_folder.is_dir() {
         return fail(
-            &format!("Invalid game directory: {game_argument}"),
+            &format!("Invalid game directory: {}", game_folder.display()),
             ExitCode::NumberOfArgs,
         );
     }
 
     if options.install {
-        if !mod_session.settings.installer_mode {
-            return fail(
-                "Unattended --install requires InstallerMode=1. InstallerMode=0 patches files the operator picks interactively.",
-                ExitCode::AbortInstallUnsafe,
-            );
-        }
-        install(&mod_session, &mod_root, &game_argument, &options)
+        install(&mod_session, &mod_root, &game_folder, &options)
     } else {
-        uninstall(&mod_session, &game_argument)
+        uninstall(&mod_session, &game_folder)
     }
 }
 
-struct UnattendedHost {
-    game_folder: String,
-    highest_total: Arc<AtomicUsize>,
-}
-
-impl Host for UnattendedHost {
-    fn choose_game_folder(&mut self, _prompt: &str) -> Option<String> {
-        Some(self.game_folder.clone())
-    }
-
-    fn choose_file(&mut self, _request: &FileRequest) -> Option<String> {
-        None
-    }
-
-    fn progress(&mut self, _current: usize, max: usize) {
-        self.highest_total.fetch_max(max, Ordering::Relaxed);
-    }
+/// A logger that prints every line it is shown at `level`.
+pub fn printing_logger(level: LogLevel) -> PatchLogger {
+    let mut logger = PatchLogger::new();
+    logger.add_observer(Box::new(move |log| {
+        if !session::shows(level, log.log_type) {
+            return;
+        }
+        if log.log_type == crate::patcher::logger::LogType::Error {
+            eprintln!("{}", log.formatted_message());
+        } else {
+            println!("{}", log.formatted_message());
+        }
+    }));
+    logger
 }
 
 /// Apply the mod to the game.
-fn install(session: &Session, mod_root: &str, game_folder: &str, options: &Options) -> i32 {
+fn install(session: &Session, mod_root: &Path, game_folder: &Path, options: &Options) -> i32 {
     if let Some(reason) = session.blocked_reason() {
         return fail(&reason, ExitCode::AbortInstallUnsafe);
     }
 
-    println!("[Info] Installing mod from {mod_root} to {game_folder}");
-
-    let level = options.log_level.unwrap_or(session.settings.log_level);
-    let collected = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let sink = Arc::clone(&collected);
-
-    let mut log = Log::new(
-        level,
-        Box::new(move |line| {
-            println!("{}", line.as_plain_text());
-            sink.lock().unwrap().push(line.clone());
-        }),
+    println!(
+        "[Info] Installing mod from {} to {}",
+        mod_root.display(),
+        game_folder.display()
     );
 
-    let highest_total = Arc::new(AtomicUsize::new(0));
-    let mut host = UnattendedHost {
-        game_folder: game_folder.to_string(),
-        highest_total: Arc::clone(&highest_total),
-    };
-
-    let mut patcher = Patcher::new(&session.base_path, &session.data_path, &session.ini_name);
-    patcher.files.set_install_path(game_folder);
+    let level = options
+        .log_level
+        .and_then(|l| LogLevel::from_int(i64::from(l)).ok())
+        .unwrap_or_else(|| session.log_level());
 
     let started = Instant::now();
-    let outcome = patcher.run(&mut log, &mut host);
+    let outcome = session.run_install(game_folder, printing_logger(level), None, None);
     let elapsed = started.elapsed();
 
-    let lines = collected.lock().unwrap().clone();
-    session.write_install_log(&lines);
+    if let Some(path) = &outcome.log_path {
+        println!("[Info] Install log written to {}", path.display());
+    }
 
-    let summary = match outcome {
-        Ok(summary) => summary,
-        Err(err) => return fail(&err.to_string(), ExitCode::ExceptionDuringInstall),
-    };
+    if let Err(err) = &outcome.result {
+        return fail(&err.simplified(), ExitCode::ExceptionDuringInstall);
+    }
 
+    let report = outcome.report;
     println!(
-        "[Info] Install completed: {} errors, {} warnings, {} patches",
-        summary.errors,
-        summary.warnings,
-        highest_total.load(Ordering::Relaxed)
+        "[Info] Install completed: {} errors, {} warnings, {} patches ({} completed, {} skipped, {} failed)",
+        report.errors,
+        report.warnings,
+        report.patches_configured,
+        report.patches_completed,
+        report.patches_skipped,
+        report.patches_failed
     );
     println!("[Info] Install time: {}", format_install_time(elapsed));
 
-    if summary.errors > 0 {
+    if report.completed_with_errors() {
         return ExitCode::InstallCompletedWithErrors.code();
     }
 
@@ -227,40 +229,42 @@ fn install(session: &Session, mod_root: &str, game_folder: &str, options: &Optio
 }
 
 /// Put the files this mod backed up back into the game.
-fn uninstall(session: &Session, game_folder: &str) -> i32 {
-    println!("[Info] Uninstalling mod from {game_folder}");
+fn uninstall(session: &Session, game_folder: &Path) -> i32 {
+    println!("[Info] Uninstalling mod from {}", game_folder.display());
 
-    let backup = fsutil::join(&session.base_path, "backup");
-    if !fsutil::dir_exists(&backup) {
+    let backup = session.base_path.join("backup");
+    if !backup.is_dir() {
         return fail(
-            &format!("Backup folder not found: {backup}"),
+            &format!("Backup folder not found: {}", backup.display()),
             ExitCode::ExceptionDuringInstall,
         );
     }
 
-    let report = crate::tools::restore_backup(session, game_folder);
+    let report = crate::tools::restore_backup(&session.base_path, game_folder);
 
-    for (name, destination) in &report.restored {
-        println!("[Info] Restored {name} to {destination}");
+    for log in &report.logs {
+        println!("{}", log.formatted_message());
     }
-    for (name, reason) in &report.failed {
-        eprintln!("[Warning] Could not restore {name}: {reason}");
+    for (title, message) in &report.messages {
+        println!("[{title}] {message}");
     }
 
-    if report.failed.is_empty() {
+    if report.restored {
         println!("[Info] Uninstall completed successfully");
+        ExitCode::Success.code()
     } else {
-        println!("[Warning] Uninstall completed with warnings");
+        fail(
+            "Uninstall did not restore a backup",
+            ExitCode::ExceptionDuringInstall,
+        )
     }
-
-    ExitCode::Success.code()
 }
 
 /// Check the mod's instructions without changing anything.
-fn validate(session: &Session) -> i32 {
+fn validate(session: &Session, game_folder: Option<&Path>) -> i32 {
     println!("[Info] Validating mod configuration");
 
-    let findings = crate::tools::validate(session);
+    let findings = crate::tools::validate(session, game_folder);
     let mut blocking = 0usize;
 
     for finding in &findings {
@@ -281,6 +285,7 @@ fn validate(session: &Session) -> i32 {
     ExitCode::Success.code()
 }
 
+/// How long the run took, in words.
 pub fn format_install_time(elapsed: Duration) -> String {
     let total = elapsed.as_secs();
 
@@ -404,5 +409,26 @@ mod tests {
         let mut o = options();
         o.tslpatchdata = Some("/nonexistent/mod/folder".into());
         assert_eq!(run(o), ExitCode::NamespacesIniNotFound.code());
+    }
+
+    #[test]
+    fn a_folder_that_is_not_a_game_stops_the_install() {
+        let dir = std::env::temp_dir().join(format!("odypatcher-direct-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("tslpatchdata")).unwrap();
+        std::fs::create_dir_all(dir.join("game")).unwrap();
+        std::fs::write(
+            dir.join("tslpatchdata").join("changes.ini"),
+            b"[Settings]\n",
+        )
+        .unwrap();
+
+        let mut o = options();
+        o.tslpatchdata = Some(dir.to_string_lossy().into_owned());
+        o.game_dir = Some(dir.join("game").to_string_lossy().into_owned());
+        o.install = true;
+        assert_eq!(run(o), ExitCode::ExceptionDuringInstall.code());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

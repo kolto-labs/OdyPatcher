@@ -132,6 +132,26 @@ Both the plain and 32-bit compatibility registry branches are checked, so a
 filename lookups ignore case. Both are translated, so a mod asking for
 `Override\Appearance.2da` finds `override/appearance.2da`.
 
+That translation searches a folder when a name does not match exactly, which
+costs time on a filesystem that tells `Data` and `data` apart. There is an
+experimental alternative: pass `--experimental-lowercase-paths`, set
+`ODYPATCHER_EXPERIMENTAL_LOWERCASE_PATHS=1`, or tick the box under Tools in the
+window. The patcher then renames files to lowercase and looks them up by that
+name, skipping the search.
+
+It renames files in the mod folder and in the folders the mod writes to. It
+leaves the rest of the game alone, and does nothing at all on a filesystem that
+does not tell case apart. Values a mod writes into game data keep the casing its
+author gave them. It is off unless you ask for it.
+
+The renaming is one way. Nothing puts the original names back, so back up your
+game folder before you turn this on.
+
+It is faster, not free. Every file the patcher writes is still checked against
+the game folder, and that check reads the destination directory. Measured on a
+mod installing into `override`, the directory is read once per file instead of
+three times.
+
 Scripts compile in-process when a `nwscript.nss` header is available (in the
 mod's `tslpatchdata` folder, or named `nwscript.k1.nss` / `nwscript.k2.nss` /
 `nwscript.nss` beside this program). A shipped `nwnnsscomp` binary is used
