@@ -315,6 +315,10 @@ mod tests {
         assert_eq!(a.compiler_flags, "-flag");
         let expected_exe = if cfg!(windows) {
             dir.join("scripts").join("nwnnsscomp.exe")
+        } else if cfg!(target_os = "macos") {
+            // macOS case-insensitive FS: case_sensitive_path sees "scripts" as existing,
+            // returns it unchanged rather than fixing to "Scripts"
+            dir.join("scripts").join("NWNNSSCOMP.EXE")
         } else {
             src.join("NWNNSSCOMP.EXE")
         };

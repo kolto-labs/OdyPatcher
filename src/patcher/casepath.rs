@@ -163,6 +163,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(not(target_os = "macos"))] // macOS APFS is case-insensitive; test assumes case-sensitive FS
     fn closest_match_prefers_more_case_matches() {
         let dir = std::env::temp_dir().join(format!("odypatcher-casepath-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

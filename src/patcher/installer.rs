@@ -2146,7 +2146,12 @@ mod tests {
             std::fs::read(game.join("Override").join("spells.2da")).unwrap(),
             b"new-table"
         );
-        assert!(!game.join("Override").join("SPELLS.2DA").exists() || cfg!(windows));
+        // macOS case-insensitive FS: SPELLS.2DA == spells.2da, so the old-cased path appears to exist
+        assert!(
+            !game.join("Override").join("SPELLS.2DA").exists()
+                || cfg!(windows)
+                || cfg!(target_os = "macos")
+        );
         assert_eq!(
             std::fs::read(game.join("Override").join("new.utc")).unwrap(),
             b"new-utc"

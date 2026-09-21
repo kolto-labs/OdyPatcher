@@ -860,7 +860,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))] // macOS case-insensitive FS: hard_link("Spells.2da", "spells.2da") fails with EEXIST
     #[test]
     fn one_file_wearing_two_spellings_is_never_deleted() {
         // The guard of last resort. Simulated portably with a hard link:
