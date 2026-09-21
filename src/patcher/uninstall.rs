@@ -321,7 +321,7 @@ impl ModUninstaller {
             }
             self.logger.add_note(format!(
                 "Removed '{}'.",
-                relative_to(target, &game)?.display()
+                relative_to(&resolve(target), &game)?.display()
             ));
         }
         Ok(())
