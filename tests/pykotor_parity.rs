@@ -2940,6 +2940,7 @@ fn hack_offset_past_the_end_warns_and_skips() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "nss-compiler")]
 fn compile_list_substitutes_tokens_and_compiles_with_the_builtin_compiler() {
     let f = Fixture::new("nss");
     f.game_file("override/test.2da", &table(&["Col1"], &[("0", vec!["42"])]));
@@ -2986,6 +2987,7 @@ fn compile_list_substitutes_tokens_and_compiles_with_the_builtin_compiler() {
 }
 
 #[test]
+#[cfg(feature = "nss-compiler")]
 fn compile_list_skips_an_existing_script_unless_replacing() {
     let f = Fixture::new("nss_skip");
     f.game_file("override/script.ncs", b"OLD");

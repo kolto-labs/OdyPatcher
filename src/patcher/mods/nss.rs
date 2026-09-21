@@ -14,9 +14,12 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "nss-compiler")]
 use std::sync::{Arc, Mutex, OnceLock};
 
-use super::super::casepath::{case_sensitive_path, safe_isfile};
+#[cfg(feature = "nss-compiler")]
+use super::super::casepath::case_sensitive_path;
+use super::super::casepath::safe_isfile;
 use super::super::config::Game;
 use super::super::encoding::decode_bytes_with_fallbacks;
 use super::super::error::{PResult, PatchException};
@@ -244,32 +247,44 @@ impl ModificationsNSS {
         logger: &mut PatchLogger,
         game: Game,
     ) -> PResult<PatchOutput> {
-        let nwscript = self.load_nwscript(temp_script_folder, game)?;
-        let options = bionsscomp::CompileOptions::new(&nwscript)
-            .with_source_name(source_name)
-            .with_include_path(temp_script_folder);
-        match bionsscomp::compile_detailed(source, &options) {
-            Ok(compilation) => Ok(PatchOutput::Bytes(compilation.ncs)),
-            Err(error) => {
-                let is_include = error
-                    .diagnostics()
-                    .iter()
-                    .any(|diagnostic| diagnostic.message.contains(INCLUDE_FILE_MARKER));
-                if is_include {
-                    logger.add_note(ENTRY_POINT_ERROR);
-                    return Ok(PatchOutput::Skip);
+        #[cfg(not(feature = "nss-compiler"))]
+        {
+            let _ = (source, temp_script_folder, source_name, logger, game);
+            return Err(PatchException::new(
+                "NotImplementedError",
+                "built-in NSS compiler unavailable (compiled without the nss-compiler feature)",
+            ));
+        }
+        #[cfg(feature = "nss-compiler")]
+        {
+            let nwscript = self.load_nwscript(temp_script_folder, game)?;
+            let options = bionsscomp::CompileOptions::new(&nwscript)
+                .with_source_name(source_name)
+                .with_include_path(temp_script_folder);
+            match bionsscomp::compile_detailed(source, &options) {
+                Ok(compilation) => Ok(PatchOutput::Bytes(compilation.ncs)),
+                Err(error) => {
+                    let is_include = error
+                        .diagnostics()
+                        .iter()
+                        .any(|diagnostic| diagnostic.message.contains(INCLUDE_FILE_MARKER));
+                    if is_include {
+                        logger.add_note(ENTRY_POINT_ERROR);
+                        return Ok(PatchOutput::Skip);
+                    }
+                    let kind = match &error {
+                        bionsscomp::CompileError::Io { .. } => "OSError",
+                        bionsscomp::CompileError::NotImplemented(_) => "NotImplementedError",
+                        bionsscomp::CompileError::Diagnostics(_) => "CompileError",
+                    };
+                    Err(PatchException::new(kind, error.to_string()))
                 }
-                let kind = match &error {
-                    bionsscomp::CompileError::Io { .. } => "OSError",
-                    bionsscomp::CompileError::NotImplemented(_) => "NotImplementedError",
-                    bionsscomp::CompileError::Diagnostics(_) => "CompileError",
-                };
-                Err(PatchException::new(kind, error.to_string()))
             }
         }
     }
 
     /// Candidate `nwscript.nss` locations, in order.
+    #[cfg(feature = "nss-compiler")]
     fn nwscript_candidates(&self, temp_script_folder: &Path, game: Game) -> Vec<PathBuf> {
         let mut candidates = vec![temp_script_folder.join("nwscript.nss")];
         for folder in &self.nwscript_search_folders {
@@ -289,6 +304,7 @@ impl ModificationsNSS {
         candidates
     }
 
+    #[cfg(feature = "nss-compiler")]
     fn load_nwscript(
         &self,
         temp_script_folder: &Path,
@@ -340,8 +356,10 @@ impl ModificationsNSS {
 }
 
 /// Parsed `nwscript.nss` headers, keyed by game and path.
+#[cfg(feature = "nss-compiler")]
 type HeaderCache = Mutex<HashMap<(i32, PathBuf), Arc<bionsscomp::NwScript>>>;
 
+#[cfg(feature = "nss-compiler")]
 fn header_cache() -> &'static HeaderCache {
     static CACHE: OnceLock<HeaderCache> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -1550,6 +1568,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "nss-compiler")]
     fn patch_resource_requires_a_workspace_and_compiles_with_the_builtin_compiler() {
         let mut memory = PatcherMemory::new();
         memory.memory_2da.insert(1, MemoryValue::Str("42".into()));

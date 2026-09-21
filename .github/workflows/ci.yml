@@ -21,9 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure git for private deps
-        run: git config --global url."https://${{ github.token }}@github.com/".insteadOf "https://github.com/"
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -52,9 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure git for private deps
-        run: git config --global url."https://${{ github.token }}@github.com/".insteadOf "https://github.com/"
-
       - uses: dtolnay/rust-toolchain@1.77.2
 
       - name: Test the terminal build
@@ -66,9 +60,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure git for private deps
-        run: git config --global url."https://${{ github.token }}@github.com/".insteadOf "https://github.com/"
 
       - uses: dtolnay/rust-toolchain@1.77.2
         with:

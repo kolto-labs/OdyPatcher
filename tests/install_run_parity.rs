@@ -1827,6 +1827,7 @@ fn stub_nwscript() -> &'static [u8] {
 }
 
 #[test]
+#[cfg(feature = "nss-compiler")]
 fn compile_list_builds_scripts_with_the_built_in_compiler() {
     let f = Fixture::new("compile");
     f.mod_file("nwscript.nss", stub_nwscript());
@@ -1843,6 +1844,7 @@ fn compile_list_builds_scripts_with_the_built_in_compiler() {
 }
 
 #[test]
+#[cfg(feature = "nss-compiler")]
 fn compile_list_can_write_into_a_folder_destination() {
     let f = Fixture::new("compilefolder");
     f.mod_file("nwscript.nss", stub_nwscript());
@@ -1867,6 +1869,7 @@ fn compile_source_aliases_cannot_escape_the_package() {
 }
 
 #[test]
+#[cfg(feature = "nss-compiler")]
 fn an_include_only_script_is_skipped() {
     let f = Fixture::new("includeonly");
     f.mod_file("nwscript.nss", stub_nwscript());
@@ -1879,6 +1882,7 @@ fn an_include_only_script_is_skipped() {
 }
 
 #[test]
+#[cfg(feature = "nss-compiler")]
 fn a_missing_nwscript_header_fails_only_the_script_patch() {
     let f = Fixture::new("nocompiler");
     f.mod_file("spells.2da", &spell_table());
@@ -1901,6 +1905,7 @@ fn a_missing_nwscript_header_fails_only_the_script_patch() {
 }
 
 #[test]
+#[cfg(feature = "nss-compiler")]
 fn memory_tokens_are_substituted_in_a_workspace_copy_before_compile() {
     let f = Fixture::new("comptoken");
     f.mod_file("nwscript.nss", stub_nwscript());
