@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-use super::super::casepath::{case_sensitive_path, safe_exists};
+use super::super::casepath::{case_sensitive_path, normcase_realpath, safe_exists};
 use super::super::config::Game;
 use super::super::error::{PResult, PatchException};
 use super::super::installer::simplified_tuple;
@@ -27,7 +27,11 @@ pub fn create_backup(
     subdirectory_path: Option<&Path>,
     is_new_file: bool,
 ) -> PResult<()> {
-    let destination_file_str = destination_filepath.to_string_lossy().to_string();
+    // Use the canonical path in the manifest so the uninstaller's strip_prefix
+    // check is consistent regardless of symlinks (e.g. /var -> /private/var on macOS).
+    let destination_file_str = normcase_realpath(destination_filepath)
+        .to_string_lossy()
+        .to_string();
     let destination_file_str_lower = destination_file_str.to_lowercase();
     let destination_name_lower = destination_filepath
         .file_name()

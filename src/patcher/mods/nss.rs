@@ -250,10 +250,10 @@ impl ModificationsNSS {
         #[cfg(not(feature = "nss-compiler"))]
         {
             let _ = (source, temp_script_folder, source_name, logger, game);
-            return Err(PatchException::new(
+            Err(PatchException::new(
                 "NotImplementedError",
                 "built-in NSS compiler unavailable (compiled without the nss-compiler feature)",
-            ));
+            ))
         }
         #[cfg(feature = "nss-compiler")]
         {
