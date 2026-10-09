@@ -35,13 +35,13 @@ egui = { version = "0.32", optional = true }
 egui_extras = { version = "0.32", optional = true }
 rfd = { version = "0.15", optional = true, default-features = false, features = ["xdg-portal", "tokio"] }
 
-kotor-formats = { git = "https://github.com/holowan-biolabs/kotor-formats", tag = "v0.1.0" }
+kotor-formats = { git = "https://github.com/kolto-labs/kotor-formats", tag = "v0.1.0" }
 
-bionsscomp = { git = "https://github.com/holowan-biolabs/odynsscomp", rev = "00c53a9" }
+bionsscomp = { git = "https://github.com/kolto-labs/odynsscomp", rev = "00c53a9" }
 
 # To work against a local kotor-formats checkout instead of the pinned tag,
 # uncomment:
-# [patch."https://github.com/holowan-biolabs/kotor-formats"]
+# [patch."https://github.com/kolto-labs/kotor-formats"]
 # kotor-formats = { path = "../kotor-formats/crates/kotor-formats" }
 
 [dev-dependencies]

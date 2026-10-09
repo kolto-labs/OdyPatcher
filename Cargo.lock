@@ -164,7 +164,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 [[package]]
 name = "bionsscomp"
 version = "1.0.0"
-source = "git+https://github.com/holowan-biolabs/odynsscomp?rev=00c53a9#00c53a90ba1c2ed9085f896e37d0c053b4fecc52"
+source = "git+https://github.com/kolto-labs/odynsscomp?rev=00c53a9#00c53a90ba1c2ed9085f896e37d0c053b4fecc52"
 
 [[package]]
 name = "bit-set"
@@ -1290,7 +1290,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 [[package]]
 name = "kotor-formats"
 version = "0.1.0"
-source = "git+https://github.com/holowan-biolabs/kotor-formats?tag=v0.1.0#d4ed9a8cbeb9281b33319248d12c4b97b8eebd87"
+source = "git+https://github.com/kolto-labs/kotor-formats?tag=v0.1.0#d4ed9a8cbeb9281b33319248d12c4b97b8eebd87"
 
 [[package]]
 name = "libc"
