@@ -306,12 +306,10 @@ impl<'a> ConfigReader<'a> {
         for (key, value) in compat_ini.items() {
             match key.to_lowercase().as_str() {
                 "strict" => self.config.strict = is_truthy(value),
-                "allowprotectedreplace" => {
-                    self.config.allow_protected_replace = is_truthy(value)
-                }
-                _ => self.log.add_warning(format!(
-                    "unknown key '{key}' in [{compat_section}] ignored"
-                )),
+                "allowprotectedreplace" => self.config.allow_protected_replace = is_truthy(value),
+                _ => self
+                    .log
+                    .add_warning(format!("unknown key '{key}' in [{compat_section}] ignored")),
             }
         }
         Ok(())
@@ -435,9 +433,8 @@ impl<'a> ConfigReader<'a> {
             .map(|v| !v.is_empty())
             .unwrap_or(false);
         if settings_ini.get("IgnoreExtensions").map(is_truthy) == Some(true) {
-            self.log.add_warning(
-                "IgnoreExtensions is not supported by OdyPatcher and is ignored",
-            );
+            self.log
+                .add_warning("IgnoreExtensions is not supported by OdyPatcher and is ignored");
         }
 
         let lookup_game_number = settings_ini.get("LookupGameNumber").unwrap_or("");

@@ -266,9 +266,10 @@ impl ModificationsNSS {
     /// is ignored when the built-in compiler is used.
     fn warn_if_nwscript_shipped(&self, temp_script_folder: &Path, logger: &mut PatchLogger) {
         let shipped = safe_isfile(&temp_script_folder.join("nwscript.nss"))
-            || self.nwscript_search_folders.iter().any(|folder| {
-                safe_isfile(&case_sensitive_path(&folder.join("nwscript.nss")))
-            });
+            || self
+                .nwscript_search_folders
+                .iter()
+                .any(|folder| safe_isfile(&case_sensitive_path(&folder.join("nwscript.nss"))));
         if !shipped {
             return;
         }

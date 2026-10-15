@@ -445,7 +445,10 @@ mod tests {
             err.message,
             "The supplied SSF file version is not supported."
         );
-        assert_eq!(Ssf::from_bytes(&ssf_bytes(&values[..10])).unwrap().get(9), Some(90));
+        assert_eq!(
+            Ssf::from_bytes(&ssf_bytes(&values[..10])).unwrap().get(9),
+            Some(90)
+        );
         let err = Ssf::from_bytes_with(&ssf_bytes(&values[..10]), true).unwrap_err();
         assert_eq!(
             err.message,

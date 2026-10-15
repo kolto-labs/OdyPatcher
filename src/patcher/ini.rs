@@ -427,10 +427,7 @@ mod tests {
         let section = ini.section("S").unwrap();
         assert_eq!(section.keys().collect::<Vec<_>>(), vec!["a", "b"]);
         assert_eq!(section.get("a"), Some(Some("1")));
-        assert_eq!(
-            ini.duplicate_keys(),
-            &[("S".to_string(), "a".to_string())]
-        );
+        assert_eq!(ini.duplicate_keys(), &[("S".to_string(), "a".to_string())]);
     }
 
     #[test]

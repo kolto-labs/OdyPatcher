@@ -717,9 +717,7 @@ pub fn resolve_strref_checked(value: &str, memory: &PatcherMemory) -> (String, O
             .parse::<i64>()
             .ok()
             .and_then(|id| i32::try_from(id).ok());
-        let found = token_id
-            .and_then(|id| memory.memory_str.get(&id))
-            .copied();
+        let found = token_id.and_then(|id| memory.memory_str.get(&id)).copied();
         let unset = if found.is_none() {
             Some(format!("StrRef{suffix}"))
         } else {
@@ -1874,9 +1872,9 @@ impl Modifications2DA {
                 }
                 if let Some(suffix) = value.strip_prefix("2DAMEMORY") {
                     if is_unsigned_decimal(suffix)
-                        && suffix.parse::<i32>().is_ok_and(|n| {
-                            n >= 1 && !memory.memory_2da.contains_key(&n)
-                        })
+                        && suffix
+                            .parse::<i32>()
+                            .is_ok_and(|n| n >= 1 && !memory.memory_2da.contains_key(&n))
                         && !earlier_keys.contains(value)
                         && !unset.contains(value)
                     {

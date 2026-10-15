@@ -285,9 +285,16 @@ fn reader_tlk_inline_text_and_sound_and_syntax_tolerance() {
     let config = result.expect("malformed [TLKList] keys are warnings by default");
     assert!(config.patches_tlk.modifiers.is_empty());
     assert!(
-        logger.warnings().iter().any(|w| w.message.starts_with("Malformed 'Bogus=1' in [TLKList]")),
+        logger
+            .warnings()
+            .iter()
+            .any(|w| w.message.starts_with("Malformed 'Bogus=1' in [TLKList]")),
         "{:?}",
-        logger.warnings().iter().map(|w| w.message.clone()).collect::<Vec<_>>()
+        logger
+            .warnings()
+            .iter()
+            .map(|w| w.message.clone())
+            .collect::<Vec<_>>()
     );
 }
 
@@ -535,10 +542,16 @@ fn reader_2da_missing_table_section_is_silent_by_default_and_an_error_when_stric
     assert!(logger.errors().is_empty());
     assert_eq!(
         config.missing_sections,
-        vec!["[2DAList] Table0=nope.2da: section [nope.2da] not found; the table is saved unchanged".to_string()]
+        vec![
+            "[2DAList] Table0=nope.2da: section [nope.2da] not found; the table is saved unchanged"
+                .to_string()
+        ]
     );
 
-    let (result, logger) = load_config(&ini(&["[Compat]", "Strict=1", "", "[2DAList]", "Table0=nope.2da"]), &dir);
+    let (result, logger) = load_config(
+        &ini(&["[Compat]", "Strict=1", "", "[2DAList]", "Table0=nope.2da"]),
+        &dir,
+    );
     let config = result.expect("strict mode logs an error for the entry but config load succeeds");
     assert!(config.patches_2da.is_empty());
     assert_eq!(
@@ -1680,7 +1693,11 @@ fn twoda_2damemory0_is_an_error_for_the_modifier() {
         "Tag=2DAMEMORY0",
     ]));
     assert_eq!(run.failed, 1, "{}", run.dump());
-    assert!(run.has("[store] invalid memory token '2DAMEMORY0'"), "{}", run.dump());
+    assert!(
+        run.has("[store] invalid memory token '2DAMEMORY0'"),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
@@ -2285,7 +2302,11 @@ fn twoda_an_unset_memory_value_warns_and_writes_an_empty_cell() {
     // 2DA-MEM: an unset 2DAMEMORY slot reads as '' with a warning (never the literal, never slot 1).
     let t = twoda_of(&f.override_file("test.2da"));
     assert_eq!(column(&t, "Col1"), vec!["", "Z"]);
-    assert!(run.has("2DAMEMORY3 was not defined before use"), "{}", run.dump());
+    assert!(
+        run.has("2DAMEMORY3 was not defined before use"),
+        "{}",
+        run.dump()
+    );
     assert_eq!(
         cell(&twoda_of(&f.override_file("spells.2da")), 0, "label"),
         "renamed"
