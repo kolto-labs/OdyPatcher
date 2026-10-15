@@ -9,12 +9,40 @@ use crate::patcher::mods::nss::{windows_with_suffix, ModificationsNSS};
 use crate::patcher::mods::template::DEFAULT_DESTINATION;
 use crate::patcher::mods::PatcherModifications;
 
-/// `int(digits) > 0x7FFFFFFF` for an ASCII-digit string of any length.
-fn exceeds_i32(digits: &str) -> bool {
+/// `int(digits) > max` for an ASCII-digit string of any length.
+fn exceeds_digits(digits: &str, max: u128) -> bool {
     match digits.trim_start_matches('0').parse::<u128>() {
-        Ok(value) => value > 0x7FFF_FFFF,
+        Ok(value) => value > max,
         Err(_) => !digits.trim_start_matches('0').is_empty(),
     }
+}
+
+/// `int(digits) > 0x7FFFFFFF` for an ASCII-digit string of any length.
+fn exceeds_i32(digits: &str) -> bool {
+    exceeds_digits(digits, 0x7FFF_FFFF)
+}
+
+/// Largest literal a HACKList value of `width` bytes may carry.
+fn width_max(width: u8) -> u128 {
+    match width {
+        1 => 0xFF,
+        2 => 0xFFFF,
+        _ => 0x7FFF_FFFF,
+    }
+}
+
+/// Split an optional case-insensitive `u8:` / `u16:` / `u32:` prefix off a
+/// HACKList value: `(width in bytes, remainder)`. No prefix = 4 bytes.
+fn split_width_prefix(value: &str) -> (u8, &str) {
+    for (prefix, width) in [("u8:", 1u8), ("u16:", 2), ("u32:", 4)] {
+        let matches = value
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix));
+        if matches {
+            return (width, value[prefix.len()..].trim_start());
+        }
+    }
+    (4, value)
 }
 
 impl ConfigReader<'_> {
@@ -144,6 +172,7 @@ impl ConfigReader<'_> {
                 }
                 let offset: i32 = raw_offset.trim_start_matches('0').parse().unwrap_or(0);
 
+                let (width, raw_value) = split_width_prefix(raw_value);
                 let lower_value = raw_value.to_lowercase();
                 if lower_value.starts_with("strref") {
                     let token_id = &raw_value[6..];
@@ -156,7 +185,7 @@ impl ConfigReader<'_> {
                     let token_id: i32 = token_id.trim_start_matches('0').parse().unwrap_or(0);
                     modifications
                         .hackdata
-                        .push(HackData::new("StrRef", offset, token_id));
+                        .push(HackData::new("StrRef", offset, token_id).with_width(width));
                 } else if let Some(token_id) = raw_value.strip_prefix("2DAMEMORY") {
                     if is_ascii_digits(token_id) {
                         if exceeds_i32(token_id) {
@@ -168,14 +197,14 @@ impl ConfigReader<'_> {
                         let token_id: i32 = token_id.trim_start_matches('0').parse().unwrap_or(0);
                         modifications
                             .hackdata
-                            .push(HackData::new("2DAMEMORY", offset, token_id));
+                            .push(HackData::new("2DAMEMORY", offset, token_id).with_width(width));
                     } else {
                         modifications
                             .hackdata
-                            .push(HackData::new("2DAMEMORY", offset, 0));
+                            .push(HackData::new("2DAMEMORY", offset, 0).with_width(width));
                     }
                 } else {
-                    if !is_ascii_digits(raw_value) || exceeds_i32(raw_value) {
+                    if !is_ascii_digits(raw_value) || exceeds_digits(raw_value, width_max(width)) {
                         self.log.add_warning(format!(
                             "Ignoring invalid HACKList value '{value_str}' at offset {offset_str} in [{file_section_name}]."
                         ));
@@ -184,7 +213,7 @@ impl ConfigReader<'_> {
                     let value: i32 = raw_value.trim_start_matches('0').parse().unwrap_or(0);
                     modifications
                         .hackdata
-                        .push(HackData::new("VALUE", offset, value));
+                        .push(HackData::new("VALUE", offset, value).with_width(width));
                 }
             }
 
@@ -240,6 +269,7 @@ mod tests {
                 HackData::new("2DAMEMORY", 16, 3),
                 HackData::new("2DAMEMORY", 20, 0),
                 HackData::new("VALUE", 32, 99),
+                HackData::new("VALUE", 36, 5).with_width(2),
             ]
         );
         let errors: Vec<_> = logger.errors().iter().map(|l| l.message.clone()).collect();
@@ -257,7 +287,6 @@ mod tests {
             vec![
                 "Ignoring invalid HACKList value 'strref9999999999' at offset 24 in [a.ncs].",
                 "Ignoring invalid HACKList value '2DAMEMORY9999999999' at offset 28 in [a.ncs].",
-                "Ignoring invalid HACKList value 'u16:5' at offset 36 in [a.ncs].",
                 "Ignoring invalid HACKList offset '0x10' in [a.ncs].",
                 "Ignoring out-of-range HACKList offset '9999999999' in [a.ncs].",
                 "Ignoring invalid HACKList value 'StrRefa' at offset 40 in [a.ncs].",

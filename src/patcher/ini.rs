@@ -1,9 +1,10 @@
 //! INI reading with the semantics of Python's `configparser` as PyKotor
 //! configures it: `delimiters=("=",)`, `allow_no_value=True`, `strict=False`,
 //! `interpolation=None`, full-line `#`/`;` comments, indented continuation
-//! lines, a `[DEFAULT]` section merged into every other section, later
-//! duplicate keys replacing earlier ones, and duplicate section headers
-//! merging into the first.
+//! lines, a `[DEFAULT]` section merged into every other section, the FIRST
+//! occurrence of a repeated key winning (repeats are recorded, see
+//! [`ConfigParser::duplicate_keys`]), and duplicate section headers merging
+//! into the first.
 //!
 //! Also carries [`CaseInsensitiveDict`], a port of PyKotor's
 //! `pykotor.common.misc.CaseInsensitiveDict`, which every reader loop uses.
@@ -70,12 +71,14 @@ impl Section {
             .map(|(_, value)| value.as_deref())
     }
 
-    fn set(&mut self, key: String, value: Option<String>) {
-        if let Some(slot) = self.options.iter_mut().find(|(k, _)| *k == key) {
-            slot.1 = value;
-        } else {
-            self.options.push((key, value));
+    /// Insert an option; an already present key keeps its first value.
+    /// Returns false when the key was a duplicate.
+    fn set(&mut self, key: String, value: Option<String>) -> bool {
+        if self.options.iter().any(|(k, _)| *k == key) {
+            return false;
         }
+        self.options.push((key, value));
+        true
     }
 }
 
@@ -84,6 +87,7 @@ impl Section {
 pub struct ConfigParser {
     sections: Vec<Section>,
     defaults: Section,
+    duplicate_keys: Vec<(String, String)>,
 }
 
 impl ConfigParser {
@@ -98,6 +102,8 @@ impl ConfigParser {
         // Index into `sections`, or `None` for DEFAULT / no section yet.
         let mut cursect: Option<Option<usize>> = None;
         let mut optname: Option<String> = None;
+        // True when `optname` was a repeat of an earlier key (its value is discarded).
+        let mut optname_dup = false;
         let mut indent_level: usize = 0;
 
         for (lineno, raw_line) in text.split_inclusive('\n').enumerate() {
@@ -111,7 +117,7 @@ impl ConfigParser {
 
             if value.is_empty() {
                 // Blank lines are kept inside multi-line values.
-                if !is_comment {
+                if !is_comment && !optname_dup {
                     if let (Some(section), Some(name)) = (cursect, optname.as_ref()) {
                         let target = parser.section_slot(section);
                         if let Some(slot) = target.options.iter_mut().find(|(k, _)| k == name) {
@@ -127,6 +133,10 @@ impl ConfigParser {
             let cur_indent_level = line.len() - line.trim_start().len();
             if let (Some(section), Some(name)) = (cursect, optname.as_ref()) {
                 if cur_indent_level > indent_level {
+                    if optname_dup {
+                        // Continuation of a discarded duplicate value.
+                        continue;
+                    }
                     // Continuation of the previous value.
                     let target = parser.section_slot(section);
                     if let Some(slot) = target.options.iter_mut().find(|(k, _)| k == name) {
@@ -153,6 +163,7 @@ impl ConfigParser {
                     cursect = Some(Some(parser.sections.len() - 1));
                 }
                 optname = None;
+                optname_dup = false;
                 continue;
             }
 
@@ -170,7 +181,15 @@ impl ConfigParser {
                         OptionXform::Lower => name.to_lowercase(),
                     };
                     let option_value = option_value.map(|v| v.trim().to_string());
-                    parser.section_slot(section).set(name.clone(), option_value);
+                    let inserted = parser.section_slot(section).set(name.clone(), option_value);
+                    if !inserted {
+                        let section_name = match section {
+                            Some(index) => parser.sections[index].name.clone(),
+                            None => "DEFAULT".to_string(),
+                        };
+                        parser.duplicate_keys.push((section_name, name.clone()));
+                    }
+                    optname_dup = !inserted;
                     optname = Some(name);
                 }
                 None => errors.push((lineno, raw_line.to_string())),
@@ -228,6 +247,12 @@ impl ConfigParser {
     /// The section with exactly this name (`ConfigParser[name]`).
     pub fn section(&self, name: &str) -> Option<&Section> {
         self.sections.iter().find(|s| s.name == name)
+    }
+
+    /// `(section, key)` for every repeated key, in file order. The first
+    /// value of each key was kept.
+    pub fn duplicate_keys(&self) -> &[(String, String)] {
+        &self.duplicate_keys
     }
 }
 
@@ -397,11 +422,15 @@ mod tests {
     }
 
     #[test]
-    fn later_duplicate_keys_replace_earlier_ones_in_place() {
-        let ini = parse("[S]\na=1\nb=2\na=3\n");
+    fn first_duplicate_key_wins_and_is_recorded() {
+        let ini = parse("[S]\na=1\nb=2\na=3\n  more\n");
         let section = ini.section("S").unwrap();
         assert_eq!(section.keys().collect::<Vec<_>>(), vec!["a", "b"]);
-        assert_eq!(section.get("a"), Some(Some("3")));
+        assert_eq!(section.get("a"), Some(Some("1")));
+        assert_eq!(
+            ini.duplicate_keys(),
+            &[("S".to_string(), "a".to_string())]
+        );
     }
 
     #[test]

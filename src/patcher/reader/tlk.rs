@@ -58,6 +58,22 @@ impl ConfigReader<'_> {
         self.log.add_note("Loading [TLKList] patches from ini...");
         let mut tlk_list_edits = self.section_dict(&tlk_list_section);
 
+        if !self.config.strict {
+            // TLK-21: `!ReplaceFile` / `!OverrideType` are warned about and dropped.
+            let ignored: Vec<String> = tlk_list_edits
+                .items()
+                .map(|(k, _)| k.to_string())
+                .filter(|k| {
+                    let lower = k.to_lowercase();
+                    lower == "!replacefile" || lower == "!overridetype"
+                })
+                .collect();
+            for key in ignored {
+                let _ = tlk_list_edits.pop_or(&key, "");
+                self.log
+                    .add_warning(format!("{key}: key ignored in [TLKList]"));
+            }
+        }
         let default_destination =
             tlk_list_edits.pop_or("!DefaultDestination", ModificationsTLK::DEFAULT_DESTINATION);
         let default_sourcefolder = tlk_list_edits.pop_or("!DefaultSourceFolder", ".");
@@ -97,6 +113,19 @@ impl ConfigReader<'_> {
             );
             match outcome {
                 Ok(()) => {}
+                Err(failure) if !self.config.strict => {
+                    // TLK-18/19/20: malformed key is warned about and skipped.
+                    let (TlkKeyFailure::Syntax(err) | TlkKeyFailure::Other(err)) = failure;
+                    let what = if key.starts_with('!') {
+                        format!("{key}: key ignored in [TLKList]")
+                    } else {
+                        format!(
+                            "Malformed '{key}={shown_value}' in [TLKList] ({}); ignored",
+                            err.message
+                        )
+                    };
+                    self.log.add_warning(what);
+                }
                 Err(TlkKeyFailure::Syntax(err)) => return Err(err),
                 Err(TlkKeyFailure::Other(err)) if err.kind == "ValueError" => {
                     return Err(PatchException::value(format!(
@@ -286,6 +315,26 @@ mod tests {
         Ok(r.config.patches_tlk)
     }
 
+    fn load_strict(text: &str) -> PResult<ModificationsTLK> {
+        let mut logger = PatchLogger::new();
+        let mut r = reader(text, &mut logger);
+        r.config.strict = true;
+        r.load_tlk_list()?;
+        Ok(r.config.patches_tlk)
+    }
+
+    #[test]
+    fn malformed_and_bang_keys_warn_and_are_ignored_by_default() {
+        let mut logger = PatchLogger::new();
+        let mut r = reader(
+            "[TLKList]\n!ReplaceFile=1\nFoo=bar\nStrRef0=abc\n",
+            &mut logger,
+        );
+        r.load_tlk_list().unwrap();
+        assert!(r.config.patches_tlk.modifiers.is_empty());
+        assert_eq!(logger.warnings().len(), 3);
+    }
+
     #[test]
     fn missing_section_is_a_note() {
         let mut logger = PatchLogger::new();
@@ -331,8 +380,8 @@ mod tests {
             merge.tlk_filepath,
             PathBuf::from("/tmp/tslpatchdata/custom.tlk")
         );
-        // Last duplicate wins, case-insensitively.
-        assert_eq!(merge.strref_mappings.get(&0), Some(&7));
+        // First duplicate wins (TSLPatcher order), case-insensitively.
+        assert_eq!(merge.strref_mappings.get(&0), Some(&5));
         assert_eq!(merge.strref_mappings.get(&1), Some(&0));
         assert_eq!(merge.patch_count(), 2);
         assert_eq!(tlk.base.sourcefile, "custom.tlk");
@@ -362,6 +411,8 @@ mod tests {
 
     #[test]
     fn errors_use_reader_py_wording() {
+        // Errors are the `[Compat] Strict=1` behaviour.
+        let load = load_strict;
         let err = load("[TLKList]\nStrRefX=1\n").unwrap_err();
         assert_eq!(
             (err.kind, err.message.as_str()),

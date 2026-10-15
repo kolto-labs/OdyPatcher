@@ -94,9 +94,10 @@ comes out as tagged lines. The exit code says what happened:
 | 7 | Stopped partway through |
 | 8 | Finished, but reported errors |
 
-Every run writes an install log beside the program: `installlog.rtf`, or
-`installlog.txt` when the mod asks for a plain one. Files that get modified or
-replaced are copied into a `backup` folder first, unless the mod turns that off.
+The install log is shown on screen and in the run output. When the mod sets
+`PlaintextLog=1`, a copy is written as `installlog.txt` in the mod folder. Files
+that get modified or replaced are copied into a `backup` folder first, unless
+the mod turns that off.
 
 The only file a mod must ship is the instruction file. Settings,
 `namespaces.ini`, and description files are optional. `FileExists` is still
@@ -119,6 +120,14 @@ A row added to a table can capture its index into a `2DAMEMORY` slot, and a
 field added later can read it back. A line appended to the string table can be
 referenced as `StrRef0` wherever a value is expected, and resolves to wherever
 that line actually landed.
+
+A failed operation is logged and the run goes on to the next one. Set
+`OnError=Abort` under `[Settings]` to stop at the first failure instead.
+TSLPatcher always stopped, so this differs from it.
+
+An optional `[Compat]` section holds two switches. `Strict=1` turns tolerated
+oddities in the instruction file into errors. `AllowProtectedReplace=1` lets a
+mod overwrite `.exe`, `.tlk`, `.key` and `.bif` files.
 
 The full instruction reference is in [docs/instructions.md](docs/instructions.md).
 

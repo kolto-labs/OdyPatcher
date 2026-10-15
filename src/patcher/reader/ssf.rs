@@ -61,6 +61,7 @@ impl ConfigReader<'_> {
                 Vec::new(),
             );
 
+            modifications.strict = self.config.strict;
             let mut file_section_dict = self.section_dict(&ssf_file_section);
             modifications.pop_tslpatcher_vars(
                 &mut file_section_dict,

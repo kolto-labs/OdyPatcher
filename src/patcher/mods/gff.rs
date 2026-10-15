@@ -791,17 +791,49 @@ pub fn parse_char(value: &GffValue, empty_value: Option<i128>) -> Option<i128> {
     (-0x80..=0x7F).contains(&codepoint).then_some(codepoint)
 }
 
-/// `ResRef(text)`: non-ASCII text raises `InvalidEncodingError`; the text is
-/// cut to 16 characters and stripped (the other checks are disabled in
-/// PyKotor).
+/// GFF-22 ResRef normalisation: non-ASCII characters become `?` (ResRefs are
+/// written as ASCII), the text is cut to 16 characters and lowercased.
+/// Whitespace is kept as-is. Never fails.
+pub fn normalize_resref(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_ascii() { c } else { '?' })
+        .take(16)
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+/// `ResRef(text)` for a patch value: [`normalize_resref`]. It never raises;
+/// the `PResult` is kept so existing callers are unchanged.
 pub fn make_resref(text: &str) -> PResult<String> {
-    if !text.is_ascii() {
-        return Err(PatchException::value(format!(
-            "'{text}' must only contain ASCII characters."
-        )));
+    Ok(normalize_resref(text))
+}
+
+/// GFF-22: log `ResRef 'orig' adjusted to 'new' in [section]` when a patch
+/// value written to a ResRef field was changed by [`normalize_resref`].
+fn warn_if_resref_adjusted(
+    value: &GffValue,
+    field_type: GffFieldType,
+    identifier: &str,
+    logger: &mut PatchLogger,
+) {
+    if field_type != GffFieldType::ResRef || matches!(value, GffValue::ResRef(_)) {
+        return;
     }
-    let truncated: String = text.chars().take(16).collect();
-    Ok(truncated.trim().to_string())
+    let original = value.python_str();
+    let adjusted = normalize_resref(&original);
+    if adjusted != original {
+        logger.add_warning(format!(
+            "ResRef '{original}' adjusted to '{adjusted}' in [{identifier}]"
+        ));
+    }
+}
+
+/// GFF-32: GFF field labels hold at most 16 characters.
+const MAX_LABEL_LEN: usize = 16;
+
+/// True when `label` is too long to be written to a GFF.
+fn label_too_long(label: &str) -> bool {
+    label.chars().count() > MAX_LABEL_LEN
 }
 
 /// A coerced scalar, kept in Python's precision so equality checks against
@@ -1701,6 +1733,14 @@ impl AddFieldGFF {
             return Ok(false);
         }
 
+        if label_too_long(&self.label) {
+            logger.add_error(format!(
+                "Unable to add GFF field '{}' in [{}]: label is longer than {MAX_LABEL_LEN} characters.",
+                self.label, self.identifier
+            ));
+            return Ok(false);
+        }
+
         let existing_value: Option<FieldValue> = match navigate_containers(root, &path) {
             Some(Container::Struct(container)) => {
                 container.field(&self.label).map(|f| f.value.clone())
@@ -1830,6 +1870,7 @@ impl AddFieldGFF {
                 else {
                     return Ok(false);
                 };
+                warn_if_resref_adjusted(&raw_value, self.field_type, &self.identifier, logger);
                 let parsed_value = coerce_scalar(
                     &raw_value,
                     self.field_type,
@@ -1837,7 +1878,7 @@ impl AddFieldGFF {
                     existing_value.is_none(),
                 )?;
                 let Some(parsed_value) = parsed_value else {
-                    logger.add_warning(format!(
+                    logger.add_error(format!(
                         "Invalid {} value '{}' in [{}]; skipping field.",
                         self.field_type.name(),
                         raw_value.python_str(),
@@ -1975,6 +2016,7 @@ impl Memory2DAModifierGFF {
             else {
                 return Ok(false);
             };
+            warn_if_resref_adjusted(&source_value, field_type, &self.identifier, logger);
             let Some(parsed_value) =
                 coerce_scalar(&source_value, field_type, Some(&existing), false)?
             else {
@@ -2051,6 +2093,13 @@ impl ModifyFieldGFF {
         };
 
         let label = path.name().to_string();
+        if label_too_long(&label) {
+            logger.add_error(format!(
+                "Unable to modify GFF field '{label}' in [{}]: label is longer than {MAX_LABEL_LEN} characters.",
+                self.identifier
+            ));
+            return Ok(false);
+        }
         let parent = path.parent();
         let existing = match navigate_containers(root, &parent) {
             Some(Container::Struct(navigated_struct)) => match navigated_struct.field(&label) {
@@ -2100,6 +2149,7 @@ impl ModifyFieldGFF {
             return Ok(false);
         }
 
+        warn_if_resref_adjusted(&raw_value, field_type, &self.identifier, logger);
         let parsed_value = match field_type {
             GffFieldType::Int8 => parse_char(&raw_value, None).map(Scalar::Int),
             ft if ft.is_integer() => parse_int(&raw_value, ft, false).map(Scalar::Int),
@@ -2442,8 +2492,8 @@ mod tests {
                 "Invalid Int8 value '' in [sec]; skipping field.",
             ]
         );
-        assert_eq!(logger.warnings().len(), 3);
-        assert_eq!(logger.errors().len(), 3);
+        assert_eq!(logger.warnings().len(), 1);
+        assert_eq!(logger.errors().len(), 5);
     }
 
     #[test]
@@ -2671,10 +2721,10 @@ mod tests {
         assert_eq!(parse_char(&s("€"), None), None);
         assert_eq!(parse_char(&s(""), Some(0)), Some(0));
         assert_eq!(parse_char(&GffValue::Int(-5), None), Some(-5));
-        assert!(make_resref("héllo").is_err());
+        assert_eq!(make_resref("héllo").unwrap(), "h?llo");
         assert_eq!(
-            make_resref(" abcdefghijklmnopq ").unwrap(),
-            "abcdefghijklmno"
+            make_resref(" ABCDefghijklmnopq ").unwrap(),
+            " abcdefghijklmno"
         );
         assert_eq!(python_float_repr(1.0), "1.0");
         assert_eq!(python_float_repr(1e16), "1e+16");
@@ -2704,7 +2754,7 @@ mod tests {
     }
 
     #[test]
-    fn resref_encoding_error_is_logged_per_modifier() {
+    fn resref_non_ascii_is_normalised_with_warning() {
         let file = base_file();
         let mut memory = PatcherMemory::new();
         let (out, logger, _) = run(
@@ -2714,9 +2764,11 @@ mod tests {
         );
         assert_eq!(
             messages(&logger),
-            vec![
-                "Unable to apply GFF modifier [x.utc]: 'héllo' must only contain ASCII characters."
-            ]
+            vec!["ResRef 'héllo' adjusted to 'h?llo' in [x.utc]"]
+        );
+        assert_eq!(
+            out.root.field("Name").unwrap().value,
+            FieldValue::ResRef("h?llo".into())
         );
         assert_eq!(
             out.root.field("Hp").unwrap().value,

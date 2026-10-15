@@ -190,6 +190,21 @@ impl PatchLogger {
     pub fn add_error(&mut self, message: impl Into<String>) {
         self.add(LogType::Error, message.into());
     }
+
+    /// Every line as `[LEVEL] message`, one per line.
+    pub fn to_plain_text(&self) -> String {
+        let mut out = String::new();
+        for log in &self.all_logs {
+            let level = match log.log_type {
+                LogType::Verbose => "VERBOSE",
+                LogType::Note => "NOTE",
+                LogType::Warning => "WARNING",
+                LogType::Error => "ERROR",
+            };
+            out.push_str(&format!("[{level}] {}\n", log.message));
+        }
+        out
+    }
 }
 
 /// Local time as `HH:MM:SS`.

@@ -1,7 +1,8 @@
 //! Port of `pykotor/tslpatcher/mods/ncs.py` (the `[HACKList]`).
 //!
-//! Every value is written as a signed 32-bit integer: big-endian when the
-//! output name ends in `.ncs`, little-endian otherwise. A write that starts
+//! Every value is written with its width (1, 2 or 4 bytes; a bare number is
+//! 4): big-endian when the output name ends in `.ncs`, little-endian
+//! otherwise. A write that starts
 //! inside the file but runs past its end extends the file, as Python's
 //! bytearray slice assignment does.
 
@@ -21,16 +22,25 @@ pub struct HackData {
     pub offset: i32,
     /// Token id, or the literal value for `"VALUE"`.
     pub token_id_or_value: i32,
+    /// Bytes written: 1, 2 or 4 (`u8:` / `u16:` / `u32:`; a bare number is 4).
+    pub width: u8,
 }
 
 impl HackData {
-    /// Build one entry.
+    /// Build one entry (4 bytes wide).
     pub fn new(token_type: &str, offset: i32, token_id_or_value: i32) -> Self {
         Self {
             token_type: token_type.to_string(),
             offset,
             token_id_or_value,
+            width: 4,
         }
+    }
+
+    /// The same entry written with `width` bytes (1, 2 or 4).
+    pub fn with_width(mut self, width: u8) -> Self {
+        self.width = width;
+        self
     }
 }
 
@@ -68,6 +78,11 @@ impl ModificationsNCS {
             let token_type = patch.token_type.as_str();
             let offset = patch.offset;
             let token_id_or_value = patch.token_id_or_value;
+            let width: usize = match patch.width {
+                1 => 1,
+                2 => 2,
+                _ => 4,
+            };
             if offset < 0 || offset as usize >= ncs_bytearray.len() {
                 logger.add_warning(format!(
                     "HACKList {}: offset {} is outside the file; skipping value.",
@@ -88,21 +103,16 @@ impl ModificationsNCS {
                     }
                 }
             } else if token_type.to_lowercase() == "2damemory" {
-                let mut memory_val: Option<&MemoryValue> = None;
-                if let Some(highest_token) = memory.memory_2da.keys().next_back() {
-                    let memory_token =
-                        if token_id_or_value <= 0 || token_id_or_value > *highest_token {
-                            1
-                        } else {
-                            token_id_or_value
-                        };
-                    memory_val = memory.memory_2da.get(&memory_token);
-                }
-                let Some(memory_val) = memory_val else {
-                    logger.add_warning(format!(
-                        "2DAMEMORY{token_id_or_value} was not defined before use in HACKList; skipping value."
-                    ));
-                    continue;
+                // Never fall back to another slot: an unset token writes 0.
+                let unset = MemoryValue::Str("0".to_string());
+                let memory_val: &MemoryValue = match memory.memory_2da.get(&token_id_or_value) {
+                    Some(memory_val) => memory_val,
+                    None => {
+                        logger.add_warning(format!(
+                            "2DAMEMORY{token_id_or_value} was not defined before use in HACKList; writing 0."
+                        ));
+                        &unset
+                    }
                 };
                 if memory_val.is_field_path() {
                     logger.add_warning(format!(
@@ -123,26 +133,38 @@ impl ModificationsNCS {
                 token_id_or_value as i128
             };
 
-            if !(0..=0x7FFF_FFFF).contains(&value) {
+            let max_value: i128 = match width {
+                1 => 0xFF,
+                2 => 0xFFFF,
+                _ => 0x7FFF_FFFF,
+            };
+            if !(0..=max_value).contains(&value) {
                 logger.add_warning(format!(
-                    "HACKList {}: value {value} is outside the supported 32-bit range; skipping value.",
-                    self.base.sourcefile
+                    "HACKList {}: value {value} is outside the supported {}-bit range; skipping value.",
+                    self.base.sourcefile,
+                    width * 8
                 ));
                 continue;
             }
 
+            let label = match width {
+                1 => "BYTE",
+                2 => "WORD",
+                _ => "DWORD",
+            };
             logger.add_verbose(format!(
-                "HACKList {}: writing DWORD {value} at offset {}",
+                "HACKList {}: writing {label} {value} at offset {}",
                 self.base.sourcefile,
                 python_hex(offset)
             ));
-            let bytes = if is_ncs {
-                (value as i32).to_be_bytes()
+            let full = value as u32;
+            let bytes: Vec<u8> = if is_ncs {
+                full.to_be_bytes()[4 - width..].to_vec()
             } else {
-                (value as i32).to_le_bytes()
+                full.to_le_bytes()[..width].to_vec()
             };
             let start = offset as usize;
-            let end = start + 4;
+            let end = start + width;
             if ncs_bytearray.len() < end {
                 ncs_bytearray.resize(end, 0);
             }
@@ -307,20 +329,21 @@ mod tests {
     }
 
     #[test]
-    fn twoda_memory_tokens_fall_back_to_token_one_and_reject_bad_values() {
+    fn twoda_memory_tokens_never_fall_back_to_another_slot_and_reject_bad_values() {
         let mut logger = PatchLogger::new();
         let mut memory = PatcherMemory::new();
-        let mut bytes = vec![0u8; 4];
-        // Empty memory: skipped with a warning.
+        let mut bytes = vec![0xFFu8; 4];
+        // Empty memory: warns and writes 0.
         patch("a.ncs", vec![HackData::new("2DAMEMORY", 0, 1)]).apply(
             &mut bytes,
             &memory,
             &mut logger,
             Game::K1,
         );
+        assert_eq!(bytes, vec![0, 0, 0, 0]);
         assert_eq!(
             logger.warnings()[0].message,
-            "2DAMEMORY1 was not defined before use in HACKList; skipping value."
+            "2DAMEMORY1 was not defined before use in HACKList; writing 0."
         );
 
         memory.memory_2da.insert(1, MemoryValue::Str("7".into()));
@@ -329,20 +352,22 @@ mod tests {
             .insert(2, MemoryValue::FieldPath("A\\B".into()));
         memory.memory_2da.insert(3, MemoryValue::Str("row".into()));
         memory.memory_2da.insert(5, MemoryValue::Str("9".into()));
-        let mut bytes = vec![0u8; 20];
+        let mut bytes = vec![0xFFu8; 20];
         patch(
             "a.ncs",
             vec![
-                HackData::new("2DAMEMORY", 0, 0),  // <= 0 -> token 1
-                HackData::new("2DAMEMORY", 4, 99), // > highest -> token 1
+                HackData::new("2DAMEMORY", 0, 0),  // unset -> 0, no slot-1 fallback
+                HackData::new("2DAMEMORY", 4, 99), // unset -> 0, no slot-1 fallback
                 HackData::new("2DAMEMORY", 8, 2),  // field path
                 HackData::new("2DAMEMORY", 12, 3), // not digits
                 HackData::new("2DAMEMORY", 16, 4), // in range but missing
             ],
         )
         .apply(&mut bytes, &memory, &mut logger, Game::K2);
-        assert_eq!(&bytes[0..4], &[0, 0, 0, 7]);
-        assert_eq!(&bytes[4..8], &[0, 0, 0, 7]);
+        assert_eq!(&bytes[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&bytes[4..8], &[0, 0, 0, 0]);
+        assert_eq!(&bytes[8..16], &[0xFF; 8]);
+        assert_eq!(&bytes[16..20], &[0, 0, 0, 0]);
         let warnings: Vec<_> = logger
             .warnings()
             .iter()
@@ -352,9 +377,11 @@ mod tests {
         assert_eq!(
             warnings,
             vec![
+                "2DAMEMORY0 was not defined before use in HACKList; writing 0.".to_string(),
+                "2DAMEMORY99 was not defined before use in HACKList; writing 0.".to_string(),
                 "2DAMEMORY2 contains a !FieldPath and cannot be written by HACKList; skipping value.".to_string(),
                 "2DAMEMORY3 does not contain an unsigned decimal value; skipping value.".to_string(),
-                "2DAMEMORY4 was not defined before use in HACKList; skipping value.".to_string(),
+                "2DAMEMORY4 was not defined before use in HACKList; writing 0.".to_string(),
             ]
         );
     }

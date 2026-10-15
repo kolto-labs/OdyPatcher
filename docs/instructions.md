@@ -59,28 +59,54 @@ ConfirmMessage=Install My Mod now?
 | `InstallerMode` | `1` | `1` installs a mod; explicitly set `0` to patch files the operator picks |
 | `BackupFiles` | `1` | Copy files into `backup` before changing them |
 | `LogLevel` | `3` | `0` none, `1` progress, `2` and errors, `3` and warnings, `4` and detail |
-| `PlaintextLog` | `0` | Write `installlog.txt` instead of styled `installlog.rtf` |
+| `PlaintextLog` | `0` | With `1`, write `installlog.txt` in the mod folder (the parent of `tslpatchdata`). There is no RTF log |
 | `ConfirmMessage` | *generic* | Prompt before starting. `N/A` starts without asking |
 | `FileExists` | ignored | Legacy compatibility sentinel. It may be omitted and never controls whether a run starts |
 | `LookupGameFolder` | `0` | Find the game folder from the registry instead of asking |
-| `LookupGameNumber` | `2` | `1` for the first game, `2` for the second |
-| `Required` / `RequiredN` | *none* | Files that must already be in `override`. Comma-separated names in one key are all required. `Required1`, `Required2`, … are extra groups |
+| `LookupGameNumber` | `2` | `1` for the first game, `2` for the second. It is only a hint, used when the command line gives neither a game path nor a game id. An invalid value logs a warning and is ignored |
+| `Required` / `RequiredN` | *none* | Files that must already be in `override`. They are checked after the instruction file loads. Comma-separated names in one key are all required. `Required1`, `Required2`, … are extra groups |
 | `RequiredMsg` / `RequiredMsgN` | *default* | What to say when that group is missing. `RequiredMsg=0` is ignored. A group without a message uses a default. Unlike HoloPatcher, a missing message does not abort parsing |
 | `ScriptCompilerFlags` | *none* | Extra arguments for the subprocess script compiler. Ignored when compiling in-process. |
 | `SaveProcessedScripts` | `0` | Keep processed script sources in a `debug` folder |
-| `IgnoreExtensions` | `0` | Treat files that share a name but not an extension as the same file when copying or checking `override` |
+| `IgnoreExtensions` | `0` | Parsed and ignored. A warning is logged when it is set. Files are not matched by stem |
+| `OnError` | `Continue` | `Continue` logs a failed operation and goes on to the next. `Abort` stops after the first failed operation. TSLPatcher always stopped; HoloPatcher continues. Case-insensitive |
 
 `!DefaultSourceFolder` on a list, or `!SourceFolder` on a file or InstallList folder, names a folder inside `tslpatchdata` to read those files from. `.` (the default) is `tslpatchdata` itself. The path cannot contain `..`.
 
 `!Destination` on a file, and `!DefaultDestination` / `!Destination` on a
 list, names where the result is written: `override`, another folder below the
-game, or an archive that already exists (for example `modules\danm13.mod`). A
-missing or blank destination defaults to `override`. A missing archive is
-skipped. InstallList destinations are the folder section names; a file-level
+game, or an archive (for example `modules\danm13.mod`). A missing
+`!Destination` on a GFF, 2DA, soundset, byte-patch or script entry defaults to
+`override`. On an InstallList file a blank `!Destination` means the game root.
+A destination archive that does not exist is built when its name ends in `.mod`
+(from the module's `.rim` and `_s.rim`, plus `_dlg.erf` for the second game); a
+missing `.erf` or `.rim` destination is an error for that file. An existing
+archive is recognised by its header, not its extension. InstallList
+destinations are the folder section names; a file-level
 `!Destination` there sends that file somewhere else. Destination paths cannot
 contain a `..` parent component or resolve through a symlink outside the game.
 `!SourceFile` stays inside `tslpatchdata`; `!Filename` and `!SaveAs` are leaf
 filenames rather than paths.
+
+## Compatibility switches
+
+The optional `[Compat]` section changes how strictly the instruction file is read.
+
+```ini
+[Compat]
+Strict=0
+AllowProtectedReplace=0
+```
+
+`Strict=1` turns tolerated oddities into errors. The oddities are:
+
+- Malformed keys, or keys starting with `!`, in `[TLKList]`.
+- A `[2DAList]` entry whose file section is missing. By default the table is loaded and saved unchanged.
+- A soundset file with a short entry table or an unusual offset. By default the patcher reads what is there, pads missing slots with `0xFFFFFFFF`, and logs a warning.
+
+A mod-shipped `nwscript.nss` always gets a warning, whatever `Strict` says.
+
+`AllowProtectedReplace=1` lets InstallList and other patches overwrite `.exe`, `.tlk`, `.key` and `.bif` files in the game folder. By default they are refused with a warning.
 
 ## Install variants
 
@@ -144,6 +170,9 @@ the same using a named column. Both apply to row operations, not to `AddColumn`.
 **`inc(n)`** adds `n` to the value a copied row already had, and only works in
 `CopyRow`.
 
+If a key appears twice in one section, the first occurrence wins. A warning
+names the key. This is TSLPatcher's order.
+
 ## Files that get renamed
 
 Two keys shift names around, and can be used in any file's own section:
@@ -202,6 +231,15 @@ same Replace/Append/`N\Text` changes are applied there without rewriting
 `StrRef` tokens (those stay as `dialog.tlk` indices). `!SourceFileF` /
 `appendf.tlk` still supply the female lines for Delphi `StrRef` appends.
 
+`appendf.tlk` is applied to `dialogf.tlk` when both exist and the two append
+files have the same entry count. Different counts are an error for the TLK
+patch. If `appendf.tlk` is present but `dialogf.tlk` is missing, that is an
+error. If `appendf.tlk` is missing but `dialogf.tlk` is present, a note is
+logged and `dialogf.tlk` is left unchanged.
+
+An unset `StrRef<n>` token writes 0 with a warning in GFF, 2DA, SSF and HACK
+patches. In scripts the token text is left as written, with a warning.
+
 `N\Text` and `N\Sound` (or `/`) on `[TLKList]` itself replace that existing
 line's text and/or voiceover ResRef in `dialog.tlk` and, when present,
 `dialogf.tlk`. Delphi instruction files do not use these keys.
@@ -225,8 +263,8 @@ StrRef0=0
 ## Installing files
 
 Each key in `InstallList` names a section, and its value is where those files
-go: a folder below the game, or an archive to insert into. An omitted or blank
-destination defaults to `override`.
+go: a folder below the game, or an archive to insert into. An empty folder
+section name is an error and the section is skipped. `.` is the game root.
 
 ```ini
 [InstallList]
@@ -244,8 +282,15 @@ File0=my_item.uti
 Keys beginning with `Replace` overwrite what is already there. Anything else
 steps around an existing file and reports it. A file section's `!ReplaceFile`
 wins over that list key when present. `!Destination` on the file sends it to a
-different folder or archive than the section names. Game executables, the
-string table, `chitin.key`, and `.bif` data files are never overwritten.
+different folder or archive than the section names.
+
+An existing destination archive is identified by its header (ERF, MOD, HAK, SAV,
+RIM). A missing `.mod` destination is built from the module's `.rim` and
+`_s.rim` files, plus `_dlg.erf` for the second game. A missing destination with
+another archive extension is an error.
+
+Replacing a file in a protected extension (`.exe`, `.tlk`, `.key`, `.bif`) is
+refused with a warning unless `AllowProtectedReplace=1` is set in `[Compat]`.
 
 ## Tables
 
@@ -291,8 +336,21 @@ A cell value of `rowindex` or `rowlabel` (matched in full, ignoring case) writes
 that row's index or label. `StrRef<n>=<column>` in a row modifier stores that
 cell as a string-table token, the same way `2DAMEMORY<n>` stores a memory slot.
 
-If a table named in `[2DAList]` cannot be opened, the rest of that list is
-skipped. Later sections still run. `DeleteRow` is not a recognised modifier.
+A failed modifier logs an error naming its section and is skipped. The other
+modifiers for that file still run and the file is written. If a table cannot be
+found, that table fails and the rest of the list still runs. `DeleteRow` is not
+a recognised modifier.
+
+`AddColumn` with a column that already exists is an error unless `IfExists` is
+set. `IfExists=Skip` logs a note and skips. `IfExists=Update` writes the cell
+values into the existing column. `BeforeColumn=<label>` inserts the new column
+before that column. An unknown label is an error for that modifier.
+
+An unset `2DAMEMORY<n>` reads as empty with a warning. `2DAMEMORY0`, negative
+ids, and non-numeric ids are an error.
+
+For the first game, `placeables.2da` and `upcrystals.2da` over 256 rows, and
+`upgrade.2da` over 32 rows, log a warning.
 
 `!DefaultDestination` on `[2DAList]` and `!Destination` on a table send the
 result into an archive instead of `override`. `!ReplaceFile` on the table
@@ -339,28 +397,32 @@ Keys beginning with `AddField` name a section describing a field to create:
 A `Struct` or `List` may contain `AddField` keys of its own. Nested fields
 inherit `Path` from the parent unless they set their own.
 
+A `ResRef` value longer than 16 characters is truncated and lowercased, with a
+warning. A field label longer than 16 characters is an error for that modifier.
+A non-numeric value for a numeric field on an Add is an error for that modifier.
+
 `!Destination` sends the result into an archive instead of `override`, and
 `!ReplaceFile=1` overwrites rather than modifies. List keys that start with
 `Replace` do the same when `!ReplaceFile` is absent. If a structured file
-cannot be opened or loaded, the rest of `[GFFList]` is skipped; later sections
-still run. `2DAMEMORY<n>=!FieldPath` at the file root stores an empty path;
+cannot be opened or loaded, that file fails and the rest of `[GFFList]` still
+runs. `2DAMEMORY<n>=!FieldPath` at the file root stores an empty path;
 the same key under `AddField` stores the path of the field just created.
 When a file is placed in an archive, `!OverrideType` says what to do about a
-copy already sitting in `override` that would shadow it: `ignore` (the default)
-does nothing, `warn` reports it, `rename` moves it aside. `!ReplaceFile` on a
+copy already sitting in `override` that would shadow it: `ignore` does
+nothing, `warn` (the default) reports it, `rename` moves it aside as
+`old_<name>`, lowercased, with ` (2)`, ` (3)` added on a collision. `!ReplaceFile` on a
 file section wins over the list's `File#` / `Replace#` key when present,
 including on InstallList, tables, CompileList, soundsets, and byte patches.
 
 ## Byte patches
 
 Keys are byte offsets (decimal, or hexadecimal with a `0x` prefix) and values
-are the whole numbers to write there. Compiled scripts store numbers most
-significant byte first, and unprefixed values written into one are byte-swapped
-to match. A prefix of `u8:`, `u16:`, or `u32:` writes that many bytes without
-swapping. The number after the prefix may be decimal, `0x` hexadecimal, or a
-`StrRef<n>` / `2DAMEMORY<n>` token. `strref:` / `2damemory:` write two bytes;
-`strref32:` / `2damemory32:` write four. `StrRef<n>` and `2DAMEMORY<n>` without
-a prefix are resolved first, then written as unprefixed 32-bit values.
+are the whole numbers to write there. A value may carry a width prefix: `u8:`,
+`u16:`, or `u32:`. Without a prefix it is 4 bytes. The number after the prefix
+may be decimal, `0x` hexadecimal, or a `StrRef<n>` / `2DAMEMORY<n>` token.
+Values are big-endian when the target file name ends in `.ncs` and
+little-endian otherwise. A value out of range logs a warning and is skipped.
+An unset `StrRef<n>` or `2DAMEMORY<n>` writes 0 with a warning.
 
 `ReplaceFile` on a HACKList file has no `!`. `1` installs the file from the mod
 before patching it.
@@ -382,9 +444,12 @@ replaced, are compiled, and the result is installed. A source with no `main` or
 `StartingConditional` is treated as an include: it is processed but not compiled,
 and must be listed before the scripts that use it.
 
-Compilation uses bionsscomp in-process when `nwscript.nss` can be loaded from
-`tslpatchdata` or from beside the patcher. Otherwise a shipped `nwnnsscomp` is
-run as a subprocess.
+The external `nwnnsscomp.exe` is used only on Windows, and only when it ships
+in `tslpatchdata`. It must exit 0 and produce a non-empty `.ncs`. Otherwise the
+built-in compiler runs, with a warning.
+
+The built-in compiler ignores a `nwscript.nss` shipped with the mod. It logs one
+warning per run. An `#include` it cannot find is a note, and that script fails.
 
 ```ini
 [CompileList]
@@ -417,6 +482,21 @@ Entry names are `Battlecry 1` through `Battlecry 6`, `Selected 1` through
 `Stealth on`, `Search`, `Pick lock start`, `Pick lock fail`, `Pick lock done`,
 `Leave party`, `Rejoin party`, and `Poisoned`.
 
+The output is always the fixed 40-slot `SSF V1.1` layout. Short input is padded
+with `0xFFFFFFFF` and a warning is logged. A bad entry is an error for that
+entry, and the file is still written.
+
+## Where this differs from TSLPatcher
+
+- `OnError=Continue` is the default. TSLPatcher stopped at the first error.
+- Outputs are always lowercase.
+- Backups are timestamped, and an uninstall list is kept.
+- Duplicate keys log a warning. The first one wins.
+- The `[Compat]` switches are new.
+- `appendf.tlk` is applied to `dialogf.tlk`.
+- Byte patch values can carry a width prefix: `u8:`, `u16:`, `u32:`.
+- A built-in script compiler is used when the external one is not available.
+
 ## Where this differs from HoloPatcher
 
 HoloPatcher documents several behaviours that this installer does not copy,
@@ -425,13 +505,11 @@ because they would change how an existing TSLPatcher `changes.ini` runs:
 - Stage order stays string table → files → tables → structured files → byte
   patches → scripts → soundsets. HoloPatcher copies files before the string
   table and compiles scripts before byte patches.
-- `!OverrideType` defaults to `ignore`, not HoloPatcher's `warn`.
-- An unprefixed HACKList value is a 32-bit little-endian integer. HoloPatcher's
-  developer notes sometimes describe that as a 16-bit word; the original
-  TSLPatcher writes four bytes.
+- An unprefixed HACKList value is 4 bytes, big-endian when the target file name
+  ends in `.ncs`. The `u8:`, `u16:`, `u32:` prefixes are an addition that
+  HoloPatcher does not have.
 - `nwscript.nss` is not copied into `override` just because scripts will be
-  compiled. In-process compilation reads the header from `tslpatchdata` or from
-  beside this program.
+  compiled. The built-in compiler uses the game's own function table.
 - `DeleteRow` is not a recognised table modifier (`--validate` warns).
   HoloPatcher's `DeleteField` is not applied.
 - There is no KotorDiff generator and no ChangeEdit editor in this program.

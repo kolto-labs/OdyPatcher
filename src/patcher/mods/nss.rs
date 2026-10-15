@@ -17,9 +17,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "nss-compiler")]
 use std::sync::{Arc, Mutex, OnceLock};
 
-#[cfg(feature = "nss-compiler")]
-use super::super::casepath::case_sensitive_path;
-use super::super::casepath::safe_isfile;
+use super::super::casepath::{case_sensitive_path, safe_isfile};
 use super::super::config::Game;
 use super::super::encoding::decode_bytes_with_fallbacks;
 use super::super::error::{PResult, PatchException};
@@ -33,6 +31,10 @@ pub const ENTRY_POINT_ERROR: &str =
 
 /// The stdout marker `nwnnsscomp.exe` prints for an include file.
 const INCLUDE_FILE_MARKER: &str = "File is an include file, ignored";
+
+/// CMP-3/7: logged once per run when a mod ships its own `nwscript.nss`.
+const NWSCRIPT_IGNORED_WARNING: &str =
+    "nwscript.nss in tslpatchdata is ignored; the built-in compiler uses the game's function table";
 
 /// `ModificationsNSS`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,6 +239,49 @@ impl ModificationsNSS {
         Ok(result)
     }
 
+    /// Identify `nwnnsscomp.exe` by SHA-256 (warning when it is not the
+    /// TSLPatcher build), then compile with it. Any `Err` other than
+    /// `EntryPointError` means the caller falls back to the built-in compiler.
+    fn try_external_compile(
+        &self,
+        temp_script_file: &Path,
+        nwnnsscomp_path: &Path,
+        logger: &mut PatchLogger,
+        game: Game,
+    ) -> PResult<PatchOutput> {
+        let nwnnsscompiler = ExternalNCSCompiler::new(nwnnsscomp_path)?;
+        let detected_nwnnsscomp = nwnnsscompiler
+            .get_info()
+            .map(|compiler| compiler.member_name())
+            .unwrap_or("<UNKNOWN>");
+        if detected_nwnnsscomp != "TSLPATCHER" {
+            logger.add_warning(format!(
+                "The nwnnsscomp.exe in the tslpatchdata folder is not the expected TSLPatcher version.\nPyKotor has detected that the provided nwnnsscomp.exe is the '{detected_nwnnsscomp}' version.\nPyKotor will compile regardless, but this may not yield the expected result."
+            ));
+        }
+        self.compile_with_external(temp_script_file, &nwnnsscompiler, logger, game)
+    }
+
+    /// CMP-3/7: warn (once per run) that a `nwscript.nss` shipped by the mod
+    /// is ignored when the built-in compiler is used.
+    fn warn_if_nwscript_shipped(&self, temp_script_folder: &Path, logger: &mut PatchLogger) {
+        let shipped = safe_isfile(&temp_script_folder.join("nwscript.nss"))
+            || self.nwscript_search_folders.iter().any(|folder| {
+                safe_isfile(&case_sensitive_path(&folder.join("nwscript.nss")))
+            });
+        if !shipped {
+            return;
+        }
+        if logger
+            .warnings()
+            .iter()
+            .any(|log| log.message == NWSCRIPT_IGNORED_WARNING)
+        {
+            return;
+        }
+        logger.add_warning(NWSCRIPT_IGNORED_WARNING);
+    }
+
     /// Compile the processed text with `bionsscomp`, PyKotor's built-in
     /// compiler stand-in.
     fn compile_with_builtin(
@@ -271,6 +316,11 @@ impl ModificationsNSS {
                     if is_include {
                         logger.add_note(ENTRY_POINT_ERROR);
                         return Ok(PatchOutput::Skip);
+                    }
+                    for name in unresolved_includes(source, temp_script_folder) {
+                        logger.add_note(format!(
+                            "Cannot resolve #include '{name}' for '{source_name}' with the built-in compiler; skipping compilation of this script."
+                        ));
                     }
                     let kind = match &error {
                         bionsscomp::CompileError::Io { .. } => "OSError",
@@ -365,6 +415,37 @@ fn header_cache() -> &'static HeaderCache {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Names of `#include "name"` / `#include <name>` directives for which the
+/// workspace holds no `name.nss` (the `nwscript` header is never reported).
+#[cfg(feature = "nss-compiler")]
+fn unresolved_includes(source: &str, folder: &Path) -> Vec<String> {
+    let mut missing: Vec<String> = Vec::new();
+    for line in source.lines() {
+        let Some(rest) = line.trim_start().strip_prefix("#include") else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let close = match rest.chars().next() {
+            Some('"') => '"',
+            Some('<') => '>',
+            _ => continue,
+        };
+        let Some(end) = rest[1..].find(close) else {
+            continue;
+        };
+        let name = rest[1..1 + end].trim();
+        let lowered = name.to_lowercase();
+        let stem = lowered.strip_suffix(".nss").unwrap_or(&lowered);
+        if stem.is_empty() || stem == "nwscript" {
+            continue;
+        }
+        if !safe_isfile(&folder.join(format!("{stem}.nss"))) && !missing.iter().any(|m| m == name) {
+            missing.push(name.to_string());
+        }
+    }
+    missing
+}
+
 /// Every `#{token_name}([0-9]+)#` match: the digit text and its integer value.
 fn find_tokens(text: &str, token_name: &str) -> Vec<(String, i64)> {
     let prefix = format!("#{token_name}");
@@ -433,26 +514,17 @@ impl PatcherModifications for ModificationsNSS {
             .as_deref()
             .map(safe_isfile)
             .unwrap_or(false);
+        let mut external_failure: Option<String> = None;
         if is_windows && nwnnsscomp_exists {
             let nwnnsscomp_path = self.nwnnsscomp_path.clone().expect("checked above");
-            let nwnnsscompiler = ExternalNCSCompiler::new(&nwnnsscomp_path)?;
-            let detected_nwnnsscomp = nwnnsscompiler
-                .get_info()
-                .map(|compiler| compiler.member_name())
-                .unwrap_or("<UNKNOWN>");
-            if detected_nwnnsscomp != "TSLPATCHER" {
-                logger.add_warning(format!(
-                    "The nwnnsscomp.exe in the tslpatchdata folder is not the expected TSLPatcher version.\nPyKotor has detected that the provided nwnnsscomp.exe is the '{detected_nwnnsscomp}' version.\nPyKotor will compile regardless, but this may not yield the expected result."
-                ));
-            }
-            match self.compile_with_external(&temp_script_file, &nwnnsscompiler, logger, game) {
+            match self.try_external_compile(&temp_script_file, &nwnnsscomp_path, logger, game) {
                 Ok(output) => return Ok(output),
                 Err(exc) if exc.kind == "EntryPointError" => {
                     logger.add_note(exc.message);
                     return Ok(PatchOutput::Skip);
                 }
                 Err(exc) => {
-                    logger.add_error(python_tuple_repr(&exc.simplify()));
+                    external_failure = Some(python_tuple_repr(&exc.simplify()));
                 }
             }
         }
@@ -461,9 +533,10 @@ impl PatcherModifications for ModificationsNSS {
             if !nwnnsscomp_exists {
                 logger.add_note("nwnnsscomp.exe was not found in the 'tslpatchdata' folder, using the built-in compilers...");
             } else {
-                logger.add_error(format!(
-                    "An error occurred while compiling '{}' with nwnnsscomp.exe, falling back to the built-in compilers...",
-                    self.base.sourcefile
+                logger.add_warning(format!(
+                    "nwnnsscomp.exe failed for '{}' ({}); falling back to the built-in compilers...",
+                    self.base.sourcefile,
+                    external_failure.as_deref().unwrap_or("unknown reason")
                 ));
             }
         } else {
@@ -474,6 +547,7 @@ impl PatcherModifications for ModificationsNSS {
         }
 
         // Compile using built-in script compiler if external compiler fails.
+        self.warn_if_nwscript_shipped(&temp_script_folder, logger);
         self.compile_with_builtin(&processed, &temp_script_folder, &script_name, logger, game)
     }
 
