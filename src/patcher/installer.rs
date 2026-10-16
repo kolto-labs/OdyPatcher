@@ -10,7 +10,7 @@ use super::capsule::{Capsule, ResourceIdentifier};
 use super::casepath::{
     abspath, normcase_realpath, safe_exists, safe_isdir, safe_isfile, safe_iterdir,
 };
-use super::config::{Game, PatcherConfig};
+use super::config::{Game, OnError, PatcherConfig};
 use super::encoding::decode_ini_text;
 use super::error::{PResult, PatchException};
 use super::ini::CaseInsensitiveDict;
@@ -602,7 +602,7 @@ impl ModInstaller {
             Self::relative_path_parts(&patch.destination, "patch destination", true, false)?;
         let requested_destination = join_parts(&self.game_path, &destination_parts);
 
-        let (container_path, output_path) = if is_capsule_file(&patch.destination) {
+        let (container_path, output_path) = if self.is_capsule_dest(&patch.destination) {
             let destination_folder = Self::resolve_folder(
                 requested_destination
                     .parent()
@@ -714,7 +714,7 @@ impl ModInstaller {
     /// `_prepare_output_path(patch)`: the capsule file, or the destination folder.
     fn prepare_output_path(&self, patch: &mut ModBase) -> PResult<PathBuf> {
         let (container_path, output_path) = self.resolve_patch_output_paths(patch)?;
-        if is_capsule_file(&patch.destination) {
+        if self.is_capsule_dest(&patch.destination) {
             // Resolve existing spelling now; rename only when committing a write.
             return Self::resolve_file_path_within(&self.game_path, &output_path, "patch output");
         }
@@ -729,7 +729,7 @@ impl ModInstaller {
         let Patch::Install(install) = patch else {
             return Ok(false);
         };
-        if !install.is_protected_replacement() || is_capsule_file(&install.base.destination) {
+        if !install.is_protected_replacement() || self.is_capsule_dest(&install.base.destination) {
             return Ok(false);
         }
 
@@ -739,11 +739,60 @@ impl ModInstaller {
         }
 
         let local_folder = self.local_folder_name(&install.base.destination);
+        if self.allow_protected_replace() {
+            self.log.add_warning(format!(
+                "Replacing protected file '{}' in the '{local_folder}' folder because the INI enabled AllowProtectedReplace.",
+                install.base.saveas
+            ));
+            return Ok(false);
+        }
         self.log.add_warning(format!(
             "Skipping protected existing file '{}' in the '{local_folder}' folder; InstallList cannot replace EXE, TLK, KEY, or BIF files.",
             install.base.saveas
         ));
         Ok(true)
+    }
+
+    /// `[Compat] AllowProtectedReplace` of the loaded config.
+    fn allow_protected_replace(&self) -> bool {
+        self.config
+            .as_ref()
+            .map(|c| c.allow_protected_replace)
+            .unwrap_or(false)
+    }
+
+    /// INST-13: `Some(true)` capsule, `Some(false)` folder, `None` when a
+    /// missing destination looks like a file but is not a capsule type.
+    fn destination_is_capsule(&self, destination: &str) -> PResult<Option<bool>> {
+        let parts = Self::relative_path_parts(destination, "patch destination", true, false)?;
+        let path = join_parts(&self.game_path, &parts);
+        if let Some(existing) = Self::find_case_insensitive_file(&path) {
+            return Ok(Some(
+                sniff_capsule_header(&existing) || is_capsule_file(destination),
+            ));
+        }
+        let Some(last) = parts.last() else {
+            return Ok(Some(false));
+        };
+        if is_capsule_file(destination) {
+            return Ok(Some(true));
+        }
+        if safe_isdir(&Self::resolve_folder(&path)) {
+            return Ok(Some(false));
+        }
+        let suffix = pure_suffix(last).to_lowercase();
+        if matches!(suffix.as_str(), ".erf" | ".mod" | ".rim" | ".sav" | ".hak") {
+            return Ok(Some(true));
+        }
+        if last.contains('.') {
+            return Ok(None);
+        }
+        Ok(Some(false))
+    }
+
+    /// Capsule-vs-folder for a destination; lookup problems count as folder.
+    fn is_capsule_dest(&self, destination: &str) -> bool {
+        matches!(self.destination_is_capsule(destination), Ok(Some(true)))
     }
 
     /// The game folder's name when the destination is `.`, else the destination.
@@ -917,7 +966,7 @@ impl ModInstaller {
         patch: &ModBase,
         output_container_path: &Path,
     ) -> PResult<PatchTarget> {
-        if is_capsule_file(&patch.destination) {
+        if self.is_capsule_dest(&patch.destination) {
             let container_name = file_name_of(output_container_path);
             let module_root = get_module_root(&output_container_path.to_string_lossy());
             let tslrcm_omitted_rims = ["702KOR", "401DXN"];
@@ -1168,8 +1217,9 @@ impl ModInstaller {
         let action = &base.action[..base.action.len().saturating_sub(1)];
         let same_name = base.saveas.to_lowercase() == base.sourcefile.to_lowercase();
 
+        let allow_protected = self.allow_protected_replace();
         if let Patch::Install(install) = patch {
-            if capsule.is_none() && exists && install.is_protected_replacement() {
+            if capsule.is_none() && exists && install.refuses_protected_replace(allow_protected) {
                 self.log.add_warning(format!(
                     "Skipping protected existing file '{}' in the '{local_folder}' folder; InstallList cannot replace EXE, TLK, KEY, or BIF files.",
                     base.saveas
@@ -1288,6 +1338,7 @@ impl ModInstaller {
             compile_workspace: None,
         };
         let mut cancelled = false;
+        let mut aborted = false;
 
         let total = patches_list.len();
         for patch_index in 0..total {
@@ -1351,6 +1402,20 @@ impl ModInstaller {
             if let Some(progress) = progress_update_func.as_deref_mut() {
                 progress();
             }
+
+            if outcome == Outcome::Failed && config.on_error == OnError::Abort {
+                let remaining = total - patch_index - 1;
+                if remaining > 0 {
+                    self.log.skip_patch(remaining);
+                    if let Some(progress) = progress_update_func.as_deref_mut() {
+                        for _ in 0..remaining {
+                            progress();
+                        }
+                    }
+                }
+                aborted = true;
+                break;
+            }
         }
 
         // outer finally:
@@ -1389,12 +1454,31 @@ impl ModInstaller {
         if cancelled {
             self.log
                 .add_warning(format!("Installation cancelled. {summary}"));
+        } else if aborted {
+            self.log.add_error(format!(
+                "Installation aborted after a failed operation ([Settings] OnError=Abort). {summary}"
+            ));
         } else if self.log.patches_failed > 0 || error_count > 0 {
             self.log
                 .add_error(format!("Installation completed with errors. {summary}"));
         } else {
             self.log
                 .add_note(format!("Successfully completed installation. {summary}"));
+        }
+        if config.plaintext_log {
+            let log_dir = self
+                .tslpatchdata_path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| self.mod_path.clone());
+            let log_path = log_dir.join("installlog.txt");
+            if let Err(err) = std::fs::write(&log_path, self.log.to_plain_text()) {
+                self.log.add_warning(format!(
+                    "Could not write plain-text log '{}': {err}",
+                    log_path.display()
+                ));
+            }
         }
         Ok(())
     }
@@ -1421,6 +1505,24 @@ impl ModInstaller {
     ) -> PResult<Outcome> {
         let game = self.game.expect("checked by install()");
 
+        if let Patch::Install(install) = &patches[index] {
+            if self
+                .destination_is_capsule(&install.base.destination)?
+                .is_none()
+            {
+                return Err(PatchException::new(
+                    "FileNotFoundError",
+                    format!("destination '{}' does not exist", install.base.destination),
+                ));
+            }
+        }
+
+        if let Patch::Tlk(tlk) = &patches[index] {
+            if let Some(msg) = &tlk.precheck_error {
+                return Err(PatchException::new("ValueError", msg.clone()));
+            }
+        }
+
         if let Patch::Tlk(tlk) = &mut patches[index] {
             if tlk.female.is_some() {
                 self.install_tlk_pair(tlk, memory)?;
@@ -1434,7 +1536,9 @@ impl ModInstaller {
 
         {
             let base = patches[index].base();
-            if base.skip_if_not_replace && !base.replace_file && !is_capsule_file(&base.destination)
+            if base.skip_if_not_replace
+                && !base.replace_file
+                && !self.is_capsule_dest(&base.destination)
             {
                 let (_, output_path) =
                     self.resolve_patch_output_paths(patches[index].base_mut())?;
@@ -1458,7 +1562,7 @@ impl ModInstaller {
             state.finished_preprocessed_scripts = true;
         }
 
-        if is_capsule_file(&patches[index].base().destination) {
+        if self.is_capsule_dest(&patches[index].base().destination) {
             ResourceIdentifier::from_path(&patches[index].base().saveas).validate()?;
         }
         let mut output_container_path = self.prepare_output_path(patches[index].base_mut())?;
@@ -1649,7 +1753,7 @@ impl ModInstaller {
             };
             let Some(data) = data else {
                 return Err(PatchException::new(
-                    "FileNotFoundError",
+                    "ValueError",
                     format!("Cannot locate dialog table '{}'.", member.saveas),
                 ));
             };
@@ -1761,7 +1865,7 @@ impl ModInstaller {
     /// paths resolved, paired with a `dialogf.tlk` companion when one exists
     /// beside the output. Empty when the list has no modifiers.
     pub fn get_tlk_patches(
-        &self,
+        &mut self,
         mut patches_tlk: ModificationsTLK,
     ) -> PResult<Vec<ModificationsTLK>> {
         patches_tlk.female = None;
@@ -1787,13 +1891,6 @@ impl ModInstaller {
         let (folder, _) = self.resolve_patch_output_paths(&mut probe)?;
         let female_dialog =
             Self::resolve_relative_file_within(&folder, "dialogf.tlk", "female dialog TLK")?;
-        if !safe_isfile(&female_dialog) {
-            return Ok(vec![patches_tlk]);
-        }
-        let mut female = patches_tlk.clone();
-        female.base.saveas = "dialogf.tlk".to_string();
-        female.store_memory = false;
-        female.modifiers = Vec::new();
         let source_folder =
             self.resolve_source_folder(&patches_tlk.base.sourcefolder, "female TLK source folder")?;
         let source_parts = Self::relative_path_parts(
@@ -1806,6 +1903,34 @@ impl ModInstaller {
             &join_parts(&source_folder, &source_parts),
             "female TLK source file",
         )?;
+        if !safe_isfile(&female_dialog) {
+            let has_merge = patches_tlk
+                .modifiers
+                .iter()
+                .any(|m| matches!(m, TlkModifier::Merge(_)));
+            if has_merge && safe_isfile(&source_f) {
+                // TLK-9b: appendf.tlk present but dialogf.tlk missing.
+                patches_tlk.precheck_error = Some(format!(
+                    "'{}' exists but dialogf.tlk was not found in the game.",
+                    patches_tlk.sourcefile_f
+                ));
+                return Ok(vec![patches_tlk]);
+            }
+            return Ok(vec![patches_tlk]);
+        }
+        if !safe_isfile(&source_f)
+            && patches_tlk
+                .modifiers
+                .iter()
+                .any(|m| matches!(m, TlkModifier::Merge(_)))
+        {
+            self.log
+                .add_note("appendf.tlk not found; its entries were not merged into dialogf.tlk");
+        }
+        let mut female = patches_tlk.clone();
+        female.base.saveas = "dialogf.tlk".to_string();
+        female.store_memory = false;
+        female.modifiers = Vec::new();
         let mut has_pair = false;
         for modifier in patches_tlk.modifiers.iter_mut() {
             match modifier {
@@ -1854,6 +1979,22 @@ fn join_parts(root: &Path, parts: &[String]) -> PathBuf {
         out.push(part);
     }
     out
+}
+
+/// First 8 bytes are `ERF `/`MOD `/`HAK `/`SAV `/`RIM ` followed by `V1.0`.
+fn sniff_capsule_header(path: &Path) -> bool {
+    use std::io::Read;
+    let mut buf = [0u8; 8];
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    if file.read_exact(&mut buf).is_err() {
+        return false;
+    }
+    matches!(
+        &buf,
+        b"ERF V1.0" | b"MOD V1.0" | b"HAK V1.0" | b"SAV V1.0" | b"RIM V1.0"
+    )
 }
 
 /// `path.name`.

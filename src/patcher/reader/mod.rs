@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::casepath::case_sensitive_path;
-use super::config::{LogLevel, PatcherConfig};
+use super::config::{LogLevel, OnError, PatcherConfig};
 use super::encoding::decode_bytes_with_fallbacks;
 use super::error::{PResult, PatchException};
 use super::ini::{CaseInsensitiveDict, ConfigParser, OptionXform};
@@ -60,12 +60,19 @@ pub fn is_ascii_digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// `1` / `true` / `yes` (case-insensitive, trimmed).
+pub fn is_truthy(text: &str) -> bool {
+    matches!(text.trim().to_lowercase().as_str(), "1" | "true" | "yes")
+}
+
 /// `NamespaceReader`.
 pub struct NamespaceReader {
     /// The parsed `namespaces.ini` (lower-cased option names).
     pub ini: ConfigParser,
     /// The namespaces read so far.
     pub namespaces: Vec<PatcherNamespace>,
+    /// Warnings raised by `load` (e.g. a missing `[Namespaces]` section).
+    pub warnings: Vec<String>,
 }
 
 impl NamespaceReader {
@@ -74,26 +81,50 @@ impl NamespaceReader {
         Self {
             ini,
             namespaces: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
-    /// `from_filepath(path)`: read and load `namespaces.ini`.
+    /// `from_filepath(path)`: read and load `namespaces.ini`. Warnings go to
+    /// an echoing logger; use [`NamespaceReader::from_filepath_logged`] to
+    /// route them elsewhere.
     pub fn from_filepath(path: &Path) -> PResult<Vec<PatcherNamespace>> {
+        Self::from_filepath_logged(path, &mut PatchLogger::echoing())
+    }
+
+    /// `from_filepath` that reports warnings to `logger`.
+    pub fn from_filepath_logged(
+        path: &Path,
+        logger: &mut PatchLogger,
+    ) -> PResult<Vec<PatcherNamespace>> {
         let bytes = std::fs::read(path)
             .map_err(|err| PatchException::from_io(&err, Some(&path.to_string_lossy())))?;
         let text = decode_bytes_with_fallbacks(&bytes)?;
         let ini = ConfigParser::read_string(&text, OptionXform::Lower)?;
-        NamespaceReader::new(ini).load()
+        let mut reader = NamespaceReader::new(ini);
+        let namespaces = reader.load()?;
+        for warning in reader.warnings.drain(..) {
+            logger.add_warning(warning);
+        }
+        Ok(namespaces)
     }
 
-    /// `load()`.
+    /// `load()`. A missing `[Namespaces]` section is a warning (recorded in
+    /// `warnings`) and yields no namespaces.
     pub fn load(&mut self) -> PResult<Vec<PatcherNamespace>> {
-        let namespaces_section_name = self
+        let Some(namespaces_section_name) = self
             .ini
             .sections()
             .find(|section| section.to_lowercase() == "namespaces")
             .map(str::to_string)
-            .ok_or_else(|| PatchException::key(section_not_found("Namespaces")))?;
+        else {
+            self.warnings.push(format!(
+                "{}; treating it as no namespaces",
+                section_not_found("Namespaces")
+            ));
+            self.namespaces = Vec::new();
+            return Ok(Vec::new());
+        };
 
         let namespace_ids = CaseInsensitiveDict::from_section(
             self.ini
@@ -214,6 +245,9 @@ impl<'a> ConfigReader<'a> {
         self.config = config;
         self.previously_parsed_sections = HashSet::new();
 
+        // [Compat] first: later steps consult `strict`.
+        self.load_compat()?;
+        self.report_duplicate_keys()?;
         self.load_settings()?;
         self.load_tlk_list()?;
         self.load_install_list()?;
@@ -262,6 +296,49 @@ impl<'a> ConfigReader<'a> {
             .unwrap_or_default()
     }
 
+    /// `[Compat]`: `Strict` and `AllowProtectedReplace`. A missing section is
+    /// normal; unknown keys warn.
+    pub fn load_compat(&mut self) -> PResult<()> {
+        let Some(compat_section) = self.get_section_name("compat") else {
+            return Ok(());
+        };
+        let compat_ini = self.section_dict(&compat_section);
+        for (key, value) in compat_ini.items() {
+            match key.to_lowercase().as_str() {
+                "strict" => self.config.strict = is_truthy(value),
+                "allowprotectedreplace" => self.config.allow_protected_replace = is_truthy(value),
+                _ => self
+                    .log
+                    .add_warning(format!("unknown key '{key}' in [{compat_section}] ignored")),
+            }
+        }
+        Ok(())
+    }
+
+    /// Log every repeated INI key (first value was kept). With
+    /// `strict` they are errors and the config load fails.
+    pub fn report_duplicate_keys(&mut self) -> PResult<()> {
+        let duplicates: Vec<(String, String)> = self.ini.duplicate_keys().to_vec();
+        for (section, key) in &duplicates {
+            if self.config.strict {
+                self.log.add_error(format!(
+                    "duplicate key '{key}' in section [{section}] (Strict=1)"
+                ));
+            } else {
+                self.log.add_warning(format!(
+                    "duplicate key '{key}' in section [{section}]; first value kept"
+                ));
+            }
+        }
+        if self.config.strict && !duplicates.is_empty() {
+            return Err(PatchException::value(format!(
+                "{} duplicate key(s) found in the ini and [Compat] Strict=1 is set",
+                duplicates.len()
+            )));
+        }
+        Ok(())
+    }
+
     /// `load_settings()`.
     pub fn load_settings(&mut self) -> PResult<()> {
         let Some(settings_section) = self.get_section_name("settings") else {
@@ -274,6 +351,23 @@ impl<'a> ConfigReader<'a> {
 
         self.config.window_title = settings_ini.get("WindowCaption").unwrap_or("").to_string();
         self.config.confirm_message = settings_ini.get("ConfirmMessage").unwrap_or("").to_string();
+
+        if let Some(on_error) = settings_ini.get("OnError") {
+            match OnError::parse(on_error) {
+                Some(mode) => self.config.on_error = mode,
+                None => {
+                    self.log.add_warning(format!(
+                        "invalid [Settings] OnError value '{on_error}'; expected Continue or Abort, using Continue"
+                    ));
+                    self.config.on_error = OnError::Continue;
+                }
+            }
+        }
+
+        self.config.plaintext_log = settings_ini
+            .get("PlaintextLog")
+            .map(is_truthy)
+            .unwrap_or(false);
 
         let mut required_files: Vec<(String, Vec<String>)> = Vec::new();
         let mut required_messages: Vec<(String, String)> = Vec::new();
@@ -338,16 +432,22 @@ impl<'a> ConfigReader<'a> {
             .get("IgnoreExtensions")
             .map(|v| !v.is_empty())
             .unwrap_or(false);
+        if settings_ini.get("IgnoreExtensions").map(is_truthy) == Some(true) {
+            self.log
+                .add_warning("IgnoreExtensions is not supported by OdyPatcher and is ignored");
+        }
 
         let lookup_game_number = settings_ini.get("LookupGameNumber").unwrap_or("");
         if !lookup_game_number.is_empty() {
             let lookup_game_number = lookup_game_number.trim();
             if lookup_game_number != "1" && lookup_game_number != "2" {
-                return Err(PatchException::value(format!(
-                    "Invalid: 'LookupGameNumber={lookup_game_number}' in [Settings], must be 1 or 2 representing the KOTOR game."
-                )));
+                self.log.add_warning(format!(
+                    "Invalid: 'LookupGameNumber={lookup_game_number}' in [Settings], must be 1 or 2 representing the KOTOR game; ignoring it."
+                ));
+                self.config.game_number = None;
+            } else {
+                self.config.game_number = Some(python_int(lookup_game_number)? as i32);
             }
-            self.config.game_number = Some(python_int(lookup_game_number)? as i32);
         } else {
             self.config.game_number = None;
         }
@@ -383,6 +483,14 @@ impl<'a> ConfigReader<'a> {
                 continue;
             };
 
+            if foldername.trim().is_empty() {
+                self.log.add_error(format!(
+                    "Install folder name for [{foldername_section}] is empty; skipping section{}",
+                    references_traceback(&folder_key, &foldername, &install_list_section)
+                ));
+                continue;
+            }
+
             let mut folder_section_dict = self.section_dict(&foldername_section);
             let sourcefolder = folder_section_dict.pop_or("!SourceFolder", ".");
             folder_section_dict.pop("!OverrideType");
@@ -390,7 +498,28 @@ impl<'a> ConfigReader<'a> {
                 .items()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
+            const KNOWN_FOLDER_KEYS: [&str; 8] = [
+                "!SourceFolder",
+                "!DefaultSourceFolder",
+                "!Destination",
+                "!DefaultDestination",
+                "!ReplaceFile",
+                "!OverrideType",
+                "!SaveAs",
+                "!Filename",
+            ];
             for (file_key, filename) in files {
+                if file_key.starts_with('!') {
+                    if !KNOWN_FOLDER_KEYS
+                        .iter()
+                        .any(|known| known.eq_ignore_ascii_case(&file_key))
+                    {
+                        self.log.add_warning(format!(
+                            "unknown key '{file_key}' in [{foldername_section}] ignored"
+                        ));
+                    }
+                    continue;
+                }
                 if filename.is_empty() {
                     continue;
                 }
@@ -489,13 +618,10 @@ mod tests {
             "ValueError"
         );
         let mut logger = PatchLogger::new();
-        assert_eq!(
-            reader("[Settings]\nLookupGameNumber=3\n", &mut logger)
-                .load_settings()
-                .unwrap_err()
-                .kind,
-            "ValueError"
-        );
+        let mut r = reader("[Settings]\nLookupGameNumber=3\n", &mut logger);
+        r.load_settings().unwrap();
+        assert_eq!(r.config.game_number, None);
+        assert_eq!(logger.warnings().len(), 1);
         let mut logger = PatchLogger::new();
         let mut r = reader("[TLKList]\n", &mut logger);
         r.load_settings().unwrap();
@@ -554,9 +680,8 @@ mod tests {
             "KeyError"
         );
         let ini = ConfigParser::read_string("[Other]\n", OptionXform::Lower).unwrap();
-        assert_eq!(
-            NamespaceReader::new(ini).load().unwrap_err().message,
-            section_not_found("Namespaces")
-        );
+        let mut missing = NamespaceReader::new(ini);
+        assert!(missing.load().unwrap().is_empty());
+        assert_eq!(missing.warnings.len(), 1);
     }
 }

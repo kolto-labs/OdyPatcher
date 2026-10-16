@@ -868,6 +868,8 @@ pub struct ModificationsTLK {
     pub store_memory: bool,
     /// `female`: the paired `dialogf.tlk` operation, set by the installer.
     pub female: Option<Box<ModificationsTLK>>,
+    /// TLK-9b: set by the installer when the pair cannot be formed; `install_one` fails the patch with it.
+    pub precheck_error: Option<String>,
 }
 
 impl ModificationsTLK {
@@ -893,6 +895,7 @@ impl ModificationsTLK {
             sourcefile_f: Self::DEFAULT_SOURCEFILE_F.to_string(),
             store_memory: true,
             female: None,
+            precheck_error: None,
         }
     }
 

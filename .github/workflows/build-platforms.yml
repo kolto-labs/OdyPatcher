@@ -1,7 +1,25 @@
 name: Build platform binaries
 
+# Runs by hand, and as a step of the release workflow, which passes the release
+# tag as `ref` so the binaries come from exactly the tagged commit.
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build. Empty builds the selected ref.
+        type: string
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      CARGO_PAT:
+        required: true
 
 permissions:
   contents: read
@@ -15,15 +33,26 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # bionsscomp lives in a private repo; CARGO_PAT lets Cargo clone it.
+      - name: Configure git for private deps
+        run: git config --global url."https://${{ secrets.CARGO_PAT }}@github.com/".insteadOf "https://github.com/"
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --no-default-features --all-targets
       - run: cargo build --release
-      - run: tar -C target/release -czf odypatcher-macos-arm64.tar.gz odypatcher
+      - name: Package
+        run: |
+          cp LICENSE README.md target/release/
+          tar -C target/release -czf odypatcher-macos-arm64.tar.gz odypatcher LICENSE README.md
       - uses: actions/upload-artifact@v4
         with:
           name: odypatcher-macos-arm64
           path: odypatcher-macos-arm64.tar.gz
+          if-no-files-found: error
 
   other-platforms:
     name: ${{ matrix.name }}
@@ -55,6 +84,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Configure git for private deps
+        run: git config --global url."https://${{ secrets.CARGO_PAT }}@github.com/".insteadOf "https://github.com/"
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux window dependencies
@@ -62,9 +97,40 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxkbcommon-dev
       - run: cargo test --no-default-features --all-targets
       - run: cargo build --release
-      - shell: bash
-        run: tar -C target/release -czf "${{ matrix.archive }}" "${{ matrix.binary }}"
+      - name: Package
+        shell: bash
+        run: |
+          cp LICENSE README.md target/release/
+          tar -C target/release -czf "${{ matrix.archive }}" "${{ matrix.binary }}" LICENSE README.md
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  windows-7:
+    name: Windows 7 x86 (terminal)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Configure git for private deps
+        run: git config --global url."https://${{ secrets.CARGO_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - uses: dtolnay/rust-toolchain@1.77.2
+        with:
+          targets: i686-pc-windows-msvc
+
+      - run: cargo build --release --no-default-features --target i686-pc-windows-msvc
+      - name: Package
+        shell: bash
+        run: |
+          cp LICENSE README.md target/i686-pc-windows-msvc/release/
+          tar -C target/i686-pc-windows-msvc/release -czf odypatcher-windows7-x86.tar.gz odypatcher.exe LICENSE README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odypatcher-windows7-x86.tar.gz
+          path: odypatcher-windows7-x86.tar.gz
+          if-no-files-found: error

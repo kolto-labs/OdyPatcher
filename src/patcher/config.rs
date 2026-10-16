@@ -81,6 +81,27 @@ impl LogLevel {
     }
 }
 
+/// `[Settings] OnError`: what the installer does after a patch fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OnError {
+    /// Log the failure, mark the patch failed and keep going (default).
+    #[default]
+    Continue,
+    /// Stop the run at the first failure.
+    Abort,
+}
+
+impl OnError {
+    /// Case-insensitive `Continue` / `Abort`; anything else is `None`.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_lowercase().as_str() {
+            "continue" => Some(OnError::Continue),
+            "abort" => Some(OnError::Abort),
+            _ => None,
+        }
+    }
+}
+
 /// `PatcherConfig`: everything a `changes.ini` declares.
 #[derive(Debug, Clone, Default)]
 pub struct PatcherConfig {
@@ -101,6 +122,16 @@ pub struct PatcherConfig {
     pub script_compiler_flags: String,
     /// `[Settings] LogLevel`.
     pub log_level: Option<LogLevel>,
+    /// `[Settings] OnError` (default `Continue`).
+    pub on_error: OnError,
+    /// `[Compat] Strict`: tolerated oddities become errors (default false).
+    pub strict: bool,
+    /// `[Compat] AllowProtectedReplace` (default false).
+    pub allow_protected_replace: bool,
+    /// `[Settings] PlaintextLog`: also write `installlog.txt` (default false).
+    pub plaintext_log: bool,
+    /// Files named by a list whose `[file]` section is missing; the lint tool reports these.
+    pub missing_sections: Vec<String>,
 
     /// `[InstallList]`.
     pub install_list: Vec<InstallFile>,

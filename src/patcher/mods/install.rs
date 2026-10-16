@@ -192,6 +192,11 @@ impl InstallFile {
         Self { base }
     }
 
+    /// True when a protected replacement must be refused (not `allow`ed by the INI).
+    pub fn refuses_protected_replace(&self, allow: bool) -> bool {
+        !allow && self.is_protected_replacement()
+    }
+
     /// `is_protected_replacement()`: replacing an EXE/TLK/KEY/BIF is refused.
     pub fn is_protected_replacement(&self) -> bool {
         if !self.base.replace_file {

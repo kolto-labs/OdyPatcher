@@ -636,39 +636,59 @@ pub fn find_row_index(twoda: &TwoDA, row_label: &str) -> Option<usize> {
     twoda.find_row(row_label)
 }
 
+/// Error for a modifier; `Modifications2DA::apply` logs it as `[section] message`.
+fn modifier_error(message: impl Into<String>) -> PatchException {
+    PatchException::new("ModifierError", message)
+}
+
+/// `target row not found (Key=value)`.
+fn target_not_found(key: &str, value: &str) -> PatchException {
+    modifier_error(format!("target row not found ({key}={value})"))
+}
+
+/// The error for the first `RowIndex`/`RowLabel` entry (or a bare `RowIndex=`).
+fn missing_target(entries: &[Entry]) -> PatchException {
+    let (key, value) = entries
+        .iter()
+        .find(|(k, _)| {
+            let l = k.to_lowercase();
+            l == "rowindex" || l == "rowlabel"
+        })
+        .cloned()
+        .unwrap_or_else(|| ("RowIndex".to_string(), String::new()));
+    target_not_found(&key, &value)
+}
+
+/// `column 'X' not found`.
+fn column_not_found(column: &str) -> PatchException {
+    modifier_error(format!("column '{column}' not found"))
+}
+
+/// Parse the suffix of a `2DAMEMORY<n>` token: unsigned decimal, `n >= 1`.
+fn parse_memory_token(suffix: &str, whole: &str) -> PResult<i32> {
+    if is_unsigned_decimal(suffix) {
+        if let Ok(id) = suffix.parse::<i32>() {
+            if id >= 1 {
+                return Ok(id);
+            }
+        }
+    }
+    Err(modifier_error(format!("invalid memory token '{whole}'")))
+}
+
 /// `Modify2DA._resolve_2da_memory(value, memory)`.
 ///
-/// Anything but a `2DAMEMORY` prefix (exact case) is returned unchanged, as is
-/// the literal when no memory has been stored yet. Token ids that are not
-/// unsigned decimals, are zero, or exceed the highest stored id fall back to
-/// token 1; an unset token yields `""`. A `!FieldPath` value is a `TypeError`.
+/// Anything but a `2DAMEMORY` prefix (exact case) is returned unchanged. A
+/// suffix that is not an unsigned decimal `>= 1` is an error for the modifier.
+/// An unset token yields `""` (the caller warns); there is no slot-1 fallback.
+/// A `!FieldPath` value is a `TypeError`.
 pub fn resolve_2da_memory(value: &str, memory: &PatcherMemory) -> PResult<String> {
     let Some(suffix) = value.strip_prefix("2DAMEMORY") else {
         return Ok(value.to_string());
     };
-    let slots = &memory.memory_2da;
-    if slots.is_empty() {
-        return Ok(value.to_string());
-    }
+    let token_id = parse_memory_token(suffix, value)?;
 
-    let highest_slot: i64 = slots
-        .keys()
-        .copied()
-        .filter(|id| *id > 0)
-        .max()
-        .unwrap_or(0) as i64;
-    let token_id: i64 = if is_unsigned_decimal(suffix) {
-        let parsed = suffix.parse::<i64>().unwrap_or(i64::MAX);
-        if parsed < 1 || parsed > highest_slot {
-            1
-        } else {
-            parsed
-        }
-    } else {
-        1
-    };
-
-    match slots.get(&(token_id as i32)) {
+    match memory.memory_2da.get(&token_id) {
         None => Ok(String::new()),
         Some(MemoryValue::FieldPath(path)) => Err(PatchException::new(
             "TypeError",
@@ -681,22 +701,31 @@ pub fn resolve_2da_memory(value: &str, memory: &PatcherMemory) -> PResult<String
 /// `Modify2DA._resolve_strref(value, memory)`: `StrRef#` (any case, unsigned
 /// decimal suffix) becomes the stored TLK index, or `0` when unset.
 pub fn resolve_strref(value: &str, memory: &PatcherMemory) -> String {
+    resolve_strref_checked(value, memory).0
+}
+
+/// Like [`resolve_strref`], also returning the token text (`StrRefN`) when it
+/// was never set, so the caller can log
+/// `WARNING: StrRefN was not defined before use in [section]; writing 0`.
+pub fn resolve_strref_checked(value: &str, memory: &PatcherMemory) -> (String, Option<String>) {
     let (prefix, suffix) = match (value.get(..6), value.get(6..)) {
         (Some(prefix), Some(suffix)) => (prefix, suffix),
-        _ => return value.to_string(),
+        _ => return (value.to_string(), None),
     };
     if value.len() > 6 && prefix.to_lowercase() == "strref" && is_unsigned_decimal(suffix) {
         let token_id = suffix
             .parse::<i64>()
             .ok()
             .and_then(|id| i32::try_from(id).ok());
-        return token_id
-            .and_then(|id| memory.memory_str.get(&id))
-            .copied()
-            .unwrap_or(0)
-            .to_string();
+        let found = token_id.and_then(|id| memory.memory_str.get(&id)).copied();
+        let unset = if found.is_none() {
+            Some(format!("StrRef{suffix}"))
+        } else {
+            None
+        };
+        return (found.unwrap_or(0).to_string(), unset);
     }
-    value.to_string()
+    (value.to_string(), None)
 }
 
 /// `Modify2DA._resolve_tokens(value, memory)`.
@@ -735,19 +764,13 @@ pub fn set_cell(twoda: &mut TwoDA, row_index: usize, column: &str, value: &str) 
     Ok(true)
 }
 
-/// The token id of a `2DAMEMORY#` key: `None` for non-`2DAMEMORY` keys,
-/// `Some(None)` for an id of zero (not a capture), else the id.
-fn capture_2da_token(key: &str) -> Option<Option<i64>> {
-    let suffix = key.strip_prefix("2DAMEMORY")?;
-    if is_unsigned_decimal(suffix) {
-        let token_id = suffix.parse::<i64>().unwrap_or(i64::MAX);
-        if token_id < 1 {
-            return Some(None);
-        }
-        Some(Some(token_id))
-    } else {
-        Some(Some(1))
-    }
+/// The token id of a `2DAMEMORY#` key: `None` for non-`2DAMEMORY` keys; an id
+/// of zero or a non-numeric suffix is an error for the modifier.
+fn capture_2da_token(key: &str) -> PResult<Option<i64>> {
+    let Some(suffix) = key.strip_prefix("2DAMEMORY") else {
+        return Ok(None);
+    };
+    parse_memory_token(suffix, key).map(|id| Some(i64::from(id)))
 }
 
 /// `Modify2DA._capture_2da(key, selector, twoda, memory, row_index=, column_header=)`.
@@ -763,10 +786,7 @@ pub fn capture_2da(
     row_index: Option<usize>,
     column_header: Option<&str>,
 ) -> PResult<bool> {
-    let Some(token) = capture_2da_token(key) else {
-        return Ok(false);
-    };
-    let Some(token_id) = token else {
+    let Some(token_id) = capture_2da_token(key)? else {
         return Ok(false);
     };
 
@@ -1066,24 +1086,27 @@ impl ChangeRow2DA {
 
             if lower_key == "rowindex" && row_index.is_none() && !raw_value.is_empty() {
                 let resolved = resolve_2da_memory(raw_value, memory)?;
-                let candidate = python_int(&resolved).unwrap_or(-1);
-                row_index = if candidate >= 0 && (candidate as usize) < twoda.get_height() {
-                    Some(candidate as usize)
-                } else {
-                    None
-                };
+                match python_int(&resolved) {
+                    Ok(c) if c >= 0 && (c as usize) < twoda.get_height() => {
+                        row_index = Some(c as usize);
+                    }
+                    _ => return Err(target_not_found("RowIndex", &resolved)),
+                }
                 continue;
             }
 
             if lower_key == "rowlabel" && row_index.is_none() && !raw_value.is_empty() {
                 let resolved = resolve_2da_memory(raw_value, memory)?;
                 row_index = find_row_index(twoda, &resolved);
+                if row_index.is_none() {
+                    return Err(target_not_found("RowLabel", &resolved));
+                }
                 continue;
             }
 
             if row_index.is_none() && key == "LabelIndex" && !raw_value.is_empty() {
                 if twoda.header_index("label").is_none() {
-                    return Ok(());
+                    return Err(target_not_found("LabelIndex", raw_value));
                 }
                 let mut matching: Vec<usize> = Vec::new();
                 for index in 0..twoda.get_height() {
@@ -1095,12 +1118,12 @@ impl ChangeRow2DA {
                     row_index = Some(*last);
                     continue;
                 }
-                return Ok(());
+                return Err(target_not_found("LabelIndex", raw_value));
             }
 
             let Some(row) = row_index else {
                 if lower_key != "rowindex" && lower_key != "rowlabel" {
-                    return Ok(());
+                    return Err(missing_target(&self.entries));
                 }
                 continue;
             };
@@ -1116,7 +1139,10 @@ impl ChangeRow2DA {
             }
 
             let Some(header) = find_header(twoda, key) else {
-                continue;
+                if matches!(lower_key.as_str(), "rowindex" | "rowlabel" | "labelindex") {
+                    continue;
+                }
+                return Err(column_not_found(key));
             };
 
             let value = if raw_value.is_empty() {
@@ -1132,9 +1158,10 @@ impl ChangeRow2DA {
             set_cell(twoda, row, &header, &value)?;
         }
 
-        if let Some(row) = row_index {
-            self.row = Some(row);
-        }
+        let Some(row) = row_index else {
+            return Err(missing_target(&self.entries));
+        };
+        self.row = Some(row);
         Ok(())
     }
 }
@@ -1282,6 +1309,12 @@ impl AddRow2DA {
                 if capture_tlk(key, raw_value, twoda, memory, index)? {
                     continue;
                 }
+            }
+
+            if row_index.is_none() && capture_2da_token(key)?.is_some() {
+                return Err(modifier_error(format!(
+                    "{key} capture runs before the target row exists"
+                )));
             }
 
             let index = match row_index {
@@ -1444,18 +1477,21 @@ impl CopyRow2DA {
 
             if lower_key == "rowindex" && row_index.is_none() && is_unsigned_decimal(raw_value) {
                 let resolved = resolve_2da_memory(raw_value, memory)?;
-                let candidate = python_int(&resolved)?;
-                row_index = if candidate >= 0 && (candidate as usize) < twoda.get_height() {
-                    Some(candidate as usize)
-                } else {
-                    None
-                };
+                match python_int(&resolved) {
+                    Ok(c) if c >= 0 && (c as usize) < twoda.get_height() => {
+                        row_index = Some(c as usize);
+                    }
+                    _ => return Err(target_not_found("RowIndex", &resolved)),
+                }
                 continue;
             }
 
             if lower_key == "rowlabel" && row_index.is_none() && !raw_value.is_empty() {
                 let resolved = resolve_2da_memory(raw_value, memory)?;
                 row_index = find_row_index(twoda, &resolved);
+                if row_index.is_none() {
+                    return Err(target_not_found("RowLabel", &resolved));
+                }
                 continue;
             }
 
@@ -1507,7 +1543,10 @@ impl CopyRow2DA {
             }
 
             let Some(header) = find_header(twoda, key) else {
-                continue;
+                if lower_key == "newrowlabel" {
+                    continue;
+                }
+                return Err(column_not_found(key));
             };
 
             let current_value = twoda.get_string(index, &header)?.to_string();
@@ -1530,7 +1569,10 @@ impl CopyRow2DA {
             set_cell(twoda, index, &header, &value)?;
         }
 
-        if cloned && row_index.is_some() {
+        if row_index.is_none() {
+            return Err(missing_target(&self.entries));
+        }
+        if cloned {
             self.row = row_index;
         }
         Ok(())
@@ -1554,6 +1596,10 @@ pub struct AddColumn2DA {
     pub store_2da: Vec<(i32, String)>,
     /// The raw section lines, in order; this is what `apply` executes.
     pub entries: Vec<Entry>,
+    /// `IfExists=Skip|Update` (popped from the section by the reader).
+    pub if_exists: Option<String>,
+    /// `BeforeColumn=<label>` (popped from the section by the reader).
+    pub before_column: Option<String>,
 }
 
 impl AddColumn2DA {
@@ -1604,6 +1650,8 @@ impl AddColumn2DA {
             label_insert,
             store_2da,
             entries,
+            if_exists: None,
+            before_column: None,
         }
     }
 
@@ -1622,6 +1670,18 @@ impl AddColumn2DA {
 
     /// `apply(twoda, memory)`.
     pub fn apply(&mut self, twoda: &mut TwoDA, memory: &mut PatcherMemory) -> PResult<()> {
+        // 0 = none, 1 = skip, 2 = update
+        let mode = match self.if_exists.as_deref().map(|v| v.to_lowercase()) {
+            None => 0,
+            Some(v) if v == "skip" => 1,
+            Some(v) if v == "update" => 2,
+            Some(v) => {
+                return Err(PatchException::value(format!(
+                    "AddColumn [{}]: invalid IfExists value '{v}' (expected Skip or Update).",
+                    self.identifier
+                )));
+            }
+        };
         let mut added = false;
         let mut header = String::new();
         let mut default = String::new();
@@ -1634,10 +1694,37 @@ impl AddColumn2DA {
                     continue;
                 }
                 let resolved_header = resolve_2da_memory(raw_value, memory)?;
-                if twoda.header_index(&resolved_header).is_some() {
-                    return Ok(());
+                if let Some(existing) = twoda.header_index(&resolved_header) {
+                    match mode {
+                        // Skip: nothing to apply (no logger reachable here).
+                        1 => return Ok(()),
+                        2 => {
+                            header = twoda.headers[existing].clone();
+                            added = true;
+                            continue;
+                        }
+                        _ => {
+                            return Err(PatchException::value(format!(
+                                "AddColumn [{}]: column '{resolved_header}' already exists and no IfExists key was given.",
+                                self.identifier
+                            )));
+                        }
+                    }
                 }
-                twoda.add_column(&resolved_header)?;
+                if let Some(before) = &self.before_column {
+                    let Some(pos) = twoda.find_header_ci(before) else {
+                        return Err(PatchException::value(format!(
+                            "AddColumn [{}]: BeforeColumn '{before}' does not exist.",
+                            self.identifier
+                        )));
+                    };
+                    twoda.headers.insert(pos, resolved_header.clone());
+                    for row in twoda.rows.iter_mut() {
+                        row.insert(pos, String::new());
+                    }
+                } else {
+                    twoda.add_column(&resolved_header)?;
+                }
                 header = resolved_header;
                 added = true;
                 continue;
@@ -1756,8 +1843,9 @@ impl Modifications2DA {
     }
 
     /// `apply(twoda, memory, logger, game)`: run every modifier; a
-    /// `WarningError` is logged and skipped, any other exception is logged
-    /// as an error and stops the remaining modifiers for this file.
+    /// `WarningError` is logged and skipped. Any other failure is logged as an
+    /// error naming the modifier, that modifier's changes are rolled back, and
+    /// the remaining modifiers still run.
     pub fn apply(
         &mut self,
         twoda: &mut TwoDA,
@@ -1766,17 +1854,91 @@ impl Modifications2DA {
         _game: Game,
     ) {
         for row in self.modifiers.iter_mut() {
+            let id = row.identifier().to_string();
+            let mut earlier_keys: Vec<String> = Vec::new();
+            let mut unset: Vec<String> = Vec::new();
+            let mut unset_strref: Vec<String> = Vec::new();
+            for (key, value) in row.entries() {
+                if let (Some(prefix), Some(suffix)) = (value.get(..6), value.get(6..)) {
+                    if prefix.to_lowercase() == "strref"
+                        && is_unsigned_decimal(suffix)
+                        && suffix
+                            .parse::<i32>()
+                            .map_or(true, |n| !memory.memory_str.contains_key(&n))
+                        && !unset_strref.contains(value)
+                    {
+                        unset_strref.push(value.clone());
+                    }
+                }
+                if let Some(suffix) = value.strip_prefix("2DAMEMORY") {
+                    if is_unsigned_decimal(suffix)
+                        && suffix
+                            .parse::<i32>()
+                            .is_ok_and(|n| n >= 1 && !memory.memory_2da.contains_key(&n))
+                        && !earlier_keys.contains(value)
+                        && !unset.contains(value)
+                    {
+                        unset.push(value.clone());
+                    }
+                }
+                earlier_keys.push(key.clone());
+            }
+            for token in unset {
+                logger.add_warning(format!("{token} was not defined before use in [{id}]"));
+            }
+            for token in unset_strref {
+                logger.add_warning(format!(
+                    "{token} was not defined before use in [{id}]; writing 0"
+                ));
+            }
+
+            if let Modify2DA::AddColumn(m) = &*row {
+                if m.if_exists
+                    .as_deref()
+                    .is_some_and(|v| v.to_lowercase() == "skip")
+                {
+                    let label = m
+                        .entries
+                        .iter()
+                        .find(|(k, v)| k.to_lowercase() == "columnlabel" && !v.is_empty())
+                        .map(|(_, v)| v.as_str());
+                    if let Some(label) = label {
+                        if let Ok(header) = resolve_2da_memory(label, memory) {
+                            if twoda.header_index(&header).is_some() {
+                                logger.add_note(format!(
+                                    "[{id}] column '{header}' already exists; skipped (IfExists=Skip)"
+                                ));
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let twoda_backup = twoda.clone();
+            let memory_backup = memory.clone();
             if let Err(e) = row.apply(twoda, memory) {
-                let msg = format!(
-                    "{} when patching the file '{}'",
-                    simplified_exception_tuple(&e),
-                    self.base.saveas
-                );
                 if e.kind == "WarningError" {
-                    logger.add_warning(msg);
+                    logger.add_warning(format!(
+                        "{} when patching the file '{}'",
+                        simplified_exception_tuple(&e),
+                        self.base.saveas
+                    ));
+                    continue;
+                }
+                *twoda = twoda_backup;
+                *memory = memory_backup;
+                if e.kind == "ModifierError" {
+                    logger.add_error(format!(
+                        "[{id}] {} when patching the file '{}'",
+                        e.message, self.base.saveas
+                    ));
                 } else {
-                    logger.add_error(msg);
-                    break;
+                    logger.add_error(format!(
+                        "{} when patching the file '{}' (modifier [{id}] skipped)",
+                        simplified_exception_tuple(&e),
+                        self.base.saveas
+                    ));
                 }
             }
         }
@@ -1846,6 +2008,21 @@ impl PatcherModifications for Modifications2DA {
     ) -> PResult<PatchOutput> {
         let mut twoda = TwoDA::read(source)?;
         self.apply(&mut twoda, memory, logger, game);
+        if matches!(game, Game::K1) {
+            let limit = match self.base.saveas.to_lowercase().as_str() {
+                "placeables.2da" | "upcrystals.2da" => 256,
+                "upgrade.2da" => 32,
+                _ => usize::MAX,
+            };
+            if twoda.get_height() > limit {
+                logger.add_warning(format!(
+                    "{}: file has {} rows; the game reads at most {}",
+                    self.base.saveas,
+                    twoda.get_height(),
+                    limit
+                ));
+            }
+        }
         Ok(PatchOutput::Bytes(twoda.to_bytes()?))
     }
 
@@ -1971,7 +2148,7 @@ mod tests {
             memory.memory_2da.get(&1),
             Some(&MemoryValue::Str("0".into()))
         );
-        assert!(logger.all_logs.is_empty());
+        assert_eq!(logger.errors().len(), 2);
     }
 
     #[test]
@@ -2009,8 +2186,8 @@ mod tests {
         let mut memory = PatcherMemory::new();
         assert_eq!(
             resolve_2da_memory("2DAMEMORY1", &memory).unwrap(),
-            "2DAMEMORY1",
-            "empty memory keeps the literal"
+            "",
+            "an unset slot reads as empty"
         );
         memory
             .memory_2da
@@ -2019,9 +2196,9 @@ mod tests {
         assert_eq!(
             resolve_2da_memory("2DAMEMORY9", &memory).unwrap(),
             "",
-            "beyond highest falls back to unset token 1"
+            "an unset slot reads as empty, no slot-1 fallback"
         );
-        assert_eq!(resolve_2da_memory("2DAMEMORYx", &memory).unwrap(), "");
+        assert!(resolve_2da_memory("2DAMEMORYx", &memory).is_err());
         assert_eq!(
             resolve_2da_memory("2damemory3", &memory).unwrap(),
             "2damemory3",
@@ -2030,7 +2207,8 @@ mod tests {
         memory
             .memory_2da
             .insert(1, MemoryValue::FieldPath("Root\\Field".into()));
-        let err = resolve_2da_memory("2DAMEMORY0", &memory).unwrap_err();
+        assert!(resolve_2da_memory("2DAMEMORY0", &memory).is_err());
+        let err = resolve_2da_memory("2DAMEMORY1", &memory).unwrap_err();
         assert_eq!(err.kind, "TypeError");
         assert_eq!(
             err.message,
@@ -2041,7 +2219,7 @@ mod tests {
     }
 
     #[test]
-    fn field_path_error_stops_the_file_with_python_wording() {
+    fn field_path_error_skips_the_modifier_with_python_wording() {
         let mut memory = PatcherMemory::new();
         memory
             .memory_2da
@@ -2063,13 +2241,13 @@ mod tests {
         );
         assert_eq!(
             table.get_cell(1, "Col2").unwrap(),
-            "b",
-            "later modifiers are skipped"
+            "later",
+            "later modifiers still run"
         );
         assert_eq!(logger.errors().len(), 1);
         assert_eq!(
             logger.errors()[0].message,
-            "('TypeError', \"!FieldPath cannot be used in 2DAList patches, got 'Root\\\\Field'\") when patching the file 'test.2da'"
+            "('TypeError', \"!FieldPath cannot be used in 2DAList patches, got 'Root\\\\Field'\") when patching the file 'test.2da' (modifier [a] skipped)"
         );
     }
 
@@ -2082,7 +2260,6 @@ mod tests {
                 Modify2DA::AddRow(AddRow2DA::from_entries(
                     "a",
                     entries(&[
-                        ("2DAMEMORY1", "RowIndex"),
                         ("RowLabel", "high()"),
                         ("Col1", "high()"),
                         ("Col2", ""),
@@ -2111,16 +2288,14 @@ mod tests {
             &mut memory,
             &mut logger,
         );
-        // "a": 2DAMEMORY1 before any row is a column name, so the row (label "3") already
-        // exists when RowLabel=high() runs and label_max() is 4; Col1 high() = 13.
+        // "a": the row is created when RowLabel=high() runs, so label_max() is 3; Col1 high() = 13.
         assert_eq!(table.get_height(), 5);
-        assert_eq!(table.get_label(3).unwrap(), "4");
+        assert_eq!(table.get_label(3).unwrap(), "3");
         assert_eq!(table.get_cell(3, "Col1").unwrap(), "13");
         assert_eq!(table.get_cell(3, "Col2").unwrap(), "");
-        assert!(!memory.memory_2da.contains_key(&1));
         assert_eq!(
             memory.memory_2da.get(&2),
-            Some(&MemoryValue::Str("4".into()))
+            Some(&MemoryValue::Str("3".into()))
         );
         assert_eq!(memory.memory_str.get(&1), Some(&13));
         // "b": exclusive column with no value -> nothing.

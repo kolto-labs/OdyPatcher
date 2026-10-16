@@ -221,7 +221,7 @@ fn reader_tlk_any_key_starting_with_replace_is_a_replacement() {
 }
 
 #[test]
-fn reader_tlk_inline_text_and_sound_and_syntax_errors() {
+fn reader_tlk_inline_text_and_sound_and_syntax_tolerance() {
     let (config, _) = config_of(&ini(&["[TLKList]", "3\\Text=hello", "3\\Sound=vo_hi"]));
     let mods = &config.patches_tlk.modifiers;
     assert_eq!(mods.len(), 2);
@@ -239,7 +239,10 @@ fn reader_tlk_inline_text_and_sound_and_syntax_errors() {
     assert!(sound.sound_is_set());
 
     let dir = std::env::temp_dir();
-    let (result, _) = load_config(&ini(&["[TLKList]", "Bogus=1"]), &dir);
+    let (result, _) = load_config(
+        &ini(&["[Compat]", "Strict=1", "", "[TLKList]", "Bogus=1"]),
+        &dir,
+    );
     let err = result.unwrap_err();
     assert_eq!(err.kind, "ValueError");
     assert!(
@@ -249,7 +252,10 @@ fn reader_tlk_inline_text_and_sound_and_syntax_errors() {
         err.message
     );
 
-    let (result, _) = load_config(&ini(&["[TLKList]", "3\\Pitch=1"]), &dir);
+    let (result, _) = load_config(
+        &ini(&["[Compat]", "Strict=1", "", "[TLKList]", "3\\Pitch=1"]),
+        &dir,
+    );
     let err = result.unwrap_err();
     assert!(
         err.message
@@ -258,11 +264,37 @@ fn reader_tlk_inline_text_and_sound_and_syntax_errors() {
         err.message
     );
 
-    let (result, _) = load_config(&ini(&["[TLKList]", "ReplaceFile0=nope.tlk"]), &dir);
+    let (result, _) = load_config(
+        &ini(&[
+            "[Compat]",
+            "Strict=1",
+            "",
+            "[TLKList]",
+            "ReplaceFile0=nope.tlk",
+        ]),
+        &dir,
+    );
     let err = result.unwrap_err();
     assert_eq!(
         err.message,
         "The [nope.tlk] section was not found in the ini, referenced by 'ReplaceFile0=nope.tlk' in [TLKList]"
+    );
+
+    // Default mode: the same key is tolerated with a warning.
+    let (result, logger) = load_config(&ini(&["[TLKList]", "Bogus=1"]), &dir);
+    let config = result.expect("malformed [TLKList] keys are warnings by default");
+    assert!(config.patches_tlk.modifiers.is_empty());
+    assert!(
+        logger
+            .warnings()
+            .iter()
+            .any(|w| w.message.starts_with("Malformed 'Bogus=1' in [TLKList]")),
+        "{:?}",
+        logger
+            .warnings()
+            .iter()
+            .map(|w| w.message.clone())
+            .collect::<Vec<_>>()
     );
 }
 
@@ -501,16 +533,30 @@ fn reader_2da_addcolumn_entries_and_unknown_keys_warn() {
 }
 
 #[test]
-fn reader_2da_missing_table_section_is_a_key_error() {
-    let (result, _) = load_config(
-        &ini(&["[2DAList]", "Table0=nope.2da"]),
-        &std::env::temp_dir(),
-    );
-    let err = result.unwrap_err();
-    assert_eq!(err.kind, "KeyError");
+fn reader_2da_missing_table_section_is_silent_by_default_and_an_error_when_strict() {
+    let dir = std::env::temp_dir();
+    let (result, logger) = load_config(&ini(&["[2DAList]", "Table0=nope.2da"]), &dir);
+    let config = result.expect("a missing 2DA section is tolerated by default");
+    assert_eq!(config.patches_2da.len(), 1);
+    assert!(config.patches_2da[0].modifiers.is_empty());
+    assert!(logger.errors().is_empty());
     assert_eq!(
-        err.message,
-        "The [nope.2da] section was not found in the ini, referenced by 'Table0=nope.2da' in [2DAList]"
+        config.missing_sections,
+        vec![
+            "[2DAList] Table0=nope.2da: section [nope.2da] not found; the table is saved unchanged"
+                .to_string()
+        ]
+    );
+
+    let (result, logger) = load_config(
+        &ini(&["[Compat]", "Strict=1", "", "[2DAList]", "Table0=nope.2da"]),
+        &dir,
+    );
+    let config = result.expect("strict mode logs an error for the entry but config load succeeds");
+    assert!(config.patches_2da.is_empty());
+    assert_eq!(
+        logger.errors().iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
+        vec!["[2DAList] 'Table0=nope.2da': section [nope.2da] not found in the ini; skipping this 2DA entry.".to_string()]
     );
 }
 
@@ -1623,9 +1669,8 @@ fn twoda_changerow_captures_rowindex_rowlabel_and_cell() {
 }
 
 #[test]
-fn twoda_2damemory0_is_never_stored() {
-    // STALE TEST: test_2da_*_store2da use `2DAMEMORY0=RowIndex`; mods/twoda.py:324-327
-    // refuses token ids below 1 silently and the reads clamp to slot 1.
+fn twoda_2damemory0_is_an_error_for_the_modifier() {
+    // 2DA-MEM: token ids below 1 are an error for the modifier; the unset slot reads as '' in GFF with a warning.
     let f = Fixture::new("slot0");
     f.game_file("override/test.2da", &abc_table());
     f.mod_file("item.uti", &item_file());
@@ -1647,8 +1692,12 @@ fn twoda_2damemory0_is_never_stored() {
         "[item.uti]",
         "Tag=2DAMEMORY0",
     ]));
-    assert!(run.errors().is_empty(), "{}", run.dump());
-    assert_eq!(tag(&f), "d", "slot 0 reads clamp to slot 1");
+    assert_eq!(run.failed, 1, "{}", run.dump());
+    assert!(
+        run.has("[store] invalid memory token '2DAMEMORY0'"),
+        "{}",
+        run.dump()
+    );
 }
 
 #[test]
@@ -2144,6 +2193,7 @@ fn twoda_addcolumn_defaults_and_inserts() {
         "",
         "[dup]",
         "ColumnLabel=Col1",
+        "IfExists=Skip",
         "DefaultValue=zzz",
         "",
         "[GFFList]",
@@ -2174,7 +2224,7 @@ fn twoda_addcolumn_defaults_and_inserts() {
     assert_eq!(
         column(&t, "Col1"),
         vec!["a", "c"],
-        "an existing column is left alone"
+        "IfExists=Skip leaves the existing column alone"
     );
     assert_eq!(exostring(&f.override_file("i.uti"), "Tag"), "X");
     assert_eq!(exostring(&f.override_file("l.uti"), "Tag"), "Y");
@@ -2221,7 +2271,7 @@ fn twoda_2da_strref_store_records_a_cell_as_a_tlk_token() {
 }
 
 #[test]
-fn twoda_a_failing_modifier_logs_and_stops_that_table_only() {
+fn twoda_an_unset_memory_value_warns_and_writes_an_empty_cell() {
     let f = Fixture::new("twoda_error");
     f.game_file("override/test.2da", &abc_table());
     f.game_file("override/spells.2da", &spell_table());
@@ -2249,10 +2299,14 @@ fn twoda_a_failing_modifier_logs_and_stops_that_table_only() {
         "RowIndex=0",
         "label=renamed",
     ]));
-    // An undefined 2DAMEMORY with no memory at all leaves the literal in place
-    // (mods/twoda.py _resolve_2da_memory returns the value unchanged).
+    // 2DA-MEM: an unset 2DAMEMORY slot reads as '' with a warning (never the literal, never slot 1).
     let t = twoda_of(&f.override_file("test.2da"));
-    assert_eq!(column(&t, "Col1"), vec!["2DAMEMORY3", "Z"]);
+    assert_eq!(column(&t, "Col1"), vec!["", "Z"]);
+    assert!(
+        run.has("2DAMEMORY3 was not defined before use"),
+        "{}",
+        run.dump()
+    );
     assert_eq!(
         cell(&twoda_of(&f.override_file("spells.2da")), 0, "label"),
         "renamed"

@@ -5,12 +5,13 @@ edition = "2021"
 rust-version = "1.77"
 authors = ["Boden Crouch"]
 description = "Game data patcher and mod installer for Star Wars: Knights of the Old Republic I and II"
-homepage = "https://github.com/bodencrouch/OdyPatcher"
-repository = "https://github.com/bodencrouch/OdyPatcher"
+homepage = "https://github.com/kolto-labs/OdyPatcher"
+repository = "https://github.com/kolto-labs/OdyPatcher"
 license = "AGPL-3.0-or-later"
 readme = "README.md"
 keywords = ["kotor", "modding", "patcher", "gff", "2da"]
 categories = ["game-development", "command-line-utilities"]
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/LICENSE", "/README.md", "/CHANGELOG.md"]
 
 [lib]
 name = "odypatcher"

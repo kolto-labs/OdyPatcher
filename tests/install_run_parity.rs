@@ -344,18 +344,21 @@ fn strref_merge_and_append_mapping_on_the_same_token_take_ini_order() {
 }
 
 #[test]
-fn nested_appendf_is_ignored_when_dialogf_is_absent() {
+fn nested_appendf_without_dialogf_fails_the_tlk_patch() {
+    // TLK-9b: appendf.tlk present but dialogf.tlk missing is an error for the TLK patch; nothing is written.
     let f = Fixture::new("tlk_nested_appendf");
     f.mod_file("tlks/append.tlk", &string_table(&["from nested"]));
     f.mod_file("tlks/appendf.tlk", &string_table(&["female leftover"]));
     f.game_file("dialog.tlk", &string_table(&["old"]));
 
     let run = f.run("[TLKList]\n!DefaultSourceFolder=tlks\nStrRef0=0\n");
-    run.assert_clean();
-    assert_eq!(
-        tlk_texts(&f.game_read("dialog.tlk")),
-        vec!["old", "from nested"]
+    assert_eq!(run.failed, 1, "{}", run.dump());
+    assert!(
+        run.has("'appendf.tlk' exists but dialogf.tlk was not found in the game."),
+        "{}",
+        run.dump()
     );
+    assert_eq!(tlk_texts(&f.game_read("dialog.tlk")), vec!["old"]);
     assert!(!f.game_exists("dialogf.tlk"));
 }
 
@@ -416,15 +419,18 @@ fn installs_files_into_the_game_and_backs_up_what_it_replaces() {
 }
 
 #[test]
-fn an_empty_install_folder_key_targets_the_game_root() {
-    // reader.py load_install_list: the destination is the raw value, and an
-    // empty path joins to the game folder itself.
+fn an_empty_install_folder_key_is_an_error_and_the_section_is_skipped() {
+    // INST-1 (TSLPatcher): an empty folder value is an error at config load; only `.` means the game root.
     let f = Fixture::new("install_empty_dest");
     f.mod_file("newicon.tga", b"icon bytes");
 
     let run = f.run("[InstallList]\nloose=\n\n[loose]\nFile0=newicon.tga\n");
-    run.assert_clean();
-    assert_eq!(f.game_read("newicon.tga"), b"icon bytes");
+    assert!(
+        run.has("Install folder name for [loose] is empty; skipping section"),
+        "{}",
+        run.dump()
+    );
+    assert!(!f.game_exists("newicon.tga"));
     assert!(!f.override_exists("newicon.tga"));
 }
 
@@ -755,15 +761,8 @@ fn named_high_column_is_a_literal_and_bare_high_reads_the_target_column() {
 }
 
 #[test]
-fn row_targets_accept_2damemory_but_not_strref_or_label_index_tokens() {
-    // Flipped in three places versus the old engine:
-    // - ChangeRow `RowLabel=StrRef0` is not resolved (twoda.py ChangeRow only
-    //   calls _resolve_2da_memory on targets), so the literal label matches
-    //   nothing and the row is untouched.
-    // - ChangeRow `LabelIndex=2DAMEMORY2` compares the raw text against the
-    //   label column, so nothing matches.
-    // - CopyRow `RowIndex=2DAMEMORY1` is ignored: twoda.py:719 requires an
-    //   unsigned decimal; CopyRow has no LabelIndex target at all.
+fn unresolvable_row_targets_fail_their_modifier_but_the_rest_still_apply() {
+    // 2DA-8/11: `RowLabel=StrRef0` and `LabelIndex=2DAMEMORY2` are not token-resolved, match no row, and are errors for those two modifiers only; the other modifiers (including `RowIndex=2DAMEMORY1` on ChangeRow and CopyRow) still apply and the file is written.
     let f = Fixture::new("2da_ids");
     f.game_file("dialog.tlk", &string_table(&["existing"]));
     f.mod_file("append.tlk", &string_table(&["new line"]));
@@ -778,10 +777,20 @@ fn row_targets_accept_2damemory_but_not_strref_or_label_index_tokens() {
          [from_label_index]\nLabelIndex=first_spell\nNewRowLabel=from_label\nlabel=copied_from_label\n\n\
          [by_memory_index]\nRowIndex=2DAMEMORY1\nspelldesc=5000\n",
     );
-    run.assert_clean();
+    assert_eq!(run.failed, 1, "{}", run.dump());
+    assert!(
+        run.has("[by_label_index] target row not found (LabelIndex=2DAMEMORY2)"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.has("[by_row_label_strref] target row not found (RowLabel=StrRef0)"),
+        "{}",
+        run.dump()
+    );
 
     let t = twoda_of(&f.override_file("spells.2da"));
-    assert_eq!(t.row_count(), 3, "{}", run.dump());
+    assert!(t.row_count() >= 3, "{}", run.dump());
     assert_eq!(cell(&t, 2, "label"), "captured_spell");
     assert_eq!(cell(&t, 2, "name"), "3000");
     assert_eq!(cell(&t, 1, "name"), "1002");
@@ -920,16 +929,23 @@ fn exclusive_column_skips_high_on_the_matched_row_but_still_captures_it() {
 }
 
 #[test]
-fn an_unset_memory_token_as_a_row_index_is_a_silent_no_op() {
-    // Flipped: the old engine aborted on "not a valid integer". twoda.py
-    // _resolve_2da_memory returns the literal when memory is empty; the
-    // ChangeRow finds no row and does nothing (no error).
+fn an_unset_memory_token_as_a_row_index_fails_the_modifier() {
+    // 2DA-MEM: an unset 2DAMEMORY slot reads as '' with a warning; the ChangeRow then finds no row and is an error for that modifier. The table is still written.
     let f = Fixture::new("badrowindex");
     f.mod_file("spells.2da", &spell_table());
 
     let run = f.run("[2DAList]\nTable0=spells.2da\n\n[spells.2da]\nChangeRow0=edit\n\n[edit]\nRowIndex=2DAMEMORY5\nname=1\n");
-    run.assert_clean();
-    assert_eq!(run.completed, 1);
+    assert_eq!(run.failed, 1, "{}", run.dump());
+    assert!(
+        run.has("2DAMEMORY5 was not defined before use"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.has("[edit] target row not found (RowIndex=)"),
+        "{}",
+        run.dump()
+    );
     let t = twoda_of(&f.override_file("spells.2da"));
     assert_eq!(cell(&t, 0, "name"), "1000");
     assert_eq!(cell(&t, 1, "name"), "1002");
@@ -1389,8 +1405,7 @@ fn add_field_covers_char_short_int64_float_double_string_and_resref() {
     // `_parse_char` takes `ord(text[0])` of it at apply time, so `Value=123`
     // stores 49 ('1') and `Value=-5` stores 45 ('-'). PyKotor's
     // test_gff_add_ints asserts 123 through the legacy reader path only; the
-    // source wins here. ResRef keeps the author's case (PyKotor ResRef is
-    // case-preserving; the old engine lowered).
+    // source wins here. ResRef is lowercased with a warning (GFF-22, TSLPatcher behaviour).
     let f = Fixture::new("gffaddtypes");
     f.mod_file("item.uti", &item_file());
 
@@ -1401,6 +1416,11 @@ fn add_field_covers_char_short_int64_float_double_string_and_resref() {
          [add_resref]\nFieldType=ResRef\nLabel=SomeResRef\nValue=Some_Res\n\n[add_neg_char]\nFieldType=Char\nLabel=NegChar\nValue=-5\n",
     );
     run.assert_clean();
+    assert!(
+        run.has("ResRef 'Some_Res' adjusted to 'some_res' in [add_resref]"),
+        "{}",
+        run.dump()
+    );
     let item = gff(&f.override_file("item.uti"));
     assert_eq!(gff_field(&item, "SomeChar"), FieldValue::Char(b'1'));
     assert_eq!(gff_field(&item, "NegChar"), FieldValue::Char(b'-'));
@@ -1414,7 +1434,7 @@ fn add_field_covers_char_short_int64_float_double_string_and_resref() {
     );
     assert_eq!(
         gff_field(&item, "SomeResRef"),
-        FieldValue::ResRef("Some_Res".into())
+        FieldValue::ResRef("some_res".into())
     );
 }
 
@@ -1750,19 +1770,17 @@ fn byte_edits_in_scripts_use_big_endian() {
 }
 
 #[test]
-fn typed_hack_widths_are_not_a_pykotor_feature_and_are_ignored_with_a_warning() {
-    // reader.py load_hack_list accepts only integers, StrRef# and 2DAMEMORY#.
+fn typed_hack_widths_write_u8_u16_u32_values() {
+    // HACK-3: `u8:`/`u16:`/`u32:` prefixes select the write width; bare numbers are 4 bytes. Non-.ncs targets are little-endian (HACK-2).
     let f = Fixture::new("hacktyped");
     f.mod_file("patch.bin", &[0u8; 32]);
 
-    let run = f.run("[HACKList]\nFile0=patch.bin\n\n[patch.bin]\n4=u8:255\n12=7\n");
-    assert!(
-        run.has("Ignoring invalid HACKList value 'u8:255' at offset 4"),
-        "{}",
-        run.dump()
-    );
+    let run = f.run("[HACKList]\nFile0=patch.bin\n\n[patch.bin]\n4=u8:255\n6=u16:4660\n12=7\n");
+    run.assert_clean();
     let patched = f.override_file("patch.bin");
-    assert_eq!(&patched[4..8], &[0, 0, 0, 0]);
+    assert_eq!(patched[4], 255);
+    assert_eq!(patched[5], 0);
+    assert_eq!(&patched[6..8], &[0x34, 0x12]);
     assert_eq!(&patched[12..16], &[7, 0, 0, 0]);
 }
 
@@ -2139,4 +2157,187 @@ fn a_mod_is_installed_and_then_put_back_by_the_uninstaller() {
     assert!(uninstaller.uninstall_selected_mod().unwrap());
     assert_eq!(f.override_file("icon.tga"), b"original artwork");
     assert!(!f.override_exists("fresh.tga"));
+}
+
+// ---------------------------------------------------------------------------
+// WP8: OnError, [Compat], validation, HACK ReplaceFile, PlaintextLog
+// ---------------------------------------------------------------------------
+
+fn failing_tlk_then_install(tag: &str) -> Fixture {
+    // appendf.tlk exists but the game has no dialogf.tlk (TLK-9b), then an
+    // InstallList file that would succeed on its own.
+    let f = Fixture::new(tag);
+    f.game_file("dialog.tlk", &string_table(&["old"]));
+    f.mod_file("append.tlk", &string_table(&["new"]));
+    f.mod_file("appendf.tlk", &string_table(&["new f"]));
+    f.mod_file("later.tga", b"later bytes");
+    f
+}
+
+fn game_snapshot(dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            game_snapshot(&path, out);
+        } else {
+            out.push((
+                path.to_string_lossy().into_owned(),
+                std::fs::read(&path).unwrap(),
+            ));
+        }
+    }
+}
+
+#[test]
+fn on_error_continue_runs_later_operations_after_a_failure() {
+    let f = failing_tlk_then_install("onerror_continue");
+
+    let run = f.run(
+        "[Settings]\nOnError=Continue\n\n[TLKList]\nStrRef0=0\n\n[InstallList]\nloose=override\n\n[loose]\nFile0=later.tga\n",
+    );
+    assert_eq!((run.completed, run.failed), (1, 1), "{}", run.dump());
+    assert!(
+        run.has("dialogf.tlk was not found in the game"),
+        "{}",
+        run.dump()
+    );
+    assert!(
+        run.summary().contains("1 completed, 0 skipped, 1 failed"),
+        "{}",
+        run.summary()
+    );
+    assert_eq!(f.override_file("later.tga"), b"later bytes");
+    assert_eq!(tlk_texts(&f.game_read("dialog.tlk")), vec!["old"]);
+}
+
+#[test]
+fn on_error_abort_stops_at_the_first_failure() {
+    let f = failing_tlk_then_install("onerror_abort");
+    f.mod_file(
+        "changes.ini",
+        b"[Settings]\nOnError=Abort\n\n[TLKList]\nStrRef0=0\n\n[InstallList]\nloose=override\n\n[loose]\nFile0=later.tga\n",
+    );
+
+    let mut installer = f.installer().expect("config loads");
+    let _ = installer.install(None, None);
+    let run = Run::from_logger(&installer.log);
+    assert_eq!(run.failed, 1, "{}", run.dump());
+    assert_eq!(run.completed, 0, "{}", run.dump());
+    assert!(!f.override_exists("later.tga"), "{}", run.dump());
+    assert_eq!(tlk_texts(&f.game_read("dialog.tlk")), vec!["old"]);
+}
+
+#[test]
+fn strict_compat_refuses_a_duplicate_config_key() {
+    let f = Fixture::new("strict_dupkey");
+
+    let text = match f.try_run("[Compat]\nStrict=1\n\n[Settings]\nLogLevel=3\nLogLevel=4\n") {
+        Ok(run) => panic!("strict duplicate key must be refused\n{}", run.dump()),
+        Err((exc, logs)) => {
+            let mut text = exc.message.clone();
+            for log in &logs {
+                text.push('\n');
+                text.push_str(&log.message);
+            }
+            text.to_lowercase()
+        }
+    };
+    assert!(text.contains("duplicate"), "{text}");
+    assert!(text.contains("strict"), "{text}");
+}
+
+#[test]
+fn strict_compat_fails_a_2da_table_whose_file_section_is_missing() {
+    let f = Fixture::new("strict_missing_2da_section");
+    f.mod_file("spells.2da", &spell_table());
+
+    let run = f.run("[Compat]\nStrict=1\n\n[2DAList]\nTable0=spells.2da\n");
+    assert_eq!(run.failed, 0, "{}", run.dump());
+    assert!(
+        run.errors().iter().any(|e| {
+            let e = e.to_lowercase();
+            e.contains("spells.2da") && e.contains("section") && e.contains("not found")
+        }),
+        "{}",
+        run.dump()
+    );
+    assert!(!f.override_exists("spells.2da"), "{}", run.dump());
+}
+
+#[test]
+fn config_validation_records_missing_sections_without_touching_the_game() {
+    let f = Fixture::new("validate_missing");
+    f.mod_file("spells.2da", &spell_table());
+    f.mod_file("changes.ini", b"[2DAList]\nTable0=spells.2da\n");
+    let mut before = Vec::new();
+    game_snapshot(&f.game, &mut before);
+
+    let mut installer = f.installer().unwrap();
+    let config = installer.config().unwrap();
+    assert!(
+        format!("{:?}", config.missing_sections)
+            .to_lowercase()
+            .contains("spells.2da"),
+        "{:?}",
+        config.missing_sections
+    );
+    installer
+        .validate_configured_paths()
+        .expect("validation succeeds");
+
+    let mut after = Vec::new();
+    game_snapshot(&f.game, &mut after);
+    assert_eq!(before, after, "validation must not write to the game tree");
+}
+
+#[test]
+fn hack_replace_file_only_counts_as_the_first_key_of_the_file_section() {
+    // First fixture: ReplaceFile=1 leads the section, so the source replaces the game copy.
+    let f = Fixture::new("hack_replace_first");
+    f.mod_file("patch.ncs", &[0u8; 32]);
+    f.game_file("override/patch.ncs", &[0xAAu8; 32]);
+    let run = f.run(
+        "[HACKList]\n!DefaultDestination=override\nFile0=patch.ncs\n\n[patch.ncs]\nReplaceFile=1\n8=258\n",
+    );
+    run.assert_clean();
+    let patched = f.override_file("patch.ncs");
+    assert_eq!(patched[0], 0, "source replaced the existing file");
+    assert_eq!(&patched[8..12], &[0x00, 0x00, 0x01, 0x02]);
+
+    // Second fixture: an offset key precedes it, so the existing file is preserved.
+    let g = Fixture::new("hack_replace_late");
+    g.mod_file("patch.ncs", &[0u8; 32]);
+    g.game_file("override/patch.ncs", &[0xAAu8; 32]);
+    let run = g.run(
+        "[HACKList]\n!DefaultDestination=override\nFile0=patch.ncs\n\n[patch.ncs]\n8=258\nReplaceFile=1\n",
+    );
+    run.assert_clean();
+    assert_eq!(
+        g.override_file("patch.ncs")[0],
+        0xAA,
+        "late ReplaceFile must not replace: {}",
+        run.dump()
+    );
+}
+
+#[test]
+fn plaintext_log_setting_writes_installlog_txt_under_the_package_root() {
+    let f = Fixture::new("plaintextlog");
+    f.mod_file("loose.tga", b"artwork");
+
+    let run = f.run(
+        "[Settings]\nPlaintextLog=1\n\n[InstallList]\nloose=override\n\n[loose]\nFile0=loose.tga\n",
+    );
+    run.assert_clean();
+    let log_path = f.root.join("installlog.txt");
+    assert!(log_path.is_file(), "{}", run.dump());
+    let text = std::fs::read_to_string(&log_path).unwrap();
+    assert!(
+        text.contains("Successfully completed installation."),
+        "{text}"
+    );
 }

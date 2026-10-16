@@ -76,8 +76,10 @@ pub fn ssf_sound_name(sound: u32) -> &'static str {
 pub struct Ssf {
     sounds: [u32; SSF_SOUND_COUNT],
     entry_count: usize,
-    padding: Vec<u8>,
-    trailing_data: Vec<u8>,
+    /// Entries present in the input beyond slot 40 (dropped on write).
+    dropped_entries: usize,
+    /// Header offset that pointed outside the file (read from 12 instead).
+    bad_offset: Option<u32>,
 }
 
 impl Default for Ssf {
@@ -92,8 +94,8 @@ impl Ssf {
         Self {
             sounds: [u32::MAX; SSF_SOUND_COUNT],
             entry_count: SSF_ENGINE_ENTRY_COUNT,
-            padding: Vec::new(),
-            trailing_data: Vec::new(),
+            dropped_entries: 0,
+            bad_offset: None,
         }
     }
 
@@ -127,8 +129,13 @@ impl Ssf {
         self.entry_count
     }
 
-    /// `SSFBinaryReader(source).load()`.
+    /// `SSFBinaryReader(source).load()` with the tolerant (non-strict) header checks.
     pub fn from_bytes(bytes: &[u8]) -> PResult<Self> {
+        Self::from_bytes_with(bytes, false)
+    }
+
+    /// Reader; `strict` keeps the hard offset/size errors.
+    pub fn from_bytes_with(bytes: &[u8], strict: bool) -> PResult<Self> {
         let size = bytes.len();
         if size < 12 {
             return Err(PatchException::new(
@@ -147,37 +154,60 @@ impl Ssf {
             ));
         }
         let sounds_offset = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
-        if sounds_offset < 12 || sounds_offset + SSF_ENGINE_ENTRY_COUNT * 4 > size {
+        if strict && (sounds_offset < 12 || sounds_offset + SSF_ENGINE_ENTRY_COUNT * 4 > size) {
             return Err(PatchException::value(
                 "The SSF data offset must address all 28 sound entries.",
             ));
         }
         let mut ssf = Ssf::new();
-        ssf.padding = bytes[12..sounds_offset].to_vec();
-        let entry_count = SSF_SOUND_COUNT.min((size - sounds_offset) / 4);
+        let mut sounds_offset = sounds_offset;
+        if sounds_offset < 12 || sounds_offset > size {
+            ssf.bad_offset = Some(sounds_offset as u32);
+            sounds_offset = 12;
+        }
+        let available = (size - sounds_offset) / 4;
+        let entry_count = SSF_SOUND_COUNT.min(available);
+        ssf.dropped_entries = available - entry_count;
+        ssf.entry_count = entry_count;
         for index in 0..entry_count {
             let at = sounds_offset + index * 4;
             let value =
                 u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
-            ssf.set_data(index as u32, value);
+            ssf.sounds[index] = value;
         }
-        ssf.trailing_data = bytes[sounds_offset + entry_count * 4..].to_vec();
         Ok(ssf)
     }
 
-    /// `bytes_ssf(ssf)`: `SSFBinaryWriter(ssf).write()` to memory.
+    /// Log the load-time tolerances (call right after reading).
+    pub fn log_load_warnings(&self, file: &str, logger: &mut PatchLogger) {
+        if let Some(offset) = self.bad_offset {
+            logger.add_warning(format!(
+                "WARNING: {file} has SSF data offset {offset} outside the file; reading from offset 12"
+            ));
+        }
+        if self.entry_count < SSF_SOUND_COUNT {
+            logger.add_warning(format!(
+                "WARNING: {file} has {} sound entries; missing slots written as 0xFFFFFFFF",
+                self.entry_count
+            ));
+        }
+        if self.dropped_entries > 0 {
+            logger.add_warning(format!(
+                "WARNING: {file} has {} sound entries beyond {SSF_SOUND_COUNT}; dropped",
+                self.dropped_entries
+            ));
+        }
+    }
+
+    /// TSLPatcher layout: header, offset 12, exactly 40 u32 entries.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(
-            12 + self.padding.len() + self.entry_count * 4 + self.trailing_data.len(),
-        );
+        let mut out = Vec::with_capacity(12 + SSF_SOUND_COUNT * 4);
         out.extend_from_slice(b"SSF ");
         out.extend_from_slice(b"V1.1");
-        out.extend_from_slice(&((12 + self.padding.len()) as u32).to_le_bytes());
-        out.extend_from_slice(&self.padding);
-        for index in 0..self.entry_count {
-            out.extend_from_slice(&self.sounds[index].to_le_bytes());
+        out.extend_from_slice(&12u32.to_le_bytes());
+        for value in &self.sounds {
+            out.extend_from_slice(&value.to_le_bytes());
         }
-        out.extend_from_slice(&self.trailing_data);
         out
     }
 }
@@ -306,6 +336,8 @@ pub struct ModificationsSSF {
     pub base: ModBase,
     /// Entries to set, in INI order.
     pub modifiers: Vec<ModifySSF>,
+    /// `[Compat] Strict`: keep the hard header errors (default false).
+    pub strict: bool,
 }
 
 impl ModificationsSSF {
@@ -314,6 +346,7 @@ impl ModificationsSSF {
         Self {
             base: ModBase::new(filename, Some(replace)),
             modifiers,
+            strict: false,
         }
     }
 
@@ -349,7 +382,8 @@ impl PatcherModifications for ModificationsSSF {
         logger: &mut PatchLogger,
         game: Game,
     ) -> PResult<PatchOutput> {
-        let mut ssf = Ssf::from_bytes(source)?;
+        let mut ssf = Ssf::from_bytes_with(source, self.strict)?;
+        ssf.log_load_warnings(&self.base.sourcefile, logger);
         self.apply(&mut ssf, memory, logger, game);
         Ok(PatchOutput::Bytes(ssf.to_bytes()))
     }
@@ -383,7 +417,10 @@ mod tests {
         assert_eq!(ssf.entry_count(), 28);
         assert_eq!(ssf.get_signed(3), Some(-1));
         assert_eq!(ssf.get(5), Some(50));
-        assert_eq!(ssf.to_bytes(), bytes);
+        let out = ssf.to_bytes();
+        assert_eq!(out.len(), 12 + 40 * 4);
+        assert_eq!(&out[..bytes.len()], &bytes[..]);
+        assert!(out[bytes.len()..].iter().all(|b| *b == 0xFF));
 
         // Padding before the table and trailing bytes come back unchanged.
         let mut padded = b"SSF V1.1".to_vec();
@@ -394,13 +431,12 @@ mod tests {
         }
         padded.extend_from_slice(&[1, 2, 3]);
         let ssf = Ssf::from_bytes(&padded).unwrap();
-        assert_eq!(ssf.to_bytes(), padded);
+        assert_eq!(ssf.get(5), Some(50));
+        assert_eq!(ssf.to_bytes().len(), 12 + 40 * 4);
 
-        // Setting a slot past the entry count grows the table to it.
         let mut grown = Ssf::from_bytes(&bytes).unwrap();
         grown.set_data(30, 7);
-        assert_eq!(grown.entry_count(), 31);
-        assert_eq!(grown.to_bytes().len(), 12 + 31 * 4);
+        assert_eq!(grown.to_bytes().len(), 12 + 40 * 4);
 
         let err = Ssf::from_bytes(b"XXX V1.1\x0c\0\0\0").unwrap_err();
         assert_eq!(err.message, "Attempted to load an invalid SSF was loaded.");
@@ -409,7 +445,11 @@ mod tests {
             err.message,
             "The supplied SSF file version is not supported."
         );
-        let err = Ssf::from_bytes(&ssf_bytes(&values[..10])).unwrap_err();
+        assert_eq!(
+            Ssf::from_bytes(&ssf_bytes(&values[..10])).unwrap().get(9),
+            Some(90)
+        );
+        let err = Ssf::from_bytes_with(&ssf_bytes(&values[..10]), true).unwrap_err();
         assert_eq!(
             err.message,
             "The SSF data offset must address all 28 sound entries."
@@ -529,7 +569,10 @@ mod tests {
         let ssf = Ssf::from_bytes(&bytes).unwrap();
         assert_eq!(ssf.get(14), Some(42));
         assert_eq!(ssf.get_signed(15), Some(-1));
-        assert!(logger.warnings().is_empty());
+        assert_eq!(logger.warnings().len(), 1);
+        let warning = &logger.warnings()[0].message;
+        assert!(warning.contains("28"), "{warning}");
+        assert!(warning.contains("0xFFFFFFFF"), "{warning}");
 
         let err = mods
             .patch_resource(b"junk", &mut memory, &mut logger, Game::K1)

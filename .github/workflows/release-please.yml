@@ -1,20 +1,186 @@
-name: release-please
+name: Release
 
+# One workflow does the whole release, because a tag or release created with the
+# default GITHUB_TOKEN never triggers another workflow. Chaining jobs here is
+# what makes the binaries and the crate follow the release automatically.
+#
+#   push to main  -> release-please keeps a release PR open (version bump + CHANGELOG)
+#   merge that PR -> release-please tags the commit and publishes the GitHub Release
+#                    -> build the platform binaries from the tag
+#                    -> attach the binaries and SHA256SUMS.txt to the Release
+#                    -> publish the crate to crates.io
+#
+# Run it by hand with a tag to repeat the build, upload and publish steps for a
+# release that already exists.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild, upload and publish (for example v0.2.0). Empty only runs release-please.
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   release-please:
+    name: Release PR and tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release: ${{ steps.meta.outputs.release }}
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
-      # Keeps a release PR open with the pending changelog and version bump.
-      # Merging that PR is what tags the release.
       - uses: googleapis/release-please-action@v4
+        id: rp
         with:
+          # RELEASE_PLEASE_TOKEN is optional. Release PRs opened with the
+          # default token do not start the CI workflow; a PAT does.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Decide whether to build and publish
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          RP_CREATED: ${{ steps.rp.outputs.release_created }}
+          RP_TAG: ${{ steps.rp.outputs.tag_name }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          elif [ "$RP_CREATED" = "true" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$RP_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build ${{ needs.release-please.outputs.tag }}
+    needs: release-please
+    if: needs.release-please.outputs.release == 'true'
+    uses: ./.github/workflows/build-platforms.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: read
+
+  assets:
+    name: Attach binaries to the release
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ needs.release-please.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: odypatcher-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          ls -l
+          sha256sum -- *.tar.gz | tee SHA256SUMS.txt
+
+      - name: Upload to the release
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Show the release assets
+        run: gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
+
+  publish-crate:
+    name: Publish to crates.io
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      # Set the repository variable PUBLISH_CRATE to "true" once the crate can
+      # be published. From then on a failed check or a missing token fails the
+      # run. Until then a crate that cannot be published is reported as a
+      # warning and the binaries and the release still go out.
+      PUBLISH_REQUIRED: ${{ vars.PUBLISH_CRATE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+
+      - name: Configure git for private deps
+        run: git config --global url."https://${{ secrets.CARGO_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install window dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxkbcommon-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check that the crate can be published
+        id: check
+        run: |
+          set +e
+          cargo publish --dry-run --locked 2>&1 | tee publish-check.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -eq 0 ]; then
+            echo "publishable=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "publishable=false" >> "$GITHUB_OUTPUT"
+          reason=$(grep -E '^error' -A4 publish-check.log | head -5 | tr '\n' ' ' | tr -s ' ')
+          {
+            echo "### crates.io publish skipped"
+            echo
+            echo "\`cargo publish --dry-run\` failed: ${reason}"
+            echo
+            echo "See docs/RELEASING.md for what has to exist on crates.io first."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=crates.io publish skipped::cargo publish --dry-run failed. ${reason}"
+          if [ "$PUBLISH_REQUIRED" = "true" ]; then
+            exit 1
+          fi
+
+      - name: Check for a crates.io token
+        id: token
+        if: steps.check.outputs.publishable == 'true'
+        run: |
+          if [ -n "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=false" >> "$GITHUB_OUTPUT"
+          echo "::warning title=crates.io publish skipped::The repository secret CARGO_REGISTRY_TOKEN is not set."
+          echo "### crates.io publish skipped: CARGO_REGISTRY_TOKEN is not set" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PUBLISH_REQUIRED" = "true" ]; then
+            exit 1
+          fi
+
+      - name: Publish
+        if: steps.check.outputs.publishable == 'true' && steps.token.outputs.present == 'true'
+        run: cargo publish --locked

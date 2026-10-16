@@ -75,15 +75,26 @@ pub fn validate(session: &Session, game_folder: Option<&Path>) -> Vec<Finding> {
                 }
             };
 
-            let loaded = installer.config().map(|_| ());
+            let mut missing: Vec<String> = Vec::new();
+            let loaded = installer.config().map(|config| {
+                missing = config.missing_sections.clone();
+            });
             let checked = loaded.and_then(|_| installer.validate_configured_paths());
             collect_log_findings(&installer.log.all_logs, &mut findings);
+            for msg in &missing {
+                findings.push(Finding::warning(msg.clone()));
+            }
             if let Err(err) = checked {
                 findings.push(Finding::error(err.simplified()));
             }
         }
         None => {
             collect_log_findings(&session.load_logs, &mut findings);
+            if let Some(config) = &session.config {
+                for msg in &config.missing_sections {
+                    findings.push(Finding::warning(msg.clone()));
+                }
+            }
             if let Some(error) = &session.config_error {
                 findings.push(Finding::error(error.clone()));
             }

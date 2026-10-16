@@ -7,7 +7,7 @@
 //! `row_label_2da` / `column_inserts_2da` helpers are legacy constructor
 //! paths that the INI loader no longer calls. They are ported for parity.
 
-use super::{is_ascii_digits, python_int, references_traceback, section_not_found, ConfigReader};
+use super::{is_ascii_digits, python_int, ConfigReader};
 use crate::patcher::error::{PResult, PatchException};
 use crate::patcher::ini::CaseInsensitiveDict;
 use crate::patcher::mods::template::DEFAULT_DESTINATION;
@@ -20,8 +20,9 @@ use crate::patcher::mods::PatcherModifications;
 impl ConfigReader<'_> {
     /// `load_2da_list()`.
     ///
-    /// A `[2DAList]` entry whose `[file]` section is missing raises `KeyError`
-    /// and aborts loading; a modifier whose section is missing gets an empty
+    /// A `[2DAList]` entry whose `[file]` section is missing loads and resaves
+    /// the 2DA unchanged (empty modifier list); with `strict` it is an error and
+    /// the entry is skipped. A modifier whose section is missing gets an empty
     /// entry list.
     pub fn load_2da_list(&mut self) -> PResult<()> {
         let Some(twoda_section_name) = self.get_section_name("2DAList") else {
@@ -40,16 +41,23 @@ impl ConfigReader<'_> {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         for (identifier, file) in files {
-            let Some(file_section) = self.get_section_name(&file) else {
-                return Err(PatchException::key(format!(
-                    "{}{}",
-                    section_not_found(&file),
-                    references_traceback(&identifier, &file, &twoda_section_name)
-                )));
+            let mut file_section_dict = match self.get_section_name(&file) {
+                Some(file_section) => self.section_dict(&file_section),
+                None => {
+                    if self.config.strict {
+                        self.log.add_error(format!(
+                            "[2DAList] '{identifier}={file}': section [{file}] not found in the ini; skipping this 2DA entry."
+                        ));
+                        continue;
+                    }
+                    self.config.missing_sections.push(format!(
+                        "[2DAList] {identifier}={file}: section [{file}] not found; the table is saved unchanged"
+                    ));
+                    CaseInsensitiveDict::new()
+                }
             };
 
             let mut modifications = Modifications2DA::new(&file, Vec::new());
-            let mut file_section_dict = self.section_dict(&file_section);
             modifications.pop_tslpatcher_vars(
                 &mut file_section_dict,
                 Some(&default_destination),
@@ -110,10 +118,28 @@ impl ConfigReader<'_> {
             )));
         }
         if key.contains("AddColumn") {
-            return Some(Modify2DA::AddColumn(AddColumn2DA::from_entries(
-                identifier,
-                ordered_entries,
-            )));
+            let mut if_exists: Option<String> = None;
+            let mut before_column: Option<String> = None;
+            let mut column_entries: Vec<Entry> = Vec::new();
+            for (k, v) in ordered_entries {
+                match k.to_lowercase().as_str() {
+                    "ifexists" => {
+                        if !v.trim().is_empty() {
+                            if_exists = Some(v.trim().to_string());
+                        }
+                    }
+                    "beforecolumn" => {
+                        if !v.trim().is_empty() {
+                            before_column = Some(v.trim().to_string());
+                        }
+                    }
+                    _ => column_entries.push((k, v)),
+                }
+            }
+            let mut column = AddColumn2DA::from_entries(identifier, column_entries);
+            column.if_exists = if_exists;
+            column.before_column = before_column;
+            return Some(Modify2DA::AddColumn(column));
         }
         if key.contains("CopyRow") {
             return Some(Modify2DA::CopyRow(CopyRow2DA::from_entries(
@@ -447,12 +473,17 @@ mod tests {
 
         let mut logger = PatchLogger::new();
         let mut r = reader("[2DAList]\nTable0=nope.2da\n", &mut logger);
-        let err = r.load_2da_list().unwrap_err();
-        assert_eq!(err.kind, "KeyError");
-        assert_eq!(
-            err.message,
-            "The [nope.2da] section was not found in the ini, referenced by 'Table0=nope.2da' in [2DAList]"
-        );
+        r.load_2da_list().unwrap();
+        assert_eq!(r.config.patches_2da.len(), 1);
+        assert!(r.config.patches_2da[0].modifiers.is_empty());
+        assert!(r.log.errors().is_empty());
+
+        let mut logger = PatchLogger::new();
+        let mut r = reader("[2DAList]\nTable0=nope.2da\n", &mut logger);
+        r.config.strict = true;
+        r.load_2da_list().unwrap();
+        assert!(r.config.patches_2da.is_empty());
+        assert_eq!(r.log.errors().len(), 1);
     }
 
     #[test]
