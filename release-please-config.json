@@ -5,7 +5,8 @@
       "release-type": "rust",
       "package-name": "odypatcher",
       "changelog-path": "CHANGELOG.md",
-      "include-component-in-tag": false
+      "include-component-in-tag": false,
+      "bump-minor-pre-major": true
     }
   }
 }
