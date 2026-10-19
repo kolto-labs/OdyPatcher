@@ -1,7 +1,9 @@
 //! Port of `pykotor/tslpatcher/mods/ncs.py` (the `[HACKList]`).
 //!
 //! Every value is written with its width (1, 2 or 4 bytes; a bare number is
-//! 4): big-endian when the output name ends in `.ncs`, little-endian
+//! 4): big-endian when the last three characters of the output name are
+//! `ncs` (any case, dot or no dot, as TSLPatcher's
+//! `lowercase(copy(FileName, Length - 2, 3)) = 'ncs'`), little-endian
 //! otherwise. A write that starts
 //! inside the file but runs past its end extends the file, as Python's
 //! bytearray slice assignment does.
@@ -73,7 +75,7 @@ impl ModificationsNCS {
         logger: &mut PatchLogger,
         _game: Game,
     ) {
-        let is_ncs = posix_suffix(&self.base.saveas).to_lowercase() == ".ncs";
+        let is_ncs = names_ncs_by_last_three_chars(&self.base.saveas);
         for patch in &self.hackdata {
             let token_type = patch.token_type.as_str();
             let offset = patch.offset;
@@ -192,6 +194,14 @@ pub fn posix_suffix(path: &str) -> &str {
     }
 }
 
+/// TSLPatcher decides byte order from the last three characters of the
+/// output file name, so `abcncs` and `a.NCS` are both scripts.
+/// (UTSLPatcher.pas L4107-L4112.)
+pub fn names_ncs_by_last_three_chars(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() >= 3 && bytes[bytes.len() - 3..].eq_ignore_ascii_case(b"ncs")
+}
+
 impl PatcherModifications for ModificationsNCS {
     fn base(&self) -> &ModBase {
         &self.base
@@ -277,6 +287,32 @@ mod tests {
             logger.verbose_logs()[0].message,
             "HACKList script.ncs: writing DWORD 16909060 at offset 0X2"
         );
+    }
+
+    #[test]
+    fn byte_order_follows_the_last_three_characters_of_the_name() {
+        let mut logger = PatchLogger::new();
+        let memory = PatcherMemory::new();
+        for (name, big) in [
+            ("abcncs", true),
+            ("ABCNCS", true),
+            ("a.ncsx", false),
+            ("nc", false),
+        ] {
+            let mut bytes = vec![0u8; 8];
+            patch(name, vec![HackData::new("VALUE", 2, 0x0102_0304)]).apply(
+                &mut bytes,
+                &memory,
+                &mut logger,
+                Game::K1,
+            );
+            let expected = if big {
+                vec![0, 0, 1, 2, 3, 4, 0, 0]
+            } else {
+                vec![0, 0, 4, 3, 2, 1, 0, 0]
+            };
+            assert_eq!(bytes, expected, "{name}");
+        }
     }
 
     #[test]

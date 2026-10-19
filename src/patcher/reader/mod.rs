@@ -55,6 +55,39 @@ pub fn python_int(text: &str) -> PResult<i64> {
     })
 }
 
+/// A row number as TSLPatcher reads it: plain decimal, `$1F` or `0x1F`.
+///
+/// Anything else is an error, like [`python_int`].
+pub fn row_index_int(text: &str) -> PResult<i64> {
+    let trimmed = text.trim();
+    let hex = trimmed
+        .strip_prefix('$')
+        .or_else(|| trimmed.strip_prefix("0x"))
+        .or_else(|| trimmed.strip_prefix("0X"));
+    if let Some(digits) = hex {
+        if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_hexdigit()) {
+            if let Ok(value) = i64::from_str_radix(digits, 16) {
+                return Ok(value);
+            }
+        }
+    }
+    python_int(text)
+}
+
+/// Whether the text is a row number in a form TSLPatcher accepts: plain
+/// digits, `$1F` or `0x1F`.
+pub fn is_row_index_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    let hex = trimmed
+        .strip_prefix('$')
+        .or_else(|| trimmed.strip_prefix("0x"))
+        .or_else(|| trimmed.strip_prefix("0X"));
+    match hex {
+        Some(digits) => !digits.is_empty() && digits.chars().all(|c| c.is_ascii_hexdigit()),
+        None => is_ascii_digits(text),
+    }
+}
+
 /// `str.isascii() and str.isdigit()`.
 pub fn is_ascii_digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
@@ -369,6 +402,12 @@ impl<'a> ConfigReader<'a> {
             .map(is_truthy)
             .unwrap_or(false);
 
+        // Only an explicit "no" turns backups off; anything else keeps them.
+        self.config.skip_backups = settings_ini
+            .get("BackupFiles")
+            .map(|v| matches!(v.trim().to_lowercase().as_str(), "0" | "false" | "no"))
+            .unwrap_or(false);
+
         let mut required_files: Vec<(String, Vec<String>)> = Vec::new();
         let mut required_messages: Vec<(String, String)> = Vec::new();
         let mut required_order: Vec<String> = Vec::new();
@@ -571,6 +610,33 @@ mod tests {
     fn reader<'a>(text: &str, logger: &'a mut PatchLogger) -> ConfigReader<'a> {
         let ini = ConfigParser::read_string(text, OptionXform::Identity).unwrap();
         ConfigReader::new(ini, Path::new("."), logger, None)
+    }
+
+    #[test]
+    fn row_numbers_accept_the_hex_forms_tslpatcher_reads() {
+        assert_eq!(row_index_int("12").unwrap(), 12);
+        assert_eq!(row_index_int("$1F").unwrap(), 31);
+        assert_eq!(row_index_int("0x1").unwrap(), 1);
+        assert!(row_index_int("$").is_err());
+        assert!(row_index_int("0xZZ").is_err());
+        assert!(is_row_index_text("$1") && is_row_index_text("0x1") && is_row_index_text("3"));
+        assert!(!is_row_index_text("abc") && !is_row_index_text("-1") && !is_row_index_text(""));
+    }
+
+    #[test]
+    fn only_an_explicit_no_turns_backups_off() {
+        for (text, skipped) in [
+            ("0", true),
+            ("false", true),
+            ("1", false),
+            ("", false),
+            ("x", false),
+        ] {
+            let mut logger = PatchLogger::new();
+            let mut r = reader(&format!("[Settings]\nBackupFiles={text}\n"), &mut logger);
+            r.load_settings().unwrap();
+            assert_eq!(r.config.skip_backups, skipped, "BackupFiles={text:?}");
+        }
     }
 
     #[test]

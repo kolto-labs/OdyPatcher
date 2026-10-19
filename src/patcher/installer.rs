@@ -948,6 +948,10 @@ impl ModInstaller {
         subdirectory: &Path,
         is_new_file: bool,
     ) -> PResult<()> {
+        // `[Settings] BackupFiles=0` asks for no backups at all.
+        if self.config.as_ref().is_some_and(|c| c.skip_backups) {
+            return Ok(());
+        }
         let backup_dir = self.backup()?;
         create_backup(
             &mut self.log,
@@ -1169,6 +1173,10 @@ impl ModInstaller {
             return Ok(());
         };
         if override_type == OverrideType::RENAME {
+            // QoL (differs from TSLPatcher, parity-spec INST-6/ARC-5): when
+            // `old_<name>` already exists TSLPatcher cannot rename, warns and
+            // leaves the Override copy shadowing the archive. Ody picks
+            // `old_<name> (2)`, `(3)`, ... so the shadow is always removed.
             let mut renamed_file_path =
                 override_dir.join(format!("old_{}", patch.saveas).to_lowercase());
             let mut i = 2;

@@ -161,7 +161,9 @@ impl Ssf {
         }
         let mut ssf = Ssf::new();
         let mut sounds_offset = sounds_offset;
-        if sounds_offset < 12 || sounds_offset > size {
+        // TSLPatcher reads the table from the offset the file names, whatever
+        // it is, as long as the offset lies inside the file.
+        if sounds_offset > size {
             ssf.bad_offset = Some(sounds_offset as u32);
             sounds_offset = 12;
         }
@@ -169,11 +171,16 @@ impl Ssf {
         let entry_count = SSF_SOUND_COUNT.min(available);
         ssf.dropped_entries = available - entry_count;
         ssf.entry_count = entry_count;
-        for index in 0..entry_count {
-            let at = sounds_offset + index * 4;
-            let value =
-                u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
-            ssf.sounds[index] = value;
+        // Slots the file has no data for repeat the last value that was read,
+        // which is what TSLPatcher's unchecked read leaves behind. With no data
+        // at all they stay 0xFFFFFFFF.
+        let mut last = u32::MAX;
+        for index in 0..SSF_SOUND_COUNT {
+            if index < entry_count {
+                let at = sounds_offset + index * 4;
+                last = u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+            }
+            ssf.sounds[index] = last;
         }
         Ok(ssf)
     }
@@ -187,7 +194,7 @@ impl Ssf {
         }
         if self.entry_count < SSF_SOUND_COUNT {
             logger.add_warning(format!(
-                "WARNING: {file} has {} sound entries; missing slots written as 0xFFFFFFFF",
+                "WARNING: {file} has {} sound entries; missing slots repeat the last value read",
                 self.entry_count
             ));
         }
@@ -420,7 +427,9 @@ mod tests {
         let out = ssf.to_bytes();
         assert_eq!(out.len(), 12 + 40 * 4);
         assert_eq!(&out[..bytes.len()], &bytes[..]);
-        assert!(out[bytes.len()..].iter().all(|b| *b == 0xFF));
+        // Slots the file has no data for repeat the last value read.
+        let last = values[27].to_le_bytes();
+        assert!(out[bytes.len()..].chunks(4).all(|slot| slot == last));
 
         // Padding before the table and trailing bytes come back unchanged.
         let mut padded = b"SSF V1.1".to_vec();
@@ -572,7 +581,7 @@ mod tests {
         assert_eq!(logger.warnings().len(), 1);
         let warning = &logger.warnings()[0].message;
         assert!(warning.contains("28"), "{warning}");
-        assert!(warning.contains("0xFFFFFFFF"), "{warning}");
+        assert!(warning.contains("last value"), "{warning}");
 
         let err = mods
             .patch_resource(b"junk", &mut memory, &mut logger, Game::K1)

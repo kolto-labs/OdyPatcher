@@ -190,7 +190,7 @@ Batch 10 (2026-10-14):
 - 2DA-36 file-level keys in [2DAList]: HoloPatcher. Honor !Destination/!DefaultDestination/!ReplaceFile/
   !OverrideType/!SourceFolder/!DefaultSourceFolder; default override; keep Delphi substring modifier match.
 - 2DA-MEM fork quirks: Other. 2DAMEMORY id<1, non-numeric suffix, capture-before-row = ERROR for that
-  modifier (OnError governs). Reading an unset slot = '' + WARNING. Never fall back to slot 1.
+  modifier (OnError governs). Reading an unset slot = '' + WARNING, except a slot number past the highest one stored reads slot 1 (TSLPatcher; changed in 0.2.1).
 - 2DA-COPY: TSLPatcher. CopyRow copies by resolved index, not value equality.
 - USER DIRECTIVE 2026-10-14: "don't ask questions anymore just use your best judgement ... for any and
   all remaining". All later rows are decided by me using the same recommendation rule
@@ -225,7 +225,7 @@ Batch 11 (2026-10-14, decided by Claude under the "no more questions" directive)
   (TLK-9a). Dedup of append rows against existing entries: both do it, keep (pas:1299-1320 key =
   text, flags, sound, volume, pitch, length).
 - SSF-1: TSLPatcher. Always 40 slots, header 'SSF ','V1.1', offset 12, exactly 40 words written, no
-  trailing data. Slots 29-40 labelled Unknown(N). Short input: missing slots = 0xFFFFFFFF + WARNING.
+  trailing data. Slots 29-40 labelled Unknown(N). Short input: missing slots repeat the last value read + WARNING (TSLPatcher; changed in 0.2.1).
 - SSF-2 unknown label: Other. ERROR naming the entry, skip that entry, file still written (fork
   entry-level, consistent with 2DA-8/11); OnError governs. Labels case-insensitive.
 - SSF-4: Same ($hex, 4294967295 and $FFFFFFFF = -1, signed int32); out of range = WARNING + skip entry.
@@ -279,3 +279,9 @@ WP5 gff: GFF-1/3/4/5/6/8/10/16/18/21/22/27/28/30/31/32.
 WP6 hack+compile: HACK-2/3/8/15/19/21, CMP-1/3/4/5/6/7/10/11/12/13/14.
 WP7 docs: docs/instructions.md + README for OnError, [Compat], differences.
 WP8 tests (last): from the verification sequences logged by WP1-WP6.
+
+QoL decisions (audit 2026-10-18, ODY-P9; documented in docs/instructions.md):
+- INST-6/ARC-5: QoL, differs from TSLPatcher. Rename collision -> `old_<name> (2)` instead of
+  keeping the shadowing Override copy.
+- ARC-19: QoL, differs from TSLPatcher. Read-only target/archive is overwritten (attribute
+  cleared via fsutil, perf plan R18) instead of failing the operation.

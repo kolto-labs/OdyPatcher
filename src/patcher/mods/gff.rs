@@ -1171,8 +1171,11 @@ impl LocalizedStringDelta {
         let mut changed = false;
         if let Some(stringref) = &self.stringref {
             let raw_stringref = stringref.resolve(memory);
+            // A StrRef is -1 ("no string") or a whole number from 0 up, as in
+            // TSLPatcher. Any other negative number counts as invalid.
             let parsed_stringref = parse_int(&raw_stringref, GffFieldType::Int32, true)
                 .map(|v| v as i64)
+                .filter(|v| *v >= -1)
                 .or(invalid_stringref);
             if let Some(parsed) = parsed_stringref {
                 if locstring_stringref(locstring) != parsed {
@@ -1853,7 +1856,9 @@ impl AddFieldGFF {
                     }
                     Some(FieldValue::ExoLocString(original)) => {
                         let mut patched = original.clone();
-                        if delta.apply(&mut patched, memory, Some(-1)) {
+                        // Editing an existing string: an invalid StrRef leaves the
+                        // field as it was (TSLPatcher does the same).
+                        if delta.apply(&mut patched, memory, None) {
                             set_field(
                                 self.struct_mut(root, &path),
                                 &self.label,
