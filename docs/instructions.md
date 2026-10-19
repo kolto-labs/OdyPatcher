@@ -414,6 +414,24 @@ nothing, `warn` (the default) reports it, `rename` moves it aside as
 file section wins over the list's `File#` / `Replace#` key when present,
 including on InstallList, tables, CompileList, soundsets, and byte patches.
 
+### Differences from TSLPatcher that are deliberate quality-of-life changes
+
+These behave differently from TSLPatcher on purpose. A mod that works in
+TSLPatcher still works; only the failure case changes.
+
+- **`!OverrideType=rename` with `old_<name>` already present.** TSLPatcher
+  cannot rename onto an existing file, logs an alert and leaves the `override`
+  copy where it is, still shadowing the archive. Ody renames to
+  `old_<name> (2)`, then `(3)` and so on, so the shadowing copy is always moved
+  aside. Example: `override\a.uti` and `override\old_a.uti` both exist;
+  TSLPatcher keeps `a.uti`, Ody produces `old_a (2).uti`.
+- **Read-only game files.** TSLPatcher fails the operation when the target
+  file or archive is read-only and leaves it unchanged. Ody clears the
+  read-only attribute and writes the file, because Steam and GOG installs
+  commonly mark game files read-only and a mod install should not fail for
+  that reason. Example: a read-only `modules\foo.mod` is patched by Ody and
+  untouched by TSLPatcher. The backup is still written first.
+
 ## Byte patches
 
 Keys are byte offsets (decimal, or hexadecimal with a `0x` prefix) and values

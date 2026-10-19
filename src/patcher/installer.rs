@@ -1169,6 +1169,10 @@ impl ModInstaller {
             return Ok(());
         };
         if override_type == OverrideType::RENAME {
+            // QoL (differs from TSLPatcher, parity-spec INST-6/ARC-5): when
+            // `old_<name>` already exists TSLPatcher cannot rename, warns and
+            // leaves the Override copy shadowing the archive. Ody picks
+            // `old_<name> (2)`, `(3)`, ... so the shadow is always removed.
             let mut renamed_file_path =
                 override_dir.join(format!("old_{}", patch.saveas).to_lowercase());
             let mut i = 2;

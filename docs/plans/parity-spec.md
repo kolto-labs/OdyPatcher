@@ -279,3 +279,9 @@ WP5 gff: GFF-1/3/4/5/6/8/10/16/18/21/22/27/28/30/31/32.
 WP6 hack+compile: HACK-2/3/8/15/19/21, CMP-1/3/4/5/6/7/10/11/12/13/14.
 WP7 docs: docs/instructions.md + README for OnError, [Compat], differences.
 WP8 tests (last): from the verification sequences logged by WP1-WP6.
+
+QoL decisions (audit 2026-10-18, ODY-P9; documented in docs/instructions.md):
+- INST-6/ARC-5: QoL, differs from TSLPatcher. Rename collision -> `old_<name> (2)` instead of
+  keeping the shadowing Override copy.
+- ARC-19: QoL, differs from TSLPatcher. Read-only target/archive is overwritten (attribute
+  cleared via fsutil, perf plan R18) instead of failing the operation.
