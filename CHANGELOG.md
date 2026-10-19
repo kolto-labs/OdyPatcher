@@ -5,15 +5,50 @@
 
 ## [0.2.1](https://github.com/kolto-labs/OdyPatcher/compare/v0.2.0...v0.2.1) (2026-10-19)
 
+This release makes OdyPatcher give the same result as the original TSLPatcher in
+cases where a mod could quietly come out different. Nothing here changes how
+ordinary mods install. Each item below only matters for mods that happen to
+rely on one of these unusual details.
 
-### Bug Fixes
+### Fixes
 
-* **2da:** read unset memory slots, hex row numbers, **** match and AddColumn cells like TSLPatcher; honor BackupFiles=0; read non-UTF-8 instruction files as Windows-1252 ([2927181](https://github.com/kolto-labs/OdyPatcher/commit/2927181413b204e014baef0bc14caafdaa245029))
-* **archive:** match long names against the 16-character name stored in an archive ([ad52a77](https://github.com/kolto-labs/OdyPatcher/commit/ad52a7769cd881ad73f192e0a78980057c5c8fdf))
-* **gff:** ignore an invalid negative string reference the way TSLPatcher does ([1359586](https://github.com/kolto-labs/OdyPatcher/commit/1359586b3b65c6bbc46f8e5f289334d700b929ef))
-* **hack:** choose byte order from last three name chars like TSLPatcher; document QoL rename/read-only divergences ([a480298](https://github.com/kolto-labs/OdyPatcher/commit/a480298323d053b2824dba03b6561f9fa59d6a85))
-* match TSLPatcher in places where mods gave a different result ([bd29fb4](https://github.com/kolto-labs/OdyPatcher/commit/bd29fb450f58f0b7cc4e94288e3765d7480a6217))
-* **ssf:** fill missing sound slots with the last value read ([321fa89](https://github.com/kolto-labs/OdyPatcher/commit/321fa893b7db8eae8023cde7fdde2acec2110d13))
+* **Empty spots in spreadsheet (2DA) edits.** If a mod asks for a saved value
+  that was never saved (for example `2DAMEMORY9` when only slot 1 was filled),
+  OdyPatcher now uses slot 1, as TSLPatcher does. Before, it left the cell empty.
+* **Row numbers written in hex.** `RowIndex=$1` and `RowIndex=0x1` now pick row 1.
+  Before, the install stopped with "target row not found".
+* **Matching an empty cell.** A mod that lists `****` as the value to match now
+  finds the empty cell and updates that row, instead of adding a second row.
+* **Adding a column whose name differs only by capital letters.** Adding `LABEL`
+  next to an existing `Label` now fills the new column. Before, the older column
+  was overwritten.
+* **Bad negative text numbers.** A negative text reference such as `-5` is now
+  ignored when editing and counts as "no text" when adding. Before, a garbage
+  number was saved into the file.
+* **Voice set (SSF) files that are short or oddly laid out.** Missing entries now
+  repeat the last entry, and a file that says where its data starts is read from
+  there, as TSLPatcher does. Before, missing entries became "no sound" and some
+  entries could shift by one.
+* **Long file names inside module and save archives.** A file name longer than 16
+  characters is now matched against the shortened name the archive really stores,
+  so the file is no longer added twice or swapped for the wrong one.
+* **Script data patches.** A patched file is treated as a compiled script whenever
+  its name ends in `ncs`, even without a dot, so its numbers are written in the
+  right order.
+* **Accented letters.** An instruction file saved by a Windows editor (not
+  UTF-8) is now read with its accented letters kept. Before, they were dropped.
+* **`BackupFiles=0` now works.** The setting was in the guide but ignored. It now
+  turns off backups. Only `0`, `false` or `no` turn them off, so a typo can never
+  remove your safety copy. With backups off, the uninstaller has nothing to
+  restore.
+
+### Notes
+
+* Renaming a file that would collide with an old copy, and patching a read-only
+  archive, work differently from TSLPatcher on purpose. They are friendlier, and
+  the guide now says so.
+* A few rare differences are still left, such as UTF-8 text in text fields and
+  how very large numbers are handled. They are listed in the pull request.
 
 ## [0.2.0](https://github.com/kolto-labs/OdyPatcher/compare/v0.1.0...v0.2.0) (2026-10-16)
 
