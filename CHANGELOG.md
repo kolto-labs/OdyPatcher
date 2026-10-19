@@ -3,6 +3,18 @@
 > The 1.0.0 entry below comes from an earlier numbering of this project. The
 > repository restarted at v0.1.0, and releases continue from there.
 
+## [0.2.1](https://github.com/kolto-labs/OdyPatcher/compare/v0.2.0...v0.2.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **2da:** read unset memory slots, hex row numbers, **** match and AddColumn cells like TSLPatcher; honor BackupFiles=0; read non-UTF-8 instruction files as Windows-1252 ([2927181](https://github.com/kolto-labs/OdyPatcher/commit/2927181413b204e014baef0bc14caafdaa245029))
+* **archive:** match long names against the 16-character name stored in an archive ([ad52a77](https://github.com/kolto-labs/OdyPatcher/commit/ad52a7769cd881ad73f192e0a78980057c5c8fdf))
+* **gff:** ignore an invalid negative string reference the way TSLPatcher does ([1359586](https://github.com/kolto-labs/OdyPatcher/commit/1359586b3b65c6bbc46f8e5f289334d700b929ef))
+* **hack:** choose byte order from last three name chars like TSLPatcher; document QoL rename/read-only divergences ([a480298](https://github.com/kolto-labs/OdyPatcher/commit/a480298323d053b2824dba03b6561f9fa59d6a85))
+* match TSLPatcher in places where mods gave a different result ([bd29fb4](https://github.com/kolto-labs/OdyPatcher/commit/bd29fb450f58f0b7cc4e94288e3765d7480a6217))
+* **ssf:** fill missing sound slots with the last value read ([321fa89](https://github.com/kolto-labs/OdyPatcher/commit/321fa893b7db8eae8023cde7fdde2acec2110d13))
+
 ## [0.2.0](https://github.com/kolto-labs/OdyPatcher/compare/v0.1.0...v0.2.0) (2026-10-16)
 
 
