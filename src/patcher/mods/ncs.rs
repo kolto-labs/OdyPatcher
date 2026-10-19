@@ -293,7 +293,12 @@ mod tests {
     fn byte_order_follows_the_last_three_characters_of_the_name() {
         let mut logger = PatchLogger::new();
         let memory = PatcherMemory::new();
-        for (name, big) in [("abcncs", true), ("ABCNCS", true), ("a.ncsx", false), ("nc", false)] {
+        for (name, big) in [
+            ("abcncs", true),
+            ("ABCNCS", true),
+            ("a.ncsx", false),
+            ("nc", false),
+        ] {
             let mut bytes = vec![0u8; 8];
             patch(name, vec![HackData::new("VALUE", 2, 0x0102_0304)]).apply(
                 &mut bytes,
@@ -301,7 +306,11 @@ mod tests {
                 &mut logger,
                 Game::K1,
             );
-            let expected = if big { vec![0, 0, 1, 2, 3, 4, 0, 0] } else { vec![0, 0, 4, 3, 2, 1, 0, 0] };
+            let expected = if big {
+                vec![0, 0, 1, 2, 3, 4, 0, 0]
+            } else {
+                vec![0, 0, 4, 3, 2, 1, 0, 0]
+            };
             assert_eq!(bytes, expected, "{name}");
         }
     }
