@@ -3,6 +3,53 @@
 > The 1.0.0 entry below comes from an earlier numbering of this project. The
 > repository restarted at v0.1.0, and releases continue from there.
 
+## [0.2.1](https://github.com/kolto-labs/OdyPatcher/compare/v0.2.0...v0.2.1) (2026-10-19)
+
+This release makes OdyPatcher give the same result as the original TSLPatcher in
+cases where a mod could quietly come out different. Nothing here changes how
+ordinary mods install. Each item below only matters for mods that happen to
+rely on one of these unusual details.
+
+### Fixes
+
+* **Empty spots in spreadsheet (2DA) edits.** If a mod asks for a saved value
+  that was never saved (for example `2DAMEMORY9` when only slot 1 was filled),
+  OdyPatcher now uses slot 1, as TSLPatcher does. Before, it left the cell empty.
+* **Row numbers written in hex.** `RowIndex=$1` and `RowIndex=0x1` now pick row 1.
+  Before, the install stopped with "target row not found".
+* **Matching an empty cell.** A mod that lists `****` as the value to match now
+  finds the empty cell and updates that row, instead of adding a second row.
+* **Adding a column whose name differs only by capital letters.** Adding `LABEL`
+  next to an existing `Label` now fills the new column. Before, the older column
+  was overwritten.
+* **Bad negative text numbers.** A negative text reference such as `-5` is now
+  ignored when editing and counts as "no text" when adding. Before, a garbage
+  number was saved into the file.
+* **Voice set (SSF) files that are short or oddly laid out.** Missing entries now
+  repeat the last entry, and a file that says where its data starts is read from
+  there, as TSLPatcher does. Before, missing entries became "no sound" and some
+  entries could shift by one.
+* **Long file names inside module and save archives.** A file name longer than 16
+  characters is now matched against the shortened name the archive really stores,
+  so the file is no longer added twice or swapped for the wrong one.
+* **Script data patches.** A patched file is treated as a compiled script whenever
+  its name ends in `ncs`, even without a dot, so its numbers are written in the
+  right order.
+* **Accented letters.** An instruction file saved by a Windows editor (not
+  UTF-8) is now read with its accented letters kept. Before, they were dropped.
+* **`BackupFiles=0` now works.** The setting was in the guide but ignored. It now
+  turns off backups. Only `0`, `false` or `no` turn them off, so a typo can never
+  remove your safety copy. With backups off, the uninstaller has nothing to
+  restore.
+
+### Notes
+
+* Renaming a file that would collide with an old copy, and patching a read-only
+  archive, work differently from TSLPatcher on purpose. They are friendlier, and
+  the guide now says so.
+* A few rare differences are still left, such as UTF-8 text in text fields and
+  how very large numbers are handled. They are listed in the pull request.
+
 ## [0.2.0](https://github.com/kolto-labs/OdyPatcher/compare/v0.1.0...v0.2.0) (2026-10-16)
 
 
