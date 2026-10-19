@@ -195,7 +195,16 @@ fn find_resource<'a>(
     archive: &'a ErfFile,
     query: &ResourceIdentifier,
 ) -> Option<&'a crate::formats::erf::Resource> {
-    let wanted = query.filename();
+    // Archives store a resource name in 16 characters, so a longer name is
+    // matched against its 16-character form, the way TSLPatcher does.
+    let (resname, restype) = query.unpack();
+    let stored_name: String = resname.chars().take(16).collect();
+    let wanted = if restype.is_empty() {
+        stored_name
+    } else {
+        format!("{stored_name}.{restype}")
+    }
+    .to_lowercase();
     archive
         .resources()
         .iter()
