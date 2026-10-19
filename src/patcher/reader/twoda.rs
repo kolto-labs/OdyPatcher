@@ -7,7 +7,7 @@
 //! `row_label_2da` / `column_inserts_2da` helpers are legacy constructor
 //! paths that the INI loader no longer calls. They are ported for parity.
 
-use super::{is_ascii_digits, python_int, ConfigReader};
+use super::{is_ascii_digits, python_int, row_index_int, ConfigReader};
 use crate::patcher::error::{PResult, PatchException};
 use crate::patcher::ini::CaseInsensitiveDict;
 use crate::patcher::mods::template::DEFAULT_DESTINATION;
@@ -212,7 +212,7 @@ impl ConfigReader<'_> {
             {
                 TargetValue::TwoDAMemory(python_int(&raw_value[9..])? as i32)
             } else if is_int {
-                TargetValue::Int(python_int(&raw_value)?)
+                TargetValue::Int(row_index_int(&raw_value)?)
             } else {
                 TargetValue::Str(raw_value)
             };

@@ -130,6 +130,8 @@ pub struct PatcherConfig {
     pub allow_protected_replace: bool,
     /// `[Settings] PlaintextLog`: also write `installlog.txt` (default false).
     pub plaintext_log: bool,
+    /// `[Settings] BackupFiles=0`: do not copy files into `backup` (default false).
+    pub skip_backups: bool,
     /// Files named by a list whose `[file]` section is missing; the lint tool reports these.
     pub missing_sections: Vec<String>,
 

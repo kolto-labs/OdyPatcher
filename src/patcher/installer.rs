@@ -948,6 +948,10 @@ impl ModInstaller {
         subdirectory: &Path,
         is_new_file: bool,
     ) -> PResult<()> {
+        // `[Settings] BackupFiles=0` asks for no backups at all.
+        if self.config.as_ref().is_some_and(|c| c.skip_backups) {
+            return Ok(());
+        }
         let backup_dir = self.backup()?;
         create_backup(
             &mut self.log,

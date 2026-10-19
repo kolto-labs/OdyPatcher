@@ -42,14 +42,16 @@ pub fn decode_utf8_ignoring_errors(bytes: &[u8]) -> String {
     out
 }
 
-/// Decode the way `ModInstaller.config()` does: strict UTF-8, else a warning
-/// message the caller logs and a lossy decode.
+/// Decode an instruction file: strict UTF-8 first. A file that is not valid
+/// UTF-8 was most likely saved by a Windows editor, so it is read as
+/// Windows-1252 and keeps its accented letters (TSLPatcher reads them the
+/// same way) instead of losing them.
 ///
-/// Returns the text and whether the fallback was needed.
+/// Returns the text and whether the fallback was needed (the caller warns).
 pub fn decode_ini_text(bytes: &[u8]) -> (String, bool) {
     match decode_bytes_with_fallbacks(bytes) {
         Ok(text) => (text, false),
-        Err(_) => (decode_utf8_ignoring_errors(bytes), true),
+        Err(_) => (crate::patcher::mods::nss::decode_windows_1252(bytes), true),
     }
 }
 
@@ -58,13 +60,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn utf8_is_strict_and_the_fallback_drops_bad_bytes() {
+    fn utf8_is_strict_and_the_ini_fallback_reads_windows_1252() {
         assert_eq!(
             decode_bytes_with_fallbacks("caf\u{e9}".as_bytes()).unwrap(),
             "caf\u{e9}"
         );
         assert!(decode_bytes_with_fallbacks(b"caf\xe9").is_err());
         assert_eq!(decode_utf8_ignoring_errors(b"caf\xe9!"), "caf!");
+        assert_eq!(
+            decode_ini_text(b"caf\xe9!"),
+            ("caf\u{e9}!".to_string(), true)
+        );
         assert_eq!(
             decode_ini_text(b"\xEF\xBB\xBF[S]"),
             ("[S]".to_string(), false)

@@ -9,7 +9,7 @@ use super::super::config::Game;
 use super::super::error::{PResult, PatchException};
 use super::super::logger::PatchLogger;
 use super::super::memory::{MemoryValue, PatcherMemory};
-use super::super::reader::{is_ascii_digits, python_int};
+use super::super::reader::{is_ascii_digits, is_row_index_text, python_int, row_index_int};
 use super::template::{ModBase, PatchOutput, PatcherModifications};
 
 // region TwoDA table model
@@ -474,7 +474,7 @@ impl Target {
         let mut source_row: Option<usize> = None;
         match self.target_type {
             TargetType::RowIndex => {
-                let row_index = python_int(&value)?;
+                let row_index = row_index_int(&value)?;
                 if row_index >= 0 && (row_index as usize) < twoda.get_height() {
                     source_row = Some(row_index as usize);
                 }
@@ -680,13 +680,23 @@ fn parse_memory_token(suffix: &str, whole: &str) -> PResult<i32> {
 ///
 /// Anything but a `2DAMEMORY` prefix (exact case) is returned unchanged. A
 /// suffix that is not an unsigned decimal `>= 1` is an error for the modifier.
-/// An unset token yields `""` (the caller warns); there is no slot-1 fallback.
+/// An unset token yields `""` (the caller warns), except that a slot past the
+/// highest one stored reads slot 1, as TSLPatcher does.
 /// A `!FieldPath` value is a `TypeError`.
 pub fn resolve_2da_memory(value: &str, memory: &PatcherMemory) -> PResult<String> {
     let Some(suffix) = value.strip_prefix("2DAMEMORY") else {
         return Ok(value.to_string());
     };
-    let token_id = parse_memory_token(suffix, value)?;
+    let mut token_id = parse_memory_token(suffix, value)?;
+
+    // A slot number past the highest slot ever stored reads slot 1, as in
+    // TSLPatcher (the caller warns that the token was not defined). A gap
+    // inside the stored range, or no slots at all, reads as empty.
+    if let Some(highest) = memory.memory_2da.keys().next_back() {
+        if token_id > *highest {
+            token_id = 1;
+        }
+    }
 
     match memory.memory_2da.get(&token_id) {
         None => Ok(String::new()),
@@ -786,6 +796,20 @@ pub fn capture_2da(
     row_index: Option<usize>,
     column_header: Option<&str>,
 ) -> PResult<bool> {
+    capture_2da_impl(key, selector, twoda, memory, row_index, column_header, None)
+}
+
+/// [`capture_2da`], optionally reading a column by position (`AddColumn`
+/// knows the position of the column it created).
+fn capture_2da_impl(
+    key: &str,
+    selector: &str,
+    twoda: &TwoDA,
+    memory: &mut PatcherMemory,
+    row_index: Option<usize>,
+    column_header: Option<&str>,
+    column_index: Option<usize>,
+) -> PResult<bool> {
     let Some(token_id) = capture_2da_token(key)? else {
         return Ok(false);
     };
@@ -826,7 +850,10 @@ pub fn capture_2da(
                 selected_row = find_row_index(twoda, row_selector);
             }
             if let Some(selected_row) = selected_row {
-                captured = Some(twoda.get_string(selected_row, column_header)?.to_string());
+                captured = Some(match column_index {
+                    Some(index) => twoda.rows[selected_row][index].clone(),
+                    None => twoda.get_string(selected_row, column_header)?.to_string(),
+                });
             }
         }
     }
@@ -908,8 +935,15 @@ pub fn exclusive_match(
         return Ok((false, None));
     }
 
+    // `****` is how an instruction file writes an empty cell, so it matches
+    // an empty cell (TSLPatcher does the same).
+    let wanted = if exclusive_value == "****" {
+        ""
+    } else {
+        exclusive_value
+    };
     for row_index in 0..twoda.get_height() {
-        if twoda.get_string(row_index, &header)? == exclusive_value {
+        if twoda.get_string(row_index, &header)? == wanted {
             return Ok((false, Some(row_index)));
         }
     }
@@ -1086,7 +1120,7 @@ impl ChangeRow2DA {
 
             if lower_key == "rowindex" && row_index.is_none() && !raw_value.is_empty() {
                 let resolved = resolve_2da_memory(raw_value, memory)?;
-                match python_int(&resolved) {
+                match row_index_int(&resolved) {
                     Ok(c) if c >= 0 && (c as usize) < twoda.get_height() => {
                         row_index = Some(c as usize);
                     }
@@ -1475,9 +1509,9 @@ impl CopyRow2DA {
         for (key, raw_value) in &self.entries {
             let lower_key = key.to_lowercase();
 
-            if lower_key == "rowindex" && row_index.is_none() && is_unsigned_decimal(raw_value) {
+            if lower_key == "rowindex" && row_index.is_none() && is_row_index_text(raw_value) {
                 let resolved = resolve_2da_memory(raw_value, memory)?;
-                match python_int(&resolved) {
+                match row_index_int(&resolved) {
                     Ok(c) if c >= 0 && (c as usize) < twoda.get_height() => {
                         row_index = Some(c as usize);
                     }
@@ -1685,6 +1719,10 @@ impl AddColumn2DA {
         let mut added = false;
         let mut header = String::new();
         let mut default = String::new();
+        // Position of the column this modifier works on. Cells are written by
+        // position, because a header that differs from another only in capital
+        // letters would otherwise resolve to the older column.
+        let mut col_index: usize = 0;
 
         for (key, raw_value) in &self.entries {
             let lower_key = key.to_lowercase();
@@ -1700,6 +1738,7 @@ impl AddColumn2DA {
                         1 => return Ok(()),
                         2 => {
                             header = twoda.headers[existing].clone();
+                            col_index = existing;
                             added = true;
                             continue;
                         }
@@ -1722,15 +1761,27 @@ impl AddColumn2DA {
                     for row in twoda.rows.iter_mut() {
                         row.insert(pos, String::new());
                     }
+                    col_index = pos;
                 } else {
                     twoda.add_column(&resolved_header)?;
+                    col_index = twoda.headers.len() - 1;
                 }
                 header = resolved_header;
                 added = true;
                 continue;
             }
 
-            if added && capture_2da(key, raw_value, twoda, memory, None, Some(&header))? {
+            if added
+                && capture_2da_impl(
+                    key,
+                    raw_value,
+                    twoda,
+                    memory,
+                    None,
+                    Some(&header),
+                    Some(col_index),
+                )?
+            {
                 continue;
             }
 
@@ -1742,9 +1793,9 @@ impl AddColumn2DA {
                 let value = to_internal(&value).to_string();
                 let old_default = default;
                 default = value;
-                for row_index in 0..twoda.get_height() {
-                    if twoda.get_string(row_index, &header)? == old_default {
-                        twoda.set_string(row_index, &header, &default)?;
+                for row in twoda.rows.iter_mut() {
+                    if row[col_index] == old_default {
+                        row[col_index] = default.clone();
                     }
                 }
                 continue;
@@ -1764,13 +1815,13 @@ impl AddColumn2DA {
             if first.to_lowercase().to_string() == "i" && is_unsigned_decimal(row_selector) {
                 if let Ok(row_index) = row_selector.parse::<usize>() {
                     if row_index < twoda.get_height() {
-                        set_cell(twoda, row_index, &header, &value)?;
+                        twoda.rows[row_index][col_index] = to_internal(&value).to_string();
                     }
                 }
             } else if first.to_lowercase().to_string() == "l" && !row_selector.is_empty() {
                 if let Some(row_index) = find_row_index(twoda, row_selector) {
                     value = resolve_2da_memory(&value, memory)?;
-                    set_cell(twoda, row_index, &header, &value)?;
+                    twoda.rows[row_index][col_index] = to_internal(&value).to_string();
                 }
             }
         }
@@ -2194,10 +2245,17 @@ mod tests {
             .insert(3, MemoryValue::Str("three".into()));
         assert_eq!(resolve_2da_memory("2DAMEMORY3", &memory).unwrap(), "three");
         assert_eq!(
-            resolve_2da_memory("2DAMEMORY9", &memory).unwrap(),
+            resolve_2da_memory("2DAMEMORY2", &memory).unwrap(),
             "",
-            "an unset slot reads as empty, no slot-1 fallback"
+            "a gap inside the stored range reads as empty"
         );
+        memory.memory_2da.insert(1, MemoryValue::Str("one".into()));
+        assert_eq!(
+            resolve_2da_memory("2DAMEMORY9", &memory).unwrap(),
+            "one",
+            "a slot past the highest stored one reads slot 1, like TSLPatcher"
+        );
+        memory.memory_2da.remove(&1);
         assert!(resolve_2da_memory("2DAMEMORYx", &memory).is_err());
         assert_eq!(
             resolve_2da_memory("2damemory3", &memory).unwrap(),

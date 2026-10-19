@@ -57,7 +57,7 @@ ConfirmMessage=Install My Mod now?
 | --- | --- | --- |
 | `WindowCaption` | *generic* | Window title |
 | `InstallerMode` | `1` | `1` installs a mod; explicitly set `0` to patch files the operator picks |
-| `BackupFiles` | `1` | Copy files into `backup` before changing them |
+| `BackupFiles` | `1` | Copy files into `backup` before changing them. `0`, `false` or `no` turns this off, and then no backup folder is made and the run cannot be undone with the uninstaller |
 | `LogLevel` | `3` | `0` none, `1` progress, `2` and errors, `3` and warnings, `4` and detail |
 | `PlaintextLog` | `0` | With `1`, write `installlog.txt` in the mod folder (the parent of `tslpatchdata`). There is no RTF log |
 | `ConfirmMessage` | *generic* | Prompt before starting. `N/A` starts without asking |
@@ -102,7 +102,7 @@ AllowProtectedReplace=0
 
 - Malformed keys, or keys starting with `!`, in `[TLKList]`.
 - A `[2DAList]` entry whose file section is missing. By default the table is loaded and saved unchanged.
-- A soundset file with a short entry table or an unusual offset. By default the patcher reads what is there, pads missing slots with `0xFFFFFFFF`, and logs a warning.
+- A soundset file with a short entry table or an unusual offset. By default the patcher reads what is there, fills missing slots with the last value it read (as TSLPatcher does), and logs a warning.
 
 A mod-shipped `nwscript.nss` always gets a warning, whatever `Strict` says.
 
@@ -327,10 +327,11 @@ label=my_clone
 range=inc(5)
 ```
 
-A row to edit is selected by `RowIndex`, `RowLabel`, or `LabelIndex`, and that
+A row to edit is selected by `RowIndex` (a plain number, or `$1F` / `0x1F` hexadecimal), `RowLabel`, or `LabelIndex`, and that
 selector must come before the columns it changes. `ExclusiveColumn` names a
 column that must hold unique values: when a row already has the value being
-added, that row is updated instead of a duplicate being created.
+added, that row is updated instead of a duplicate being created. A value of
+`****` matches an empty cell.
 
 A cell value of `rowindex` or `rowlabel` (matched in full, ignoring case) writes
 that row's index or label. `StrRef<n>=<column>` in a row modifier stores that
@@ -346,7 +347,7 @@ set. `IfExists=Skip` logs a note and skips. `IfExists=Update` writes the cell
 values into the existing column. `BeforeColumn=<label>` inserts the new column
 before that column. An unknown label is an error for that modifier.
 
-An unset `2DAMEMORY<n>` reads as empty with a warning. `2DAMEMORY0`, negative
+An unset `2DAMEMORY<n>` reads as empty with a warning, except that a number higher than any slot ever stored reads slot 1 (as in TSLPatcher). `2DAMEMORY0`, negative
 ids, and non-numeric ids are an error.
 
 For the first game, `placeables.2da` and `upcrystals.2da` over 256 rows, and
@@ -500,8 +501,8 @@ Entry names are `Battlecry 1` through `Battlecry 6`, `Selected 1` through
 `Stealth on`, `Search`, `Pick lock start`, `Pick lock fail`, `Pick lock done`,
 `Leave party`, `Rejoin party`, and `Poisoned`.
 
-The output is always the fixed 40-slot `SSF V1.1` layout. Short input is padded
-with `0xFFFFFFFF` and a warning is logged. A bad entry is an error for that
+The output is always the fixed 40-slot `SSF V1.1` layout. Short input is filled
+with the last value read (as TSLPatcher does) and a warning is logged. A bad entry is an error for that
 entry, and the file is still written.
 
 ## Where this differs from TSLPatcher
