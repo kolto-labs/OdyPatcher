@@ -192,8 +192,4 @@ by default.
 Formats live in the shared `kotor-formats` crate. The patch engine, CLI, and UI
 sit in this repo. Load a game file and save it back with no edits: same bytes.
 
-## License
-
-GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE).
-
 More about these games and their tools at [swkotor.org](https://swkotor.org).
